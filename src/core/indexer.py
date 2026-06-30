@@ -161,6 +161,13 @@ class Indexer:
         ).fetchone()
         return dict(row) if row else None
 
+    def get_document_by_id(self, doc_id: int) -> Optional[dict]:
+        """Get a single document by its integer ID."""
+        row = self.conn.execute(
+            "SELECT * FROM documents WHERE id = ?", (doc_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
     def get_pending_summaries(self, limit: int = 10) -> list[dict]:
         """Get documents that need LLM summarization."""
         rows = self.conn.execute(

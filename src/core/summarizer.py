@@ -36,6 +36,8 @@ class ChunkSummarizer:
         title: str,
         body: str,
         max_input_chars: int | None = None,
+        *,
+        include_citations: bool = False,
     ) -> Optional[str]:
         """Summarize a document, using map-reduce for long bodies.
 
@@ -320,6 +322,8 @@ class Summarizer:
         title: str,
         body: str,
         max_input_chars: int = 2000,
+        *,
+        include_citations: bool = False,
     ) -> Optional[str]:
         """Generate a concise summary, falling back to extractive on failure.
 

@@ -1,0 +1,25 @@
+This is a plain text document about data preprocessing techniques.
+
+Data preprocessing is a critical step in any machine learning workflow. Without
+proper preprocessing, even the most sophisticated models will produce unreliable
+results.
+
+Common preprocessing steps include:
+
+1. Handling missing values - Replace or remove NaN values using mean, median,
+   mode imputation, or forward/backward fill for time series.
+
+2. Outlier detection - Identify and handle outliers using IQR, Z-score, or
+   isolation forest methods.
+
+3. Feature scaling - Normalize or standardize features to ensure all features
+   contribute equally to the model.
+
+4. Encoding categorical variables - Convert categorical data to numerical format
+   using one-hot encoding, label encoding, or target encoding.
+
+5. Text preprocessing - For NLP tasks, this includes tokenization, stop word
+   removal, stemming, and lemmatization.
+
+The choice of preprocessing techniques depends on the data type, the model
+being used, and the specific requirements of the problem domain.

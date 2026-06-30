@@ -137,6 +137,7 @@ class SQLiteSearchBackend(SearchBackend):
 
     def search(self, query: str, limit: int = 30) -> SearchResults:
         """FTS5 MATCH query with BM25 ranking."""
+        safe_query = self._sanitize_fts_query(query)
         rows = self._conn.execute(
             """
             SELECT
@@ -152,7 +153,7 @@ class SQLiteSearchBackend(SearchBackend):
             ORDER BY rank
             LIMIT ?
             """,
-            (query, limit),
+            (safe_query, limit),
         ).fetchall()
 
         results: list[SearchResult] = []
@@ -178,7 +179,7 @@ class SQLiteSearchBackend(SearchBackend):
             JOIN documents_fts fts ON d.id = fts.rowid
             WHERE documents_fts MATCH ?
             """,
-            (query,),
+            (safe_query,),
         ).fetchone()
         total_hits = total_row["cnt"] if total_row else 0
 
@@ -222,6 +223,24 @@ class SQLiteSearchBackend(SearchBackend):
         self._conn.close()
 
     # ── Helpers ─────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _sanitize_fts_query(query: str) -> str:
+        """Sanitize a user query for FTS5 MATCH syntax.
+
+        Removes or escapes characters that have special meaning in FTS5:
+        - Punctuation (dots, commas, etc.) are stripped
+        - Quotes are doubled
+        - Tokens shorter than 2 chars are removed
+        - Empty result becomes a safe wildcard
+        """
+        # Remove FTS5 special characters and split into tokens
+        tokens = re.findall(r"[a-zA-Z0-9_]{2,}", query)
+        if not tokens:
+            # Return a safe no-match query
+            return '""'
+        # Join tokens with implicit AND
+        return " ".join(tokens)
 
     @staticmethod
     def _extract_snippet(body: str, query: str, context_chars: int = 300) -> str:
