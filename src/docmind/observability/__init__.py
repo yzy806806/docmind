@@ -1,0 +1,1 @@
+"""Observability: OpenTelemetry, structured logging, health checks, circuit breakers."""

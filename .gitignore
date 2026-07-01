@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# Virtualenv
+.venv/
+venv/
+
+# IDE
+.vscode/
+.idea/
+
+# DocMind
+data/*.db
+config/config.yaml
+*.log
+
+# OS
+.DS_Store
+Thumbs.db

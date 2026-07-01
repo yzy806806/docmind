@@ -1,0 +1,332 @@
+openapi: "3.1.0"
+info:
+  title: DocMind Document Processing API
+  version: "0.1.0"
+  description: |
+    AI-powered enterprise document knowledge base.
+    Submit documents for async processing, query job and document status.
+  contact:
+    name: DocMind Team
+
+servers:
+  - url: http://localhost:8080/api/v1
+    description: Local development
+
+tags:
+  - name: documents
+    description: Document submission and status
+  - name: jobs
+    description: Background processing jobs
+
+paths:
+  /documents/submit:
+    post:
+      tags: [documents]
+      summary: Submit a single document for processing
+      description: >
+        Upload a document file. The server enqueues a background job and returns
+        immediately with a `job_id`. Poll `GET /jobs/{job_id}` for completion.
+      operationId: submitDocument
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: Document file (PDF, DOCX, HTML, TXT, MD, CSV, JSON, XML)
+                title:
+                  type: string
+                  description: Optional display title; falls back to filename
+                source_name:
+                  type: string
+                  default: api
+                  description: Logical source label for provenance tracking
+      responses:
+        "202":
+          description: Accepted for processing
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SubmissionAccepted"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /documents/batch:
+    post:
+      tags: [documents]
+      summary: Submit multiple documents in one request
+      description: >
+        Accepts a list of document URLs or pre-uploaded file references.
+        Returns one `job_id` per document so clients can track each individually.
+      operationId: batchSubmitDocuments
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [documents]
+              properties:
+                documents:
+                  type: array
+                  minItems: 1
+                  maxItems: 50
+                  items:
+                    type: object
+                    required: [path]
+                    properties:
+                      path:
+                        type: string
+                        description: Absolute path or URL of the document
+                      title:
+                        type: string
+                        description: Optional display title
+                      source_name:
+                        type: string
+                        default: api
+      responses:
+        "202":
+          description: Accepted for processing
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [jobs]
+                properties:
+                  jobs:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SubmissionAccepted"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /documents/{id}/status:
+    get:
+      tags: [documents]
+      summary: Get document processing status
+      description: >
+        Returns the current status of a previously submitted document.
+        The `id` is the document's internal identifier (returned in the
+        `document_id` field of a completed job).
+      operationId: getDocumentStatus
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: Document internal ID
+      responses:
+        "200":
+          description: Document status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocumentStatus"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /jobs/{id}:
+    get:
+      tags: [jobs]
+      summary: Get background job status
+      description: >
+        Poll this endpoint after submitting documents. A job transitions
+        through states: `pending` → `processing` → `completed` | `failed`.
+        Once `completed`, the response includes the `document_id`.
+      operationId: getJobStatus
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Job ID returned by a submission endpoint
+      responses:
+        "200":
+          description: Job status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobStatus"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+components:
+  schemas:
+    SubmissionAccepted:
+      type: object
+      required: [job_id, status]
+      properties:
+        job_id:
+          type: string
+          format: uuid
+          description: ID to poll via GET /jobs/{job_id}
+        status:
+          type: string
+          enum: [pending]
+          description: Always "pending" on initial submission
+        document_path:
+          type: string
+          description: Normalized path of the submitted document
+
+    JobStatus:
+      type: object
+      required: [job_id, status, created_at]
+      properties:
+        job_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [pending, processing, completed, failed]
+        document_id:
+          type: integer
+          description: Populated when status=completed; the internal document ID
+        error:
+          type: string
+          description: Human-readable error message when status=failed
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    DocumentStatus:
+      type: object
+      required: [id, status, path, title, created_at]
+      properties:
+        id:
+          type: integer
+        status:
+          type: string
+          enum: [pending, indexed, summarized, error]
+        path:
+          type: string
+        title:
+          type: string
+        summary:
+          type: string
+          description: LLM-generated summary (populated when status=summarized)
+        ext:
+          type: string
+        mime_type:
+          type: string
+        size:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    Error:
+      type: object
+      required: [error, trace_id]
+      properties:
+        error:
+          type: string
+          description: Human-readable error message
+        detail:
+          type: string
+          description: Optional additional context
+        trace_id:
+          type: string
+          format: uuid
+          description: Unique identifier for this error occurrence (correlate with server logs)
+
+  responses:
+    BadRequest:
+      description: Malformed request
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/Error"
+              - example:
+                  error: "Invalid request body"
+                  detail: "Field 'file' is required"
+                  trace_id: "550e8400-e29b-41d4-a716-446655440000"
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/Error"
+              - example:
+                  error: "Not found"
+                  detail: "No job with id 550e8400-e29b-41d4-a716-446655440000"
+                  trace_id: "550e8400-e29b-41d4-a716-446655440001"
+
+    PayloadTooLarge:
+      description: File exceeds size limit
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/Error"
+              - example:
+                  error: "Payload too large"
+                  detail: "Maximum file size is 100 MB"
+                  trace_id: "550e8400-e29b-41d4-a716-446655440002"
+
+    UnsupportedMediaType:
+      description: Unsupported file format
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/Error"
+              - example:
+                  error: "Unsupported media type"
+                  detail: "File type .exe is not supported"
+                  trace_id: "550e8400-e29b-41d4-a716-446655440003"
+
+    RateLimited:
+      description: Too many requests
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/Error"
+              - example:
+                  error: "Rate limited"
+                  detail: "Try again in 30 seconds"
+                  trace_id: "550e8400-e29b-41d4-a716-446655440004"
+
+    InternalError:
+      description: Unexpected server error
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/Error"
+              - example:
+                  error: "Internal server error"
+                  trace_id: "550e8400-e29b-41d4-a716-446655440005"

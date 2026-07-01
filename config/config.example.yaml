@@ -1,0 +1,60 @@
+# DocMind Configuration
+# Copy this file to config.yaml and fill in your values.
+
+# ── LLM Provider ──────────────────────────────────────────────
+llm:
+  base_url: "https://api.fxxkccp.top/v1"  # OpenAI-compatible endpoint
+  api_key: "sk-your-key-here"
+  model: "deepseekv4pro"                  # Model for summarization and search
+  tpm_limit: 5                            # Tokens per minute limit for LLM calls
+
+# ── Data Sources ──────────────────────────────────────────────
+sources:
+  # WebDAV (e.g., Synology NAS)
+  - type: webdav
+    url: "https://your-nas.example.com/remote.php/webdav/"
+    username: "your-username"
+    password: "your-password"
+    path: "/Documents"                     # Root path to scan
+    enabled: false
+
+  # Local directory
+  - type: local
+    path: "/path/to/documents"
+    enabled: false
+
+  # PostgreSQL database (for ERP data)
+  - type: postgresql
+    host: "127.0.0.1"
+    port: 5432
+    database: "erp"
+    username: "postgres"
+    password: "your-password"
+    tables: ["contracts", "invoices"]      # Tables to index
+    enabled: false
+
+# ── Database ──────────────────────────────────────────────────
+database:
+  path: "data/docmind.db"                  # SQLite database path
+
+# ── Server ────────────────────────────────────────────────────
+server:
+  host: "0.0.0.0"
+  port: 8080
+  static_dir: "src/web/static"
+
+# ── Processing ────────────────────────────────────────────────
+processing:
+  max_file_size_mb: 100                    # Skip files larger than this
+  preview_chars: 500                       # Characters for auto-preview
+  summary_chars: 2000                      # Max chars for LLM summary input
+  supported_extensions:
+    - .txt
+    - .md
+    - .pdf
+    - .docx
+    - .html
+    - .htm
+    - .csv
+    - .json
+    - .xml
