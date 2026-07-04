@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+
+{% block content %}
+    <div class="card">
+        <h2>Documents{{ filter_label }}</h2>
+        <div class="pagination-info">Showing {{ start }}–{{ end }} of {{ total }} document(s)</div>
+        <div style="margin:8px 0;">
+            <form action="/api/v1/documents/summarize-all" method="post" style="display:inline;"
+                  onsubmit="return confirm('Create summary jobs for all documents missing summaries? You can track progress on the Jobs page.');">
+                <button type="submit" class="btn-regenerate" style="padding:4px 12px;font-size:0.85em;cursor:pointer;">🔄 Summarize All Missing</button>
+            </form>
+        </div>
+        {% if documents %}
+        <table><tr><th>Document</th><th>Status</th><th>Source</th><th>Type</th><th>Date</th>{{ tags_col_header }}<th>View</th></tr>
+        {% for doc in documents %}
+        <tr>
+            <td><a href="/documents/{{ doc.id }}">[{{ doc.id }}] {{ doc.title or 'Untitled' }}</a></td>
+            <td><span class="badge badge-{{ doc.status or 'pending' }}">{{ doc.status or '' }}</span></td>
+            <td>{{ doc.source_name or doc.source_type or '' }}</td>
+            <td>{{ doc.ext or '' }}</td>
+            <td>{{ fmt_date(doc.created_at) }}</td>
+            <td>{{ doc._tag_badges_html }}</td>
+            <td><a href="/documents/{{ doc.id }}/view" class="btn-view-link" title="View document">📖 View</a></td>
+        </tr>
+        {% endfor %}
+        </table>
+        {% else %}
+        <p>No documents found.</p>
+        {% endif %}
+    </div>
+    {% if tag_cloud_html %}{{ tag_cloud_html }}{% endif %}
+    {{ pagination_html }}
+{% endblock %}

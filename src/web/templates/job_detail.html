@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+
+{% block content %}
+    <div class="card doc-detail">
+        <h2>Job Details</h2>
+        <div class="field"><span class="field-label">Job ID:</span> <code>{{ job.id }}</code></div>
+        <div class="field"><span class="field-label">State:</span> <span class="badge badge-{{ job.state.value }}">{{ job.state.value }}</span></div>
+        <div class="field"><span class="field-label">Document Path:</span> {{ job.document_path }}</div>
+        <div class="field"><span class="field-label">Document Title:</span> {{ job.document_title or '—' }}</div>
+        <div class="field"><span class="field-label">Source:</span> {{ job.source_name }}</div>
+        <div class="field"><span class="field-label">Document ID:</span> {{ job.document_id if job.document_id is not none else '—' }}</div>
+        <div class="field"><span class="field-label">Created At:</span> {{ fmt_date(job.created_at) }}</div>
+        <div class="field"><span class="field-label">Updated At:</span> {{ fmt_date(job.updated_at) }}</div>
+    </div>
+    {% if job.error %}
+    <div class="card">
+        <h3 style="color: var(--error-text);">❌ Error Details</h3>
+        <pre style="background: var(--code-bg); padding: 16px; border-radius: 6px; overflow-x: auto; white-space: pre-wrap; color: var(--text);">{{ job.error }}</pre>
+    </div>
+    {% endif %}
+    {{ doc_html }}
+    <p><a href="/jobs" class="btn-cancel">← Back to Jobs</a></p>
+{% endblock %}

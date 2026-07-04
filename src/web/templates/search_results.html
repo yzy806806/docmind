@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+
+{% block content %}
+    <div class="card">
+        <h2>Search Results</h2>
+        <form action="/search" method="get" class="search-box">
+            <input type="text" name="q" value="{{ query }}" required>
+            <button type="submit">Search</button>
+        </form>
+    </div>
+
+    <div class="search-export-bar" style="margin:12px 0;display:flex;align-items:center;gap:12px;">
+        <p style="margin:0;">Found {{ results|length }} result(s) for: <strong>{{ query }}</strong></p>
+        {% if results %}
+        <div style="margin-left:auto;">
+            <a href="/search?q={{ query }}&export=csv" class="btn-export" style="padding:6px 14px;font-size:0.85em;text-decoration:none;border:1px solid var(--border);border-radius:6px;">⬇ Export CSV</a>
+            <a href="/search?q={{ query }}&export=json" class="btn-export" style="padding:6px 14px;font-size:0.85em;text-decoration:none;border:1px solid var(--border);border-radius:6px;margin-left:6px;">⬇ Export JSON</a>
+        </div>
+        {% endif %}
+    </div>
+    {% if results %}
+        {% for r in results %}
+        <div class="result">
+            <h3><a href="/documents/{{ r.id }}">[{{ r.id }}] {{ r.title }}</a></h3>
+            <div class="meta">
+                Status: <span class="badge badge-{{ r.status }}">{{ r.status }}</span>
+                {% if r.rank %} | Score: {{ "%.2f"|format(r.rank) }}{% endif %}
+            </div>
+            {% if r.summary %}<div class="snippet"><strong>Summary:</strong> {{ r.summary }}</div>{% endif %}
+            {% if r.snippet %}<div class="snippet">{{ r.snippet[:300] }}</div>{% endif %}
+        </div>
+        {% endfor %}
+    {% else %}
+        <p>No results found. Try different keywords.</p>
+    {% endif %}
+{% endblock %}

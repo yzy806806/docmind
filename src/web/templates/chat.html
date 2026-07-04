@@ -1,0 +1,331 @@
+{% extends "base.html" %}
+
+{% block content %}
+    <div class="chat-layout">
+        <aside class="chat-sidebar" id="chat-sidebar">
+            <div class="chat-sidebar-header">
+                <h3>Conversations</h3>
+                <button id="new-chat-btn" class="btn-new-chat" title="Start a new chat">+ New</button>
+            </div>
+            <div class="chat-session-list" id="chat-session-list">
+                <p class="pagination-info">Loading...</p>
+            </div>
+        </aside>
+        <div class="card chat-main">
+            <div class="chat-header-row" style="display:flex;justify-content:space-between;align-items:center;">
+                <h2 id="chat-title">Chat with Your Documents</h2>
+                <div class="chat-export-dropdown" style="position:relative;display:inline-block;">
+                    <button id="chat-export-btn" onclick="toggleExportMenu()" class="btn-export"
+                            style="padding:6px 14px;font-size:0.85em;cursor:pointer;"
+                            title="Export conversation">⬇ Export</button>
+                    <div id="chat-export-menu" style="display:none;position:absolute;right:0;top:100%;
+                         background:var(--surface);border:1px solid var(--border);border-radius:6px;
+                         box-shadow:0 4px 12px rgba(0,0,0,0.15);z-index:100;min-width:140px;">
+                        <a href="#" onclick="exportChat('markdown');return false;"
+                           style="display:block;padding:8px 16px;text-decoration:none;color:var(--text);"
+                           onmouseover="this.style.background='var(--hover)'"
+                           onmouseout="this.style.background=''">📄 Markdown</a>
+                        <a href="#" onclick="exportChat('json');return false;"
+                           style="display:block;padding:8px 16px;text-decoration:none;color:var(--text);"
+                           onmouseover="this.style.background='var(--hover)'"
+                           onmouseout="this.style.background=''">🔗 JSON</a>
+                        <a href="#" onclick="exportChat('txt');return false;"
+                           style="display:block;padding:8px 16px;text-decoration:none;color:var(--text);"
+                           onmouseover="this.style.background='var(--hover)'"
+                           onmouseout="this.style.background=''">📝 Plain Text</a>
+                    </div>
+                </div>
+            </div>
+            <p class="pagination-info">Ask questions and get AI-powered answers with citation tracking.</p>
+            <div class="chat-box">
+                <div class="chat-messages" id="chat-messages">
+                    <div class="chat-msg bot">Connecting...</div>
+                </div>
+                <div class="chat-input-row">
+                    <input type="text" id="chat-input" placeholder="Ask a question..."
+                           onkeydown="if(event.key==='Enter')sendChat()" autofocus>
+                    <button id="chat-send-btn" onclick="sendChat()">Send</button>
+                </div>
+                <div class="chat-status" id="chat-status">Disconnected</div>
+            </div>
+            <div class="citations-panel" id="citations-panel" style="display:none;">
+                <h3>Citations</h3>
+                <div id="citations-list"></div>
+            </div>
+        </div>
+    </div>
+    <script>
+{% raw %}
+        var ws = null;
+        var citations = [];
+        var currentAnswer = '';
+        var isStreaming = false;
+        var sendBtn, inputField;
+        var currentSessionId = null;
+        var sessionTitle = 'New Chat';
+
+        function toggleExportMenu() {
+            var menu = document.getElementById('chat-export-menu');
+            menu.style.display = (menu.style.display === 'none') ? 'block' : 'none';
+        }
+        document.addEventListener('click', function(e) {
+            var dropdown = document.querySelector('.chat-export-dropdown');
+            var menu = document.getElementById('chat-export-menu');
+            if (dropdown && menu && !dropdown.contains(e.target)) {
+                menu.style.display = 'none';
+            }
+        });
+        function exportChat(format) {
+            document.getElementById('chat-export-menu').style.display = 'none';
+            if (!currentSessionId) {
+                alert('No active conversation to export.');
+                return;
+            }
+            window.location.href = '/api/v1/chat/sessions/' +
+                encodeURIComponent(currentSessionId) +
+                '/export?format=' + encodeURIComponent(format);
+        }
+
+        function getQueryParam(name) {
+            var params = new URLSearchParams(window.location.search);
+            return params.get(name);
+        }
+
+        function getWsUrl() {
+            var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            var url = proto + '//' + location.host + '/chat';
+            if (currentSessionId) {
+                url += '?session_id=' + encodeURIComponent(currentSessionId);
+            }
+            return url;
+        }
+
+        function setSession(id, title) {
+            currentSessionId = id;
+            sessionTitle = title || 'New Chat';
+            var titleEl = document.getElementById('chat-title');
+            if (titleEl) titleEl.textContent = sessionTitle;
+            // Update URL without reload
+            var newUrl = window.location.pathname;
+            if (id) newUrl += '?session=' + encodeURIComponent(id);
+            history.replaceState({}, '', newUrl);
+        }
+
+        function clearMessages() {
+            document.getElementById('chat-messages').innerHTML = '';
+            citations = [];
+            currentAnswer = '';
+            document.getElementById('citations-panel').style.display = 'none';
+            document.getElementById('citations-list').innerHTML = '';
+        }
+
+        function connectChat() {
+            ws = new WebSocket(getWsUrl());
+            ws.onopen = function() {
+                document.getElementById('chat-status').textContent = 'Connected';
+            };
+            ws.onclose = function() {
+                document.getElementById('chat-status').textContent = 'Disconnected';
+                addMsg('bot', 'Disconnected. Reconnecting in 3s...');
+                setTimeout(connectChat, 3000);
+            };
+            ws.onerror = function() {
+                document.getElementById('chat-status').textContent = 'Error';
+            };
+            ws.onmessage = function(event) {
+                var msg = JSON.parse(event.data);
+                handleChatMessage(msg);
+            };
+        }
+        function sendChat() {
+            inputField = document.getElementById('chat-input');
+            sendBtn = document.getElementById('chat-send-btn');
+            var text = inputField.value.trim();
+            if (!text || !ws || ws.readyState !== WebSocket.OPEN) return;
+            addMsg('user', text);
+            ws.send(JSON.stringify({type: 'question', text: text}));
+            inputField.value = '';
+            inputField.disabled = true;
+            sendBtn.disabled = true;
+            citations = [];
+            currentAnswer = '';
+            isStreaming = false;
+            document.getElementById('citations-panel').style.display = 'none';
+            document.getElementById('citations-list').innerHTML = '';
+            showTypingIndicator();
+        }
+        function showTypingIndicator() {
+            var box = document.getElementById('chat-messages');
+            var div = document.createElement('div');
+            div.className = 'chat-msg bot typing';
+            div.id = 'typing-indicator-msg';
+            div.innerHTML = 'Thinking<span class="typing-indicator">...</span>';
+            box.appendChild(div);
+            box.scrollTop = box.scrollHeight;
+        }
+        function removeTypingIndicator() {
+            var el = document.getElementById('typing-indicator-msg');
+            if (el) el.remove();
+        }
+        function handleChatMessage(msg) {
+            switch(msg.type) {
+                case 'connected':
+                    if (msg.session_id) {
+                        setSession(msg.session_id, msg.title);
+                        loadSessionList();
+                    }
+                    break;
+                case 'history':
+                    clearMessages();
+                    if (msg.messages && msg.messages.length) {
+                        msg.messages.forEach(function(m) {
+                            addMsg(m.role === 'user' ? 'user' : 'bot', m.content);
+                            if (m.role === 'assistant' && m.citations && m.citations.length) {
+                                citations = m.citations;
+                                renderCitations();
+                            }
+                        });
+                    }
+                    break;
+                case 'citation:added':
+                    citations.push(msg);
+                    renderCitations();
+                    break;
+                case 'answer:chunk':
+                    removeTypingIndicator();
+                    appendChunk(msg.text);
+                    break;
+                case 'answer:done':
+                    removeTypingIndicator();
+                    if (msg.text && msg.text !== currentAnswer) {
+                        var box = document.getElementById('chat-messages');
+                        var lastBot = box.querySelector('.chat-msg.bot:last-child');
+                        if (lastBot && lastBot.dataset.streaming === 'true') {
+                            lastBot.textContent = msg.text;
+                            currentAnswer = msg.text;
+                        } else {
+                            addMsg('bot', msg.text);
+                        }
+                    }
+                    if (msg.session_id && msg.session_id !== currentSessionId) {
+                        setSession(msg.session_id, msg.title);
+                    }
+                    isStreaming = false;
+                    inputField = document.getElementById('chat-input');
+                    sendBtn = document.getElementById('chat-send-btn');
+                    inputField.disabled = false;
+                    sendBtn.disabled = false;
+                    inputField.focus();
+                    renderCitations();
+                    loadSessionList();
+                    break;
+                case 'error':
+                    removeTypingIndicator();
+                    addMsg('error', msg.message);
+                    inputField = document.getElementById('chat-input');
+                    sendBtn = document.getElementById('chat-send-btn');
+                    inputField.disabled = false;
+                    sendBtn.disabled = false;
+                    break;
+                case 'pong':
+                    break;
+            }
+        }
+        function addMsg(cls, text) {
+            var div = document.createElement('div');
+            div.className = 'chat-msg ' + cls;
+            div.textContent = text;
+            document.getElementById('chat-messages').appendChild(div);
+            var box = document.getElementById('chat-messages');
+            box.scrollTop = box.scrollHeight;
+        }
+        function appendChunk(text) {
+            currentAnswer += text;
+            var box = document.getElementById('chat-messages');
+            var lastBot = box.querySelector('.chat-msg.bot:last-child');
+            if (lastBot && lastBot.dataset.streaming === 'true') {
+                lastBot.textContent = currentAnswer;
+            } else {
+                currentAnswer = text;
+                addMsg('bot', currentAnswer);
+                var last = box.querySelector('.chat-msg.bot:last-child');
+                if (last) last.dataset.streaming = 'true';
+            }
+            box.scrollTop = box.scrollHeight;
+        }
+        function renderCitations() {
+            if (citations.length === 0) return;
+            var panel = document.getElementById('citations-panel');
+            var list = document.getElementById('citations-list');
+            list.innerHTML = citations.map(function(c) {
+                return '<div class="citation-item"><strong>[' + c.ref + ']</strong> ' +
+                       '<a href="/documents/' + c.doc_id + '">' + c.title + '</a>' +
+                       ' (confidence: ' + (c.confidence || 'low') + ')</div>';
+            }).join('');
+            panel.style.display = 'block';
+        }
+        function loadSessionList() {
+            fetch('/api/v1/chat/sessions?limit=30')
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    var listEl = document.getElementById('chat-session-list');
+                    if (!data.sessions || data.sessions.length === 0) {
+                        listEl.innerHTML = '<p class="pagination-info">No conversations yet.</p>';
+                        return;
+                    }
+                    listEl.innerHTML = data.sessions.map(function(s) {
+                        var active = (s.id === currentSessionId) ? ' active' : '';
+                        var title = s.title || 'New Chat';
+                        var preview = s.preview || '';
+                        var safeTitle = title.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                        var safePreview = preview.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                        return '<div class="chat-session-item' + active + '" ' +
+                               'onclick="loadSession(\\'' + s.id + '\\', \\'' + safeTitle.replace(/'/g, "\\\\'") + '\\')">' +
+                               '<div class="chat-session-title">' + safeTitle + '</div>' +
+                               '<div class="chat-session-preview">' + safePreview + '</div>' +
+                               '<button class="chat-session-del" title="Delete" ' +
+                               'onclick="deleteSession(event, \\'' + s.id + '\\')">&times;</button>' +
+                               '</div>';
+                    }).join('');
+                })
+                .catch(function() {
+                    document.getElementById('chat-session-list').innerHTML =
+                        '<p class="pagination-info">Could not load sessions.</p>';
+                });
+        }
+        function loadSession(id, title) {
+            setSession(id, title);
+            clearMessages();
+            // Reconnect WebSocket with the new session_id
+            if (ws) { try { ws.close(); } catch(e) {} }
+            connectChat();
+        }
+        function deleteSession(event, id) {
+            event.stopPropagation();
+            if (!confirm('Delete this conversation? This cannot be undone.')) return;
+            fetch('/api/v1/chat/sessions/' + encodeURIComponent(id), {method: 'DELETE'})
+                .then(function(r) { if (!r.ok) throw new Error('delete failed'); return r.json(); })
+                .then(function() {
+                    if (id === currentSessionId) {
+                        window.location.href = '/chat';
+                    } else {
+                        loadSessionList();
+                    }
+                })
+                .catch(function() { alert('Failed to delete session.'); });
+        }
+        function startNewChat() {
+            window.location.href = '/chat';
+        }
+        document.getElementById('new-chat-btn').addEventListener('click', startNewChat);
+        // On load: pick up ?session=xxx if present
+        (function() {
+            var sid = getQueryParam('session');
+            if (sid) { currentSessionId = sid; }
+            loadSessionList();
+            connectChat();
+        })();
+    {% endraw %}
+</script>
+    
+{% endblock %}
