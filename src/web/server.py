@@ -55,6 +55,7 @@ from fastapi.responses import (
     HTMLResponse,
     JSONResponse,
     PlainTextResponse,
+    RedirectResponse,
     Response,
 )
 
@@ -102,6 +103,7 @@ from .rendering import (
     _mask_api_key,
     _render_settings_page,
     _render_settings_redirect,
+    _render_login_page,
     _reload_llm_config_from_db,
     _render_jobs_page,
     _render_job_detail,
@@ -112,6 +114,17 @@ from .rendering import (
     _escape,
     _fmt_date,
     _fmt_size,
+)
+from .auth import (
+    auth_middleware,
+    apply_auth_settings_from_db,
+    ensure_session_secret,
+    generate_api_key,
+    check_password,
+    login_response,
+    logout_response,
+    unauthorized_response,
+    auth_enabled,
 )
 
 
@@ -141,11 +154,27 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         max_size=config.database.pool_max_size,
     )
     await _db.connect()
+
+    # ── Hydrate auth config from DB settings ───────────────────────
+    # Operators can enable auth via env vars (DOCMIND_AUTH_*) or via the
+    # settings page. DB-stored values take precedence so that toggling
+    # auth from the UI persists across restarts.
+    try:
+        stored = await _db.get_all_settings()
+        apply_auth_settings_from_db(stored)
+    except Exception:
+        logger.exception("Failed to hydrate auth config from DB — auth may be misconfigured")
+    # Ensure env-var-supplied api_key still wins if no DB value is set.
+    if not config.auth.api_key and config.auth.enabled:
+        logger.warning("Auth is enabled but no API key is configured — generating one")
+        config.auth.api_key = generate_api_key()
+
     _queue = JobQueue(_db)
     logger.info(
-        "DocMind server started on %s:%d",
+        "DocMind server started on %s:%d (auth %s)",
         config.server.host,
         config.server.port,
+        "enabled" if config.auth.enabled else "disabled",
     )
     yield
     if _db:
@@ -166,6 +195,13 @@ def create_app() -> FastAPI:
         redoc_url="/redoc",
         lifespan=lifespan,
     )
+
+    # ── Auth middleware ─────────────────────────────────────
+    # Registered before any route so it runs on every request. When
+    # config.auth.enabled is False it is a no-op pass-through.
+    @app.middleware("http")
+    async def _auth_mw(request: Request, call_next):
+        return await auth_middleware(request, call_next)
 
     # ── Error handlers ──────────────────────────────────────
 
@@ -649,6 +685,50 @@ def create_app() -> FastAPI:
         html = _render_chat_page()
         return HTMLResponse(content=html)
 
+    # ── Auth: login / logout routes ────────────────────────────
+
+    @app.get("/login", response_class=HTMLResponse, include_in_schema=False)
+    async def login_page(error: str = Query(default="")):
+        """Render the login page.
+
+        If auth is disabled, redirect to the dashboard instead.
+        """
+        if not auth_enabled():
+            return RedirectResponse(url="/", status_code=303)
+        html = _render_login_page(error=error)
+        return HTMLResponse(content=html)
+
+    @app.post("/login", response_class=HTMLResponse, include_in_schema=False)
+    async def login_submit(password: str = Form(default="")):
+        """Validate the submitted password and set a session cookie.
+
+        On success: redirect to / with a signed session cookie.
+        On failure: re-render the login page with an error message.
+        """
+        if not auth_enabled():
+            # Auth was disabled after the form was rendered — just go home.
+            return RedirectResponse(url="/", status_code=303)
+
+        if check_password(password):
+            return login_response()
+        html = _render_login_page(error="Invalid password. Please try again.")
+        return HTMLResponse(content=html, status_code=401)
+
+    @app.get("/logout", include_in_schema=False)
+    async def logout_get():
+        """GET /logout — clear session and redirect to /login."""
+        return logout_response()
+
+    @app.post("/logout", include_in_schema=False)
+    async def logout_post():
+        """POST /logout — clear session and redirect to /login."""
+        return logout_response()
+
+    @app.get("/health", include_in_schema=False)
+    async def health():
+        """Health-check endpoint — always public (no auth required)."""
+        return {"status": "ok"}
+
     # ── Settings page (LLM configuration) ─────────────────────
 
     @app.get("/settings", response_class=HTMLResponse, include_in_schema=False)
@@ -675,16 +755,22 @@ def create_app() -> FastAPI:
         max_tokens: str = Form(default="1000"),
         temperature: str = Form(default="0.3"),
         chat_fallback: str = Form(default=""),
+        auth_enabled_field: str = Form(default="", alias="auth_enabled"),
+        auth_api_key: str = Form(default=""),
     ):
         """Save LLM settings to the DB and reload the in-memory config.
+
+        Also persists auth settings (enable/disable, password) to the
+        DB settings table and rehydrates the in-memory AuthConfig.
 
         Security note: if the submitted api_key field is the masked
         placeholder (``****`` prefix), the existing stored key is kept
         unchanged — the user only sees the masked value in the form.
+        The same masking logic applies to the auth_api_key field.
         """
         db = get_db()
 
-        # ── Persist each field ──────────────────────────────────
+        # ── Persist each LLM field ─────────────────────────────
         await db.set_setting("llm_provider", provider.strip())
         await db.set_setting("llm_model", model.strip())
 
@@ -717,6 +803,28 @@ def create_app() -> FastAPI:
         fallback_val = "1" if chat_fallback else "0"
         await db.set_setting("llm_chat_fallback", fallback_val)
 
+        # ── Persist auth settings ─────────────────────────────
+        # auth_enabled checkbox: only present in form data when checked.
+        new_auth_enabled = bool(auth_enabled_field)
+        await db.set_setting("auth_enabled", "1" if new_auth_enabled else "0")
+
+        # Auth API key masking — same rule as the LLM key.
+        submitted_auth_key = auth_api_key.strip()
+        if submitted_auth_key and not submitted_auth_key.startswith(masked_placeholder_prefix):
+            await db.set_setting("auth_api_key", submitted_auth_key)
+
+        # Ensure a stable session secret exists (generate+persist once).
+        if new_auth_enabled:
+            existing_secret = await db.get_setting("auth_session_secret")
+            if not existing_secret:
+                secret = ensure_session_secret()
+                await db.set_setting("auth_session_secret", secret)
+            # If enabling with no api_key set yet, generate one.
+            existing_key = await db.get_setting("auth_api_key")
+            if not existing_key and not submitted_auth_key:
+                generated = generate_api_key()
+                await db.set_setting("auth_api_key", generated)
+
         # ── Reload the in-memory LLMConfig from DB ──────────────
         # Re-read all settings (including the just-saved ones) and apply
         # them to the global config singleton. The LLMClient in chat.py
@@ -724,6 +832,8 @@ def create_app() -> FastAPI:
         # the new values take effect on the next chat request.
         saved_settings = await db.get_all_settings()
         _reload_llm_config_from_db(saved_settings)
+        # Rehydrate auth config too so the middleware sees the new state.
+        apply_auth_settings_from_db(saved_settings)
 
         # Redirect back to /settings?saved=1 to show success banner
         html = _render_settings_redirect()

@@ -220,6 +220,37 @@ class DocumentLimits:
 
 
 @dataclass
+class AuthConfig:
+    """Authentication settings for the web UI and REST API.
+
+    A simple opt-in API-key/password authentication scheme for the
+    self-hosted single-user deployment. When ``enabled`` is False (the
+    default), all requests pass through unchallenged — preserving the
+    current open behaviour. When enabled, every request must present
+    either a valid signed session cookie (web UI) or an ``X-API-Key``
+    header matching the configured ``api_key`` (programmatic API).
+
+    The ``api_key`` doubles as the login password: users enter it on
+    the login page to obtain a session cookie. It can be set via the
+    ``DOCMIND_AUTH_API_KEY`` env var or generated on first enable from
+    the settings page (stored in the DB ``settings`` table).
+    """
+
+    enabled: bool = field(
+        default_factory=lambda: _env_bool("DOCMIND_AUTH_ENABLED", False)
+    )
+    api_key: str = field(
+        default_factory=lambda: _env("DOCMIND_AUTH_API_KEY", "")
+    )
+    session_secret: str = field(
+        default_factory=lambda: _env("DOCMIND_AUTH_SESSION_SECRET", "")
+    )
+    session_expiry_hours: int = field(
+        default_factory=lambda: _env_int("DOCMIND_AUTH_SESSION_EXPIRY_HOURS", 24)
+    )
+
+
+@dataclass
 class Config:
     """Top-level configuration aggregator."""
 
@@ -231,6 +262,7 @@ class Config:
     llm: LLMConfig = field(default_factory=LLMConfig)
     embedding: EmbeddingConfig = field(default_factory=EmbeddingConfig)
     chunking: ChunkingConfig = field(default_factory=ChunkingConfig)
+    auth: AuthConfig = field(default_factory=AuthConfig)
     debug: bool = field(
         default_factory=lambda: _env_bool("DOCMIND_DEBUG", False)
     )
