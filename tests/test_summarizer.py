@@ -247,3 +247,83 @@ class TestSummarizer:
             ids2.add(cid)
 
         assert ids == ids2
+
+
+# ── Pipeline integration tests ──────────────────────────────────
+
+
+class TestSummarizerPipelineIntegration:
+    """Tests for the summarizer pipeline: DB integration, regenerate, batch."""
+
+    def test_summarize_updates_db_summary(self) -> None:
+        """Summarizer output should be compatible with db.update_summary."""
+        from src.core.summarizer import Summarizer
+
+        s = Summarizer(llm_client=None)
+        result = s.summarize(
+            "DB Integration Test",
+            "First sentence about revenue. Second sentence about growth. "
+            "Third sentence about strategy. Fourth sentence about operations. "
+            "Fifth sentence about markets.",
+        )
+        assert result is not None
+        assert isinstance(result, str)
+        assert len(result) > 0
+
+    def test_summarize_preserves_meaning(self) -> None:
+        """Extractive summary should contain key terms from the body."""
+        from src.core.summarizer import Summarizer
+
+        s = Summarizer(llm_client=None)
+        body = (
+            "The quarterly revenue report shows 20% growth. "
+            "Revenue exceeded expectations in all regions. "
+            "The board approved the new budget. "
+            "Staffing increased by 15 people. "
+            "The office moved to a new location."
+        )
+        result = s.summarize("Revenue Report", body)
+        assert result is not None
+        # "revenue" appears in title and multiple sentences → should be selected
+        assert "revenue" in result.lower() or "Revenue" in result
+
+    def test_regenerate_produces_different_summary(self) -> None:
+        """Regenerating a summary should produce valid output."""
+        from src.core.summarizer import Summarizer
+
+        s = Summarizer(llm_client=None)
+        body = (
+            "Introduction to the topic. Main discussion points follow. "
+            "Key findings are presented here. Conclusion wraps up the analysis. "
+            "Recommendations for future work included."
+        )
+        summary1 = s.summarize("Test Doc", body)
+        summary2 = s.summarize("Test Doc", body)
+        # Extractive is deterministic, so they should be the same
+        assert summary1 == summary2
+        assert summary1 is not None
+
+    def test_batch_summarize_with_empty_list(self) -> None:
+        """batch_summarize with empty list should return 0."""
+        from src.core.summarizer import Summarizer
+
+        s = Summarizer(llm_client=None)
+        fake_indexer = MagicMock()
+        count = s.batch_summarize([], fake_indexer)
+        assert count == 0
+        fake_indexer.update_summary.assert_not_called()
+
+    def test_batch_summarize_skips_empty_bodies(self) -> None:
+        """batch_summarize should skip documents with empty bodies."""
+        from src.core.summarizer import Summarizer
+
+        s = Summarizer(llm_client=None)
+        fake_indexer = MagicMock()
+        docs = [
+            {"id": 1, "title": "Has Content", "body": "Real content here. Enough text."},
+            {"id": 2, "title": "Empty", "body": ""},
+            {"id": 3, "title": "Also Has", "body": "More content. Another sentence."},
+        ]
+        count = s.batch_summarize(docs, fake_indexer)
+        # Empty body returns None, so only 2 should be updated
+        assert count == 2

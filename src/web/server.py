@@ -31,6 +31,8 @@ import logging
 import math
 import mimetypes
 import uuid
+import csv
+import io
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -49,7 +51,12 @@ from fastapi import (
     WebSocket,
     status,
 )
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import (
+    HTMLResponse,
+    JSONResponse,
+    PlainTextResponse,
+    Response,
+)
 
 from ..core.config import config
 from ..core.db_sqlite import Database
@@ -278,8 +285,17 @@ def create_app() -> FastAPI:
         }
 
     @app.get("/search", response_class=HTMLResponse, include_in_schema=False)
-    async def search_page(q: str = Query(default="", description="Search query")):
-        """Search page with results and citations."""
+    async def search_page(
+        q: str = Query(default="", description="Search query"),
+        export: str = Query(
+            default="", description="Export format: csv or json (empty = HTML page)"
+        ),
+    ):
+        """Search page with results and citations.
+
+        When ``export`` is ``csv`` or ``json``, returns a downloadable
+        file instead of the HTML results page.
+        """
         if not q.strip():
             return HTMLResponse(content=_render_search_form())
 
@@ -300,6 +316,11 @@ def create_app() -> FastAPI:
             await db.log_search(validated_q, len(results))
         except Exception:
             pass
+
+        # ── Export path ───────────────────────────────────────
+        fmt = export.lower().strip()
+        if fmt in ("csv", "json"):
+            return _export_search_results(validated_q, results, fmt)
 
         html = _render_search_results(validated_q, results)
         return HTMLResponse(content=html)
@@ -513,6 +534,19 @@ def create_app() -> FastAPI:
                 body=body,
                 size=len(raw),
             )
+
+            # Auto-generate summary on upload (best-effort)
+            try:
+                summary = await _generate_summary_for_doc(
+                    {"title": display_title, "body": body}
+                )
+                if summary:
+                    await db.update_summary(doc_id, summary)
+            except Exception:
+                logger.warning(
+                    "Summary generation failed for doc %s, continuing",
+                    doc_id,
+                )
 
             job = await queue.enqueue(
                 document_path=f"/uploads/{file.filename or 'unknown'}",
@@ -788,6 +822,317 @@ def create_app() -> FastAPI:
             )
         return {"id": session_id, "deleted": True}
 
+    # ── Chat session export ─────────────────────────────────────
+
+    @app.get(
+        "/api/v1/chat/sessions/{session_id}/export",
+        tags=["chat"],
+        summary="Export a chat session conversation",
+    )
+    async def export_chat_session(
+        session_id: str,
+        format: str = Query(
+            default="markdown",
+            description="Export format: markdown, json, or txt",
+        ),
+    ):
+        """Export a full chat conversation as Markdown, JSON, or plain text.
+
+        Sets Content-Disposition so the browser downloads the file.
+        Returns 404 if the session does not exist.
+        """
+        db = get_db()
+        session = await db.get_chat_session(session_id)
+        if session is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"No chat session with id {session_id}",
+            )
+
+        messages = await db.get_chat_history(session_id, limit=10000)
+        safe_title = session.get("title", "chat") or "chat"
+        # Sanitize filename: keep alphanumerics, dashes, underscores
+        safe_filename = "".join(
+            c if c.isalnum() or c in "-_" else "_" for c in safe_title
+        )[:60] or "chat"
+
+        fmt = format.lower().strip()
+        if fmt == "json":
+            payload = {
+                "session_id": session_id,
+                "title": session.get("title", ""),
+                "created_at": str(session.get("created_at", "")),
+                "updated_at": str(session.get("updated_at", "")),
+                "messages": [
+                    {
+                        "role": m["role"],
+                        "content": m["content"],
+                        "citations": m.get("citations", []),
+                        "created_at": str(m.get("created_at", "")),
+                    }
+                    for m in messages
+                ],
+            }
+            body = json.dumps(payload, ensure_ascii=False, indent=2)
+            return Response(
+                content=body,
+                media_type="application/json",
+                headers={
+                    "Content-Disposition": (
+                        f'attachment; filename="{safe_filename}.json"'
+                    )
+                },
+            )
+
+        if fmt == "txt":
+            lines: list[str] = []
+            lines.append(f"Conversation: {session.get('title', '')}")
+            lines.append(f"Session ID: {session_id}")
+            lines.append(
+                f"Created: {session.get('created_at', '')}"
+            )
+            lines.append("=" * 60)
+            for m in messages:
+                role = "You" if m["role"] == "user" else "Assistant"
+                lines.append(f"\n[{role}]")
+                lines.append(m["content"])
+                citations = m.get("citations", [])
+                if citations:
+                    lines.append("\nSources:")
+                    for c in citations:
+                        lines.append(
+                            f"  [{c.get('ref', '?')}] "
+                            f"{c.get('title', 'Untitled')} "
+                            f"(doc_id: {c.get('doc_id', '?')})"
+                        )
+            body = "\n".join(lines)
+            return PlainTextResponse(
+                content=body,
+                headers={
+                    "Content-Disposition": (
+                        f'attachment; filename="{safe_filename}.txt"'
+                    )
+                },
+            )
+
+        # Default: markdown
+        md_lines: list[str] = []
+        md_lines.append(f"# {session.get('title', 'Chat Export')}")
+        md_lines.append("")
+        md_lines.append(f"- **Session ID:** `{session_id}`")
+        md_lines.append(
+            f"- **Created:** {session.get('created_at', '')}"
+        )
+        md_lines.append(
+            f"- **Updated:** {session.get('updated_at', '')}"
+        )
+        md_lines.append(f"- **Messages:** {len(messages)}")
+        md_lines.append("")
+        md_lines.append("---")
+        md_lines.append("")
+        for m in messages:
+            if m["role"] == "user":
+                md_lines.append(f"## 👤 You")
+            else:
+                md_lines.append(f"## 🤖 Assistant")
+            md_lines.append("")
+            md_lines.append(m["content"])
+            md_lines.append("")
+            citations = m.get("citations", [])
+            if citations:
+                md_lines.append("**Sources:**")
+                md_lines.append("")
+                for c in citations:
+                    md_lines.append(
+                        f"- [{c.get('ref', '?')}] "
+                        f"{c.get('title', 'Untitled')} "
+                        f"(doc_id: {c.get('doc_id', '?')}, "
+                        f"confidence: {c.get('confidence', 'low')})"
+                    )
+                md_lines.append("")
+            md_lines.append("---")
+            md_lines.append("")
+        body = "\n".join(md_lines)
+        return PlainTextResponse(
+            content=body,
+            media_type="text/markdown",
+            headers={
+                "Content-Disposition": (
+                    f'attachment; filename="{safe_filename}.md"'
+                )
+            },
+        )
+
+    # ── Document summary export ─────────────────────────────────
+
+    @app.get(
+        "/documents/{doc_id}/summary/export",
+        response_class=Response,
+        include_in_schema=False,
+    )
+    async def export_document_summary(
+        doc_id: int,
+        format: str = Query(
+            default="md",
+            description="Export format: md or txt",
+        ),
+    ):
+        """Export a document's title, summary, and metadata as Markdown/txt."""
+        try:
+            validate_doc_id(doc_id)
+        except ValidationError as e:
+            return HTMLResponse(
+                content=_render_error("Invalid document ID", e.message),
+                status_code=400,
+            )
+
+        db = get_db()
+        doc = await db.get_document(doc_id)
+        if doc is None:
+            return HTMLResponse(
+                content=_render_error("Not Found", f"Document {doc_id} not found"),
+                status_code=404,
+            )
+
+        title = doc.get("title", "Untitled")
+        safe_filename = "".join(
+            c if c.isalnum() or c in "-_" else "_" for c in title
+        )[:60] or "document"
+        summary = doc.get("summary") or "(No summary available)"
+        fmt = format.lower().strip()
+
+        if fmt == "txt":
+            lines = [
+                f"Document: {title}",
+                f"ID: {doc_id}",
+                f"Path: {doc.get('path', '')}",
+                f"Source: {doc.get('source_name', doc.get('source_type', ''))}",
+                f"Type: {doc.get('ext', '')} ({doc.get('mime_type', '')})",
+                f"Status: {doc.get('status', '')}",
+                f"Created: {doc.get('created_at', '')}",
+                f"Updated: {doc.get('updated_at', '')}",
+                "",
+                "=" * 60,
+                "SUMMARY",
+                "=" * 60,
+                summary,
+            ]
+            body = "\n".join(lines)
+            return PlainTextResponse(
+                content=body,
+                headers={
+                    "Content-Disposition": (
+                        f'attachment; filename="{safe_filename}_summary.txt"'
+                    )
+                },
+            )
+
+        # Default: markdown
+        md = f"""# {title}
+
+| Field | Value |
+|-------|-------|
+| **ID** | {doc_id} |
+| **Path** | `{doc.get('path', '')}` |
+| **Source** | {doc.get('source_name', doc.get('source_type', ''))} |
+| **Type** | {doc.get('ext', '')} ({doc.get('mime_type', '')}) |
+| **Status** | {doc.get('status', '')} |
+| **Created** | {doc.get('created_at', '')} |
+| **Updated** | {doc.get('updated_at', '')} |
+
+---
+
+## Summary
+
+{summary}
+"""
+        return PlainTextResponse(
+            content=md,
+            media_type="text/markdown",
+            headers={
+                "Content-Disposition": (
+                    f'attachment; filename="{safe_filename}_summary.md"'
+                )
+            },
+        )
+
+    # ── Document summary regeneration ───────────────────────────
+
+    @app.post(
+        "/documents/{doc_id}/regenerate-summary",
+        response_class=HTMLResponse,
+        include_in_schema=False,
+    )
+    async def regenerate_summary(doc_id: int):
+        """Regenerate the LLM/extractive summary for a document.
+
+        Re-runs the Summarizer on the document body and updates the
+        stored summary. Re-renders the document detail page.
+        """
+        try:
+            validate_doc_id(doc_id)
+        except ValidationError as e:
+            return HTMLResponse(
+                content=_render_error("Invalid document ID", e.message),
+                status_code=400,
+            )
+
+        db = get_db()
+        doc = await db.get_document(doc_id)
+        if doc is None:
+            return HTMLResponse(
+                content=_render_error("Not Found", f"Document {doc_id} not found"),
+                status_code=404,
+            )
+
+        new_summary = await _generate_summary_for_doc(doc)
+        if new_summary:
+            await db.update_summary(doc_id, new_summary)
+
+        # Re-fetch and re-render
+        doc = await db.get_document(doc_id)
+        tags = await db.get_tags(doc_id)
+        html = _render_document_detail(doc, tags)
+        return HTMLResponse(content=html)
+
+    @app.post(
+        "/api/v1/documents/summarize-all",
+        tags=["documents"],
+        summary="Create summary-generation jobs for all documents missing summaries",
+    )
+    async def summarize_all_documents():
+        """Enqueue background jobs to summarize all documents that lack a summary.
+
+        For each document with status 'indexed' (no summary), a job is
+        enqueued. The job worker calls the Summarizer and stores the result.
+
+        Returns the count of jobs created and their IDs.
+        """
+        db = get_db()
+        queue = get_queue()
+
+        pending = await db.get_pending_summaries(limit=10000)
+        job_ids: list[str] = []
+        for doc in pending:
+            job = await queue.enqueue(
+                document_path=doc.get("path", f"/docs/{doc['id']}"),
+                document_title=doc.get("title", f"Document {doc['id']}"),
+                source_name="summarize-all",
+            )
+            job_ids.append(job.id)
+
+        logger.info(
+            "summarize-all: enqueued %d summary jobs", len(job_ids)
+        )
+        return {
+            "jobs_created": len(job_ids),
+            "job_ids": job_ids,
+            "message": (
+                f"Created {len(job_ids)} summary job(s). "
+                "View progress at /jobs."
+            ) if job_ids else "No documents need summarization.",
+        }
+
     # ── API v1 Routes ───────────────────────────────────────
 
     @app.get("/health", include_in_schema=False)
@@ -853,6 +1198,18 @@ def create_app() -> FastAPI:
             size=doc.size,
             metadata=doc.metadata,
         )
+
+        # Auto-generate summary on submit (best-effort)
+        try:
+            summary = await _generate_summary_for_doc(
+                {"title": doc.title, "body": doc.body}
+            )
+            if summary:
+                await db.update_summary(doc_id, summary)
+        except Exception:
+            logger.warning(
+                "Summary generation failed for doc %s, continuing", doc_id
+            )
 
         job = await queue.enqueue(
             document_path=doc.path,
@@ -1966,7 +2323,10 @@ def _render_search_results(query: str, results: list[dict]) -> str:
         </form>
     </div>
 
-    <p>Found {len(results)} result(s) for: <strong>{_escape(query)}</strong></p>
+    <div class="search-export-bar" style="margin:12px 0;display:flex;align-items:center;gap:12px;">
+        <p style="margin:0;">Found {len(results)} result(s) for: <strong>{_escape(query)}</strong></p>
+        {'<div style="margin-left:auto;"><a href="/search?q=' + _escape(query) + '&export=csv" class="btn-export" style="padding:6px 14px;font-size:0.85em;text-decoration:none;border:1px solid var(--border);border-radius:6px;">⬇ Export CSV</a> <a href="/search?q=' + _escape(query) + '&export=json" class="btn-export" style="padding:6px 14px;font-size:0.85em;text-decoration:none;border:1px solid var(--border);border-radius:6px;margin-left:6px;">⬇ Export JSON</a></div>' if results else ''}
+    </div>
     {results_html}
     """
     return _base_page(f"Search: {query}", content)
@@ -2051,6 +2411,12 @@ def _render_documents_list(
     <div class="card">
         <h2>Documents{filter_label}</h2>
         <div class="pagination-info">Showing {start}–{end} of {total} document(s)</div>
+        <div style="margin:8px 0;">
+            <form action="/api/v1/documents/summarize-all" method="post" style="display:inline;"
+                  onsubmit="return confirm('Create summary jobs for all documents missing summaries? You can track progress on the Jobs page.');">
+                <button type="submit" class="btn-regenerate" style="padding:4px 12px;font-size:0.85em;cursor:pointer;">🔄 Summarize All Missing</button>
+            </form>
+        </div>
         {'<table><tr><th>Document</th><th>Status</th><th>Source</th><th>Type</th><th>Date</th>' + tags_col_header + '<th>View</th></tr>' + rows + '</table>' if documents else '<p>No documents found.</p>'}
     </div>
     {tag_cloud_html}
@@ -2114,7 +2480,21 @@ def _render_document_detail(doc: dict, tags: list[str] | None = None) -> str:
 
         {tag_section}
 
-        {'<h3>Summary</h3><p>' + (doc.get('summary') or '<em>No summary available</em>') + '</p>' if doc.get('summary') else ''}
+        <h3>Summary</h3>
+        <div class="summary-section">
+            <p>{doc.get('summary') or '<em>No summary available</em>'}</p>
+            <div class="summary-actions" style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">
+                <form action="/documents/{doc.get('id', '?')}/regenerate-summary" method="post"
+                      style="display:inline;"
+                      onsubmit="return confirm('Regenerate summary for document {doc.get('id', '?')}?');">
+                    <button type="submit" class="btn-regenerate" style="padding:4px 12px;font-size:0.85em;cursor:pointer;">🔄 Regenerate Summary</button>
+                </form>
+                <a href="/documents/{doc.get('id', '?')}/summary/export?format=md"
+                   class="btn-export" style="padding:4px 12px;font-size:0.85em;text-decoration:none;border:1px solid var(--border);border-radius:4px;">⬇ Summary .md</a>
+                <a href="/documents/{doc.get('id', '?')}/summary/export?format=txt"
+                   class="btn-export" style="padding:4px 12px;font-size:0.85em;text-decoration:none;border:1px solid var(--border);border-radius:4px;">⬇ Summary .txt</a>
+            </div>
+        </div>
 
         <h3>Content Preview</h3>
         <pre class="doc-excerpt">{_escape(excerpt)}</pre>
@@ -2244,7 +2624,30 @@ def _render_chat_page() -> str:
             </div>
         </aside>
         <div class="card chat-main">
-            <h2 id="chat-title">Chat with Your Documents</h2>
+            <div class="chat-header-row" style="display:flex;justify-content:space-between;align-items:center;">
+                <h2 id="chat-title">Chat with Your Documents</h2>
+                <div class="chat-export-dropdown" style="position:relative;display:inline-block;">
+                    <button id="chat-export-btn" onclick="toggleExportMenu()" class="btn-export"
+                            style="padding:6px 14px;font-size:0.85em;cursor:pointer;"
+                            title="Export conversation">⬇ Export</button>
+                    <div id="chat-export-menu" style="display:none;position:absolute;right:0;top:100%;
+                         background:var(--surface);border:1px solid var(--border);border-radius:6px;
+                         box-shadow:0 4px 12px rgba(0,0,0,0.15);z-index:100;min-width:140px;">
+                        <a href="#" onclick="exportChat('markdown');return false;"
+                           style="display:block;padding:8px 16px;text-decoration:none;color:var(--text);"
+                           onmouseover="this.style.background='var(--hover)'"
+                           onmouseout="this.style.background=''">📄 Markdown</a>
+                        <a href="#" onclick="exportChat('json');return false;"
+                           style="display:block;padding:8px 16px;text-decoration:none;color:var(--text);"
+                           onmouseover="this.style.background='var(--hover)'"
+                           onmouseout="this.style.background=''">🔗 JSON</a>
+                        <a href="#" onclick="exportChat('txt');return false;"
+                           style="display:block;padding:8px 16px;text-decoration:none;color:var(--text);"
+                           onmouseover="this.style.background='var(--hover)'"
+                           onmouseout="this.style.background=''">📝 Plain Text</a>
+                    </div>
+                </div>
+            </div>
             <p class="pagination-info">Ask questions and get AI-powered answers with citation tracking.</p>
             <div class="chat-box">
                 <div class="chat-messages" id="chat-messages">
@@ -2271,6 +2674,28 @@ def _render_chat_page() -> str:
         var sendBtn, inputField;
         var currentSessionId = null;
         var sessionTitle = 'New Chat';
+
+        function toggleExportMenu() {
+            var menu = document.getElementById('chat-export-menu');
+            menu.style.display = (menu.style.display === 'none') ? 'block' : 'none';
+        }
+        document.addEventListener('click', function(e) {
+            var dropdown = document.querySelector('.chat-export-dropdown');
+            var menu = document.getElementById('chat-export-menu');
+            if (dropdown && menu && !dropdown.contains(e.target)) {
+                menu.style.display = 'none';
+            }
+        });
+        function exportChat(format) {
+            document.getElementById('chat-export-menu').style.display = 'none';
+            if (!currentSessionId) {
+                alert('No active conversation to export.');
+                return;
+            }
+            window.location.href = '/api/v1/chat/sessions/' +
+                encodeURIComponent(currentSessionId) +
+                '/export?format=' + encodeURIComponent(format);
+        }
 
         function getQueryParam(name) {
             var params = new URLSearchParams(window.location.search);
@@ -2861,6 +3286,203 @@ def _render_error(title: str, message: str) -> str:
     <p><a href="/">Back to Dashboard</a></p>
     """
     return _base_page(f"Error: {title}", content)
+
+
+# ── Export & summarization helpers ──────────────────────────────
+
+
+def _export_search_results(
+    query: str, results: list[dict], fmt: str
+) -> Response:
+    """Build a CSV or JSON download response for search results.
+
+    Args:
+        query: The original search query.
+        results: List of document dicts from fulltext_search.
+        fmt: "csv" or "json".
+
+    Returns:
+        A ``Response`` with Content-Disposition for file download.
+    """
+    safe_q = "".join(
+        c if c.isalnum() or c in "-_" else "_" for c in query
+    )[:40] or "search"
+
+    if fmt == "json":
+        payload = {
+            "query": query,
+            "result_count": len(results),
+            "results": [
+                {
+                    "id": r.get("id"),
+                    "title": r.get("title", ""),
+                    "path": r.get("path", ""),
+                    "source": r.get("source_name", r.get("source_type", "")),
+                    "ext": r.get("ext", ""),
+                    "mime_type": r.get("mime_type", ""),
+                    "status": r.get("status", ""),
+                    "summary": r.get("summary", ""),
+                    "snippet": (r.get("raw_preview", "") or "")[:300],
+                    "rank": r.get("rank"),
+                    "created_at": str(r.get("created_at", "")),
+                }
+                for r in results
+            ],
+        }
+        body = json.dumps(payload, ensure_ascii=False, indent=2)
+        return Response(
+            content=body,
+            media_type="application/json",
+            headers={
+                "Content-Disposition": (
+                    f'attachment; filename="{safe_q}_results.json"'
+                )
+            },
+        )
+
+    # CSV
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(
+        [
+            "id",
+            "title",
+            "path",
+            "source",
+            "ext",
+            "mime_type",
+            "status",
+            "rank",
+            "summary",
+            "snippet",
+            "created_at",
+        ]
+    )
+    for r in results:
+        snippet = (r.get("raw_preview", "") or "")[:300]
+        writer.writerow(
+            [
+                r.get("id", ""),
+                r.get("title", ""),
+                r.get("path", ""),
+                r.get("source_name", r.get("source_type", "")),
+                r.get("ext", ""),
+                r.get("mime_type", ""),
+                r.get("status", ""),
+                f"{r.get('rank', 0):.4f}" if r.get("rank") is not None else "",
+                r.get("summary", "") or "",
+                snippet,
+                str(r.get("created_at", "")),
+            ]
+        )
+    body = output.getvalue()
+    return PlainTextResponse(
+        content=body,
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="{safe_q}_results.csv"'
+            )
+        },
+    )
+
+
+async def _generate_summary_for_doc(doc: dict) -> Optional[str]:
+    """Generate a summary for a document using the Summarizer.
+
+    Uses the configured LLMClient when available (wrapped in a sync
+    adapter), falling back to extractive summarization otherwise.
+    The sync Summarizer is run in a thread to avoid blocking the
+    async event loop.
+
+    Args:
+        doc: Document dict with at least 'title' and 'body' keys.
+
+    Returns:
+        The summary string, or None if summarization failed.
+    """
+    import asyncio
+
+    from ..core.summarizer import Summarizer
+    from ..core.llm_client import LLMClient
+
+    # Build a sync LLM adapter if an LLM is configured
+    llm_client = None
+    try:
+        llm_config = config.llm
+        client = LLMClient(llm_config)
+        if client.is_configured:
+            llm_client = _SyncLLMAdapter(client)
+    except Exception:
+        pass
+
+    summarizer = Summarizer(llm_client=llm_client)
+    title = doc.get("title", "Untitled")
+    body = doc.get("body", "") or ""
+
+    # Run the sync summarizer in a thread to avoid blocking
+    result = await asyncio.to_thread(summarizer.summarize, title, body)
+    return result
+
+
+class _SyncLLMAdapter:
+    """Synchronous wrapper around the async LLMClient.
+
+    The Summarizer expects a client with a sync ``chat(prompt, max_tokens)``
+    method. This adapter runs the async LLM call in a separate thread with
+    its own event loop, bridging the sync/async boundary safely.
+
+    This adapter is always called from within ``asyncio.to_thread()`` (in
+    ``_generate_summary_for_doc``), so it runs in a worker thread where no
+    event loop is active. It also handles the edge case of being called
+    directly from within a running event loop by spawning a thread.
+    """
+
+    def __init__(self, async_client) -> None:
+        self._async_client = async_client
+
+    def chat(self, prompt: str, max_tokens: int = 150) -> str:
+        """Call the LLM synchronously by running the async call in a thread.
+
+        Uses a dedicated thread with a fresh event loop to avoid conflicts
+        with any running event loop in the caller's context.
+        """
+        import asyncio
+        import threading
+
+        try:
+            result_box: list = [None]
+            error_box: list = [None]
+
+            def _run() -> None:
+                loop = asyncio.new_event_loop()
+                try:
+                    result_box[0] = loop.run_until_complete(
+                        self._async_generate(prompt, max_tokens)
+                    )
+                except Exception as e:
+                    error_box[0] = e
+                finally:
+                    loop.close()
+
+            t = threading.Thread(target=_run, daemon=True)
+            t.start()
+            t.join()
+
+            if error_box[0] is not None:
+                raise error_box[0]
+            return result_box[0] or ""
+        except Exception as e:
+            print(f"[_SyncLLMAdapter] LLM call failed: {e}")
+            return ""
+
+    async def _async_generate(self, prompt: str, max_tokens: int) -> str:
+        """Generate text using the async LLMClient's generate method."""
+        # LLMClient.generate expects (question, context_chunks, max_tokens)
+        # We pass the prompt as the question with an empty context list.
+        return await self._async_client.generate(
+            prompt, context_chunks=[], max_tokens=max_tokens
+        )
 
 
 # ── Template utilities ──────────────────────────────────────────
