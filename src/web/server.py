@@ -5,8 +5,11 @@ Exposes the full document processing and knowledge base API:
 REST:
 - GET  /                         Dashboard with stats
 - GET  /search?q=                Search page with results + citations
-- GET  /documents                List all documents
-- GET  /documents/<id>           Document detail with summary
+- GET  /documents                List all documents (tag cloud, tag filter)
+- GET  /documents?tag=xxx        Filter documents by tag
+- GET  /documents/<id>           Document detail with summary and tags
+- POST /documents/<id>/tags      Add a tag to a document
+- POST /documents/<id>/tags/<tag>/delete  Remove a tag
 - POST /upload                   File upload form
 - POST /api/v1/documents/submit  Programmatic document submission
 - POST /api/v1/documents/batch   Batch document submission
@@ -212,31 +215,48 @@ def create_app() -> FastAPI:
     @app.get("/documents", response_class=HTMLResponse, include_in_schema=False)
     async def list_documents_page(
         source: str = Query(default=""),
+        tag: str = Query(default=""),
         page: int = Query(default=1, ge=1),
         per_page: int = Query(default=20, ge=1, le=100),
     ):
-        """List documents with pagination."""
+        """List documents with pagination, optional tag/source filtering."""
         db = get_db()
         try:
-            result = await db.list_documents_paginated(
-                page=page, per_page=per_page, source=source if source else None
-            )
-            documents = result["documents"]
-            total = result["total"]
-            total_pages = result["total_pages"]
+            if tag:
+                # Filter by tag — get all docs with this tag, then paginate manually
+                tag_docs = await db.get_documents_by_tag(tag)
+                total = len(tag_docs)
+                total_pages = (total + per_page - 1) // per_page if per_page > 0 else 0
+                offset = (page - 1) * per_page
+                documents = tag_docs[offset : offset + per_page]
+            else:
+                result = await db.list_documents_paginated(
+                    page=page, per_page=per_page, source=source if source else None
+                )
+                documents = result["documents"]
+                total = result["total"]
+                total_pages = result["total_pages"]
         except Exception:
             documents = []
             total = 0
             total_pages = 0
 
+        # Fetch tags for the displayed documents (batch)
+        doc_ids = [d["id"] for d in documents]
+        tags_map = await db.get_tags_for_documents(doc_ids) if doc_ids else {}
+
+        # Fetch all tags for the tag cloud sidebar
+        all_tags = await db.get_all_tags()
+
         html = _render_documents_list(
-            documents, source, page, per_page, total, total_pages
+            documents, source, page, per_page, total, total_pages,
+            tags_map=tags_map, all_tags=all_tags, active_tag=tag,
         )
         return HTMLResponse(content=html)
 
     @app.get("/documents/{doc_id}", response_class=HTMLResponse, include_in_schema=False)
     async def document_detail(doc_id: int):
-        """Document detail page with summary."""
+        """Document detail page with summary and tags."""
         try:
             validate_doc_id(doc_id)
         except ValidationError as e:
@@ -253,7 +273,74 @@ def create_app() -> FastAPI:
                 status_code=404,
             )
 
-        html = _render_document_detail(doc)
+        tags = await db.get_tags(doc_id)
+        html = _render_document_detail(doc, tags)
+        return HTMLResponse(content=html)
+
+    @app.post(
+        "/documents/{doc_id}/tags",
+        response_class=HTMLResponse,
+        include_in_schema=False,
+    )
+    async def add_tag_form(doc_id: int, tag: str = Form(default="")):
+        """Add a tag to a document via form POST, then redirect back to detail."""
+        try:
+            validate_doc_id(doc_id)
+        except ValidationError as e:
+            return HTMLResponse(
+                content=_render_error("Invalid document ID", e.message),
+                status_code=400,
+            )
+
+        db = get_db()
+        # Verify document exists
+        doc = await db.get_document(doc_id)
+        if doc is None:
+            return HTMLResponse(
+                content=_render_error("Not Found", f"Document {doc_id} not found"),
+                status_code=404,
+            )
+
+        tag = (tag or "").strip()
+        if tag:
+            try:
+                await db.add_tag(doc_id, tag)
+            except ValueError:
+                pass  # empty tag, silently ignore
+
+        # Re-render detail page with updated tags
+        tags = await db.get_tags(doc_id)
+        html = _render_document_detail(doc, tags)
+        return HTMLResponse(content=html)
+
+    @app.post(
+        "/documents/{doc_id}/tags/{tag}/delete",
+        response_class=HTMLResponse,
+        include_in_schema=False,
+    )
+    async def remove_tag_form(doc_id: int, tag: str):
+        """Remove a tag from a document via form POST, then re-render detail."""
+        try:
+            validate_doc_id(doc_id)
+        except ValidationError as e:
+            return HTMLResponse(
+                content=_render_error("Invalid document ID", e.message),
+                status_code=400,
+            )
+
+        db = get_db()
+        doc = await db.get_document(doc_id)
+        if doc is None:
+            return HTMLResponse(
+                content=_render_error("Not Found", f"Document {doc_id} not found"),
+                status_code=404,
+            )
+
+        await db.remove_tag(doc_id, tag)
+
+        # Re-render detail page with updated tags
+        tags = await db.get_tags(doc_id)
+        html = _render_document_detail(doc, tags)
         return HTMLResponse(content=html)
 
     @app.post("/upload", response_class=HTMLResponse, include_in_schema=False)
@@ -853,6 +940,32 @@ def _base_page(title: str, content: str, extra_head: str = "") -> str:
         .badge-summarized {{ background: var(--badge-summarized-bg); color: var(--badge-summarized-text); }}
         .badge-pending {{ background: var(--badge-pending-bg); color: var(--badge-pending-text); }}
         .badge-error {{ background: var(--badge-error-bg); color: var(--badge-error-text); }}
+        .tag-pill {{ display: inline-block; padding: 2px 10px; border-radius: 14px;
+                     font-size: 0.75em; font-weight: 500; text-decoration: none;
+                     background: var(--surface); color: var(--text);
+                     border: 1px solid var(--input-border); margin: 2px; }}
+        .tag-pill:hover {{ background: var(--primary); color: var(--header-text); }}
+        .tag-pill .tag-remove {{ margin-left: 6px; text-decoration: none; color: var(--badge-error-text);
+                                  font-weight: bold; }}
+        .tag-pill .tag-remove:hover {{ color: var(--error-text); }}
+        .tag-cloud {{ background: var(--surface); border-radius: 8px; padding: 16px;
+                      box-shadow: var(--shadow); margin-top: 16px; }}
+        .tag-cloud h3 {{ margin-top: 0; color: var(--primary); }}
+        .tag-cloud-items {{ display: flex; flex-wrap: wrap; gap: 6px; }}
+        .tag-cloud-item {{ display: inline-flex; align-items: center; gap: 4px;
+                           padding: 4px 12px; border-radius: 14px; font-size: 0.85em;
+                           text-decoration: none; background: var(--code-bg); color: var(--text);
+                           border: 1px solid var(--input-border); }}
+        .tag-cloud-item:hover {{ background: var(--primary); color: var(--header-text); }}
+        .tag-cloud-item .tag-count {{ font-size: 0.8em; opacity: 0.7; }}
+        .tag-cloud-item.active {{ background: var(--primary); color: var(--header-text); font-weight: 600; }}
+        .tag-input-row {{ display: flex; gap: 8px; margin-top: 8px; }}
+        .tag-input-row input {{ flex: 1; padding: 8px 12px; border-radius: 6px;
+                                border: 1px solid var(--input-border); background: var(--input-bg); color: var(--text); }}
+        .tag-input-row button {{ padding: 8px 16px; border-radius: 6px; border: none;
+                                  background: var(--primary); color: var(--header-text); cursor: pointer; }}
+        .doc-tags {{ margin: 12px 0; }}
+        .doc-tags .field-label {{ font-weight: 600; color: var(--text-muted); margin-right: 8px; }}
         .error {{ background: var(--error-bg); color: var(--error-text); padding: 12px 16px;
                  border-radius: 6px; margin: 12px 0; }}
         .success {{ background: var(--success-bg); color: var(--success-text); padding: 12px 16px;
@@ -1116,10 +1229,23 @@ def _render_documents_list(
     per_page: int = 20,
     total: int = 0,
     total_pages: int = 0,
+    *,
+    tags_map: dict[int, list[str]] | None = None,
+    all_tags: list[dict] | None = None,
+    active_tag: str = "",
 ) -> str:
+    tags_map = tags_map or {}
+    all_tags = all_tags or []
     rows = ""
     for doc in documents:
         status_class = f"badge-{doc.get('status', 'pending')}"
+        doc_tags = tags_map.get(doc["id"], [])
+        tag_badges = ""
+        if doc_tags:
+            tag_badges = '<div class="doc-tags">' + "".join(
+                f'<a href="/documents?tag={_escape(t)}" class="tag-pill">{_escape(t)}</a>'
+                for t in doc_tags
+            ) + "</div>"
         rows += f"""
         <tr>
             <td><a href="/documents/{doc['id']}">[{doc['id']}] {doc.get('title', 'Untitled')}</a></td>
@@ -1127,30 +1253,92 @@ def _render_documents_list(
             <td>{doc.get('source_name', doc.get('source_type', ''))}</td>
             <td>{doc.get('ext', '')}</td>
             <td>{_fmt_date(doc.get('created_at', ''))}</td>
+            <td>{tag_badges}</td>
         </tr>"""
 
     source_param = f"&source={_escape(source)}" if source else ""
-    pagination_html = _render_pagination(page, per_page, total, total_pages, source_param)
+    tag_param = f"&tag={_escape(active_tag)}" if active_tag else ""
+    pagination_html = _render_pagination(
+        page, per_page, total, total_pages, source_param + tag_param
+    )
 
     start = (page - 1) * per_page + 1 if total > 0 else 0
     end = min(page * per_page, total)
 
+    # Tag cloud sidebar
+    tag_cloud_html = ""
+    if all_tags:
+        tag_items = ""
+        for t in all_tags:
+            tag_name = t["tag"]
+            count = t["count"]
+            active_class = " active" if tag_name == active_tag else ""
+            tag_items += (
+                f'<a href="/documents?tag={_escape(tag_name)}" '
+                f'class="tag-cloud-item{active_class}">'
+                f'{_escape(tag_name)} <span class="tag-count">({count})</span></a>'
+            )
+        tag_cloud_html = f"""
+        <div class="tag-cloud">
+            <h3>Tags</h3>
+            <div class="tag-cloud-items">
+                {tag_items}
+            </div>
+            {'<p style="margin-top:8px;"><a href="/documents">← Show all documents</a></p>' if active_tag else ''}
+        </div>"""
+
+    filter_label = ""
+    if active_tag:
+        filter_label = f" — tag: {_escape(active_tag)}"
+    elif source:
+        filter_label = f" — {_escape(source)}"
+
+    # Add a Tags column header if any document has tags
+    tags_col_header = "<th>Tags</th>" if tags_map else ""
+
     content = f"""
     <div class="card">
-        <h2>Documents {'— ' + _escape(source) if source else ''}</h2>
+        <h2>Documents{filter_label}</h2>
         <div class="pagination-info">Showing {start}–{end} of {total} document(s)</div>
-        {'<table><tr><th>Document</th><th>Status</th><th>Source</th><th>Type</th><th>Date</th></tr>' + rows + '</table>' if documents else '<p>No documents found.</p>'}
+        {'<table><tr><th>Document</th><th>Status</th><th>Source</th><th>Type</th><th>Date</th>' + tags_col_header + '</tr>' + rows + '</table>' if documents else '<p>No documents found.</p>'}
     </div>
+    {tag_cloud_html}
     {pagination_html}
     """
     return _base_page("Documents", content)
 
 
-def _render_document_detail(doc: dict) -> str:
+def _render_document_detail(doc: dict, tags: list[str] | None = None) -> str:
+    tags = tags or []
     status_class = f"badge-{doc.get('status', 'pending')}"
     body_preview = (doc.get("body", "") or "")[:2000]
     if len(doc.get("body", "") or "") > 2000:
         body_preview += "\n... (truncated)"
+
+    # Build tag badges with remove buttons
+    tag_badges_html = ""
+    if tags:
+        tag_badges_html = '<div class="doc-tags">'
+        for t in tags:
+            tag_badges_html += (
+                f'<span class="tag-pill">{_escape(t)}'
+                f'<form action="/documents/{doc.get("id", "?")}/tags/{_escape(t)}/delete" '
+                f'method="post" style="display:inline;">'
+                f'<button type="submit" class="tag-remove" title="Remove tag">✕</button>'
+                f'</form></span>'
+            )
+        tag_badges_html += "</div>"
+
+    tag_section = f"""
+    <div class="doc-tags-section">
+        <div class="field"><span class="field-label">Tags:</span>
+            {tag_badges_html if tag_badges_html else '<em>No tags yet</em>'}
+        </div>
+        <form action="/documents/{doc.get('id', '?')}/tags" method="post" class="tag-input-row">
+            <input type="text" name="tag" placeholder="Add a tag…" required maxlength="50">
+            <button type="submit">Add Tag</button>
+        </form>
+    </div>"""
 
     content = f"""
     <div class="card doc-detail">
@@ -1163,6 +1351,8 @@ def _render_document_detail(doc: dict) -> str:
         <div class="field"><span class="field-label">Size:</span> {_fmt_size(doc.get('size', 0))}</div>
         <div class="field"><span class="field-label">Created:</span> {_fmt_date(doc.get('created_at', ''))}</div>
         <div class="field"><span class="field-label">Updated:</span> {_fmt_date(doc.get('updated_at', ''))}</div>
+
+        {tag_section}
 
         {'<h3>Summary</h3><p>' + (doc.get('summary') or '<em>No summary available</em>') + '</p>' if doc.get('summary') else ''}
 

@@ -1373,3 +1373,425 @@ class TestChatMessages:
         await db.disconnect()
         assert "idx_chat_messages_session" in indexes
 
+
+# ── Document Tags tests ─────────────────────────────────────────
+
+
+class TestDocumentTags:
+    """Tests for tag CRUD operations on documents."""
+
+    @pytest.mark.asyncio
+    async def test_add_tag_returns_record(self, db) -> None:
+        """add_tag should return a dict with id, doc_id, tag, created_at."""
+        doc_id = await db.save_document(
+            path="/docs/tag_test.txt",
+            source_type="api",
+            source_name="test",
+            title="Tag Test Doc",
+            ext=".txt",
+            mime_type="text/plain",
+            body="Content for tag testing.",
+        )
+        result = await db.add_tag(doc_id, "python")
+        assert result["doc_id"] == doc_id
+        assert result["tag"] == "python"
+        assert "id" in result
+        assert "created_at" in result
+
+    @pytest.mark.asyncio
+    async def test_add_tag_idempotent(self, db) -> None:
+        """Adding the same tag twice should not error (ON CONFLICT DO NOTHING)."""
+        doc_id = await db.save_document(
+            path="/docs/idempotent.txt",
+            source_type="api",
+            source_name="test",
+            title="Idempotent Test",
+            ext=".txt",
+            mime_type="text/plain",
+            body="Idempotent tag test.",
+        )
+        r1 = await db.add_tag(doc_id, "duplicate")
+        r2 = await db.add_tag(doc_id, "duplicate")
+        assert r1["tag"] == "duplicate"
+        assert r2["tag"] == "duplicate"
+        # Should have only one tag
+        tags = await db.get_tags(doc_id)
+        assert tags == ["duplicate"]
+
+    @pytest.mark.asyncio
+    async def test_add_tag_trims_whitespace(self, db) -> None:
+        """add_tag should strip leading/trailing whitespace from the tag."""
+        doc_id = await db.save_document(
+            path="/docs/trim.txt",
+            source_type="api",
+            source_name="test",
+            title="Trim Test",
+            ext=".txt",
+            mime_type="text/plain",
+            body="Trim test.",
+        )
+        result = await db.add_tag(doc_id, "  spaced  ")
+        assert result["tag"] == "spaced"
+
+    @pytest.mark.asyncio
+    async def test_add_tag_empty_raises(self, db) -> None:
+        """add_tag with an empty string should raise ValueError."""
+        doc_id = await db.save_document(
+            path="/docs/empty.txt",
+            source_type="api",
+            source_name="test",
+            title="Empty Tag",
+            ext=".txt",
+            mime_type="text/plain",
+            body="Empty tag test.",
+        )
+        with pytest.raises(ValueError, match="empty"):
+            await db.add_tag(doc_id, "")
+
+    @pytest.mark.asyncio
+    async def test_add_tag_whitespace_only_raises(self, db) -> None:
+        """add_tag with only whitespace should raise ValueError."""
+        doc_id = await db.save_document(
+            path="/docs/ws.txt",
+            source_type="api",
+            source_name="test",
+            title="WS Tag",
+            ext=".txt",
+            mime_type="text/plain",
+            body="WS tag test.",
+        )
+        with pytest.raises(ValueError, match="empty"):
+            await db.add_tag(doc_id, "   ")
+
+    @pytest.mark.asyncio
+    async def test_get_tags_sorted(self, db) -> None:
+        """get_tags should return tag names sorted alphabetically."""
+        doc_id = await db.save_document(
+            path="/docs/sorted.txt",
+            source_type="api",
+            source_name="test",
+            title="Sorted Tags",
+            ext=".txt",
+            mime_type="text/plain",
+            body="Sorted tags test.",
+        )
+        await db.add_tag(doc_id, "zebra")
+        await db.add_tag(doc_id, "apple")
+        await db.add_tag(doc_id, "mango")
+        tags = await db.get_tags(doc_id)
+        assert tags == ["apple", "mango", "zebra"]
+
+    @pytest.mark.asyncio
+    async def test_get_tags_empty(self, db) -> None:
+        """get_tags on a document with no tags should return an empty list."""
+        doc_id = await db.save_document(
+            path="/docs/notags.txt",
+            source_type="api",
+            source_name="test",
+            title="No Tags",
+            ext=".txt",
+            mime_type="text/plain",
+            body="No tags here.",
+        )
+        tags = await db.get_tags(doc_id)
+        assert tags == []
+
+    @pytest.mark.asyncio
+    async def test_remove_tag_success(self, db) -> None:
+        """remove_tag should return True when a tag was removed."""
+        doc_id = await db.save_document(
+            path="/docs/remove.txt",
+            source_type="api",
+            source_name="test",
+            title="Remove Test",
+            ext=".txt",
+            mime_type="text/plain",
+            body="Remove test.",
+        )
+        await db.add_tag(doc_id, "removable")
+        removed = await db.remove_tag(doc_id, "removable")
+        assert removed is True
+        tags = await db.get_tags(doc_id)
+        assert "removable" not in tags
+
+    @pytest.mark.asyncio
+    async def test_remove_tag_not_found(self, db) -> None:
+        """remove_tag should return False when the tag doesn't exist."""
+        doc_id = await db.save_document(
+            path="/docs/notfound.txt",
+            source_type="api",
+            source_name="test",
+            title="Not Found Tag",
+            ext=".txt",
+            mime_type="text/plain",
+            body="Not found test.",
+        )
+        removed = await db.remove_tag(doc_id, "nonexistent")
+        assert removed is False
+
+    @pytest.mark.asyncio
+    async def test_remove_tag_only_removes_one(self, db) -> None:
+        """Removing a tag from one document should not affect other documents."""
+        doc1 = await db.save_document(
+            path="/docs/doc1.txt",
+            source_type="api",
+            source_name="test",
+            title="Doc 1",
+            ext=".txt",
+            mime_type="text/plain",
+            body="Doc 1.",
+        )
+        doc2 = await db.save_document(
+            path="/docs/doc2.txt",
+            source_type="api",
+            source_name="test",
+            title="Doc 2",
+            ext=".txt",
+            mime_type="text/plain",
+            body="Doc 2.",
+        )
+        await db.add_tag(doc1, "shared")
+        await db.add_tag(doc2, "shared")
+        await db.remove_tag(doc1, "shared")
+        assert await db.get_tags(doc1) == []
+        assert await db.get_tags(doc2) == ["shared"]
+
+    @pytest.mark.asyncio
+    async def test_get_documents_by_tag(self, db) -> None:
+        """get_documents_by_tag should return all documents with that tag."""
+        doc1 = await db.save_document(
+            path="/docs/bytag1.txt",
+            source_type="api",
+            source_name="test",
+            title="By Tag 1",
+            ext=".txt",
+            mime_type="text/plain",
+            body="Doc 1.",
+        )
+        doc2 = await db.save_document(
+            path="/docs/bytag2.txt",
+            source_type="api",
+            source_name="test",
+            title="By Tag 2",
+            ext=".txt",
+            mime_type="text/plain",
+            body="Doc 2.",
+        )
+        doc3 = await db.save_document(
+            path="/docs/bytag3.txt",
+            source_type="api",
+            source_name="test",
+            title="By Tag 3",
+            ext=".txt",
+            mime_type="text/plain",
+            body="Doc 3.",
+        )
+        await db.add_tag(doc1, "research")
+        await db.add_tag(doc2, "research")
+        await db.add_tag(doc3, "other")
+        docs = await db.get_documents_by_tag("research")
+        doc_ids = [d["id"] for d in docs]
+        assert doc1 in doc_ids
+        assert doc2 in doc_ids
+        assert doc3 not in doc_ids
+
+    @pytest.mark.asyncio
+    async def test_get_documents_by_tag_empty(self, db) -> None:
+        """get_documents_by_tag with a non-existent tag should return []."""
+        docs = await db.get_documents_by_tag("nonexistent-tag")
+        assert docs == []
+
+    @pytest.mark.asyncio
+    async def test_get_all_tags_with_counts(self, db) -> None:
+        """get_all_tags should return tags with document counts."""
+        doc1 = await db.save_document(
+            path="/docs/count1.txt",
+            source_type="api",
+            source_name="test",
+            title="Count 1",
+            ext=".txt",
+            mime_type="text/plain",
+            body="Doc 1.",
+        )
+        doc2 = await db.save_document(
+            path="/docs/count2.txt",
+            source_type="api",
+            source_name="test",
+            title="Count 2",
+            ext=".txt",
+            mime_type="text/plain",
+            body="Doc 2.",
+        )
+        await db.add_tag(doc1, "alpha")
+        await db.add_tag(doc2, "alpha")
+        await db.add_tag(doc1, "beta")
+        tags = await db.get_all_tags()
+        tag_map = {t["tag"]: t["count"] for t in tags}
+        assert tag_map["alpha"] == 2
+        assert tag_map["beta"] == 1
+
+    @pytest.mark.asyncio
+    async def test_get_all_tags_empty(self, db) -> None:
+        """get_all_tags on a database with no tags should return []."""
+        tags = await db.get_all_tags()
+        assert tags == []
+
+    @pytest.mark.asyncio
+    async def test_get_all_tags_sorted_by_count(self, db) -> None:
+        """get_all_tags should sort by count descending, then tag ascending."""
+        doc1 = await db.save_document(
+            path="/docs/sort1.txt",
+            source_type="api",
+            source_name="test",
+            title="Sort 1",
+            ext=".txt",
+            mime_type="text/plain",
+            body="Doc 1.",
+        )
+        doc2 = await db.save_document(
+            path="/docs/sort2.txt",
+            source_type="api",
+            source_name="test",
+            title="Sort 2",
+            ext=".txt",
+            mime_type="text/plain",
+            body="Doc 2.",
+        )
+        await db.add_tag(doc1, "zzz")
+        await db.add_tag(doc2, "zzz")
+        await db.add_tag(doc1, "aaa")
+        tags = await db.get_all_tags()
+        # zzz (count=2) should come before aaa (count=1)
+        assert tags[0]["tag"] == "zzz"
+        assert tags[0]["count"] == 2
+        assert tags[1]["tag"] == "aaa"
+        assert tags[1]["count"] == 1
+
+    @pytest.mark.asyncio
+    async def test_cascade_delete_removes_tags(self, db) -> None:
+        """Deleting a document should cascade-delete its tags."""
+        doc_id = await db.save_document(
+            path="/docs/cascade.txt",
+            source_type="api",
+            source_name="test",
+            title="Cascade Test",
+            ext=".txt",
+            mime_type="text/plain",
+            body="Cascade test.",
+        )
+        await db.add_tag(doc_id, "cascade1")
+        await db.add_tag(doc_id, "cascade2")
+        assert len(await db.get_tags(doc_id)) == 2
+
+        await db.delete_document(doc_id)
+
+        # Tags should be gone
+        assert await db.get_tags(doc_id) == []
+        # The tags should not appear in get_all_tags
+        all_tags = await db.get_all_tags()
+        tag_names = [t["tag"] for t in all_tags]
+        assert "cascade1" not in tag_names
+        assert "cascade2" not in tag_names
+
+    @pytest.mark.asyncio
+    async def test_unique_constraint_on_doc_tag(self, db) -> None:
+        """The UNIQUE(doc_id, tag) constraint should prevent duplicate tags."""
+        doc_id = await db.save_document(
+            path="/docs/unique.txt",
+            source_type="api",
+            source_name="test",
+            title="Unique Test",
+            ext=".txt",
+            mime_type="text/plain",
+            body="Unique test.",
+        )
+        await db.add_tag(doc_id, "unique_tag")
+        # Direct insert should fail due to unique constraint
+        async with db.connection() as conn:
+            with pytest.raises(Exception):
+                await conn.execute(
+                    "INSERT INTO document_tags (doc_id, tag, created_at) VALUES (?, ?, ?)",
+                    (doc_id, "unique_tag", "2024-01-01T00:00:00+00:00"),
+                )
+                await conn.commit()
+
+    @pytest.mark.asyncio
+    async def test_document_tags_table_created_on_connect(self, tmp_db_path: str) -> None:
+        """connect() should create the document_tags table."""
+        from src.core.db_sqlite import Database
+
+        db = Database(db_path=tmp_db_path)
+        await db.connect()
+
+        async with db.connection() as conn:
+            cursor = await conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+            tables = [row[0] for row in await cursor.fetchall()]
+
+        await db.disconnect()
+        assert "document_tags" in tables
+
+    @pytest.mark.asyncio
+    async def test_tag_indexes_exist(self, tmp_db_path: str) -> None:
+        """Indexes on document_tags(tag) and document_tags(doc_id) should exist."""
+        from src.core.db_sqlite import Database
+
+        db = Database(db_path=tmp_db_path)
+        await db.connect()
+
+        async with db.connection() as conn:
+            cursor = await conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='document_tags'"
+            )
+            indexes = [row[0] for row in await cursor.fetchall()]
+
+        await db.disconnect()
+        assert "idx_document_tags_tag" in indexes
+        assert "idx_document_tags_doc_id" in indexes
+
+    @pytest.mark.asyncio
+    async def test_get_tags_for_documents_batch(self, db) -> None:
+        """get_tags_for_documents should batch-fetch tags for multiple docs."""
+        doc1 = await db.save_document(
+            path="/docs/batch1.txt",
+            source_type="api",
+            source_name="test",
+            title="Batch 1",
+            ext=".txt",
+            mime_type="text/plain",
+            body="Doc 1.",
+        )
+        doc2 = await db.save_document(
+            path="/docs/batch2.txt",
+            source_type="api",
+            source_name="test",
+            title="Batch 2",
+            ext=".txt",
+            mime_type="text/plain",
+            body="Doc 2.",
+        )
+        doc3 = await db.save_document(
+            path="/docs/batch3.txt",
+            source_type="api",
+            source_name="test",
+            title="Batch 3 (no tags)",
+            ext=".txt",
+            mime_type="text/plain",
+            body="Doc 3.",
+        )
+        await db.add_tag(doc1, "alpha")
+        await db.add_tag(doc1, "beta")
+        await db.add_tag(doc2, "gamma")
+
+        result = await db.get_tags_for_documents([doc1, doc2, doc3])
+        assert result[doc1] == ["alpha", "beta"]
+        assert result[doc2] == ["gamma"]
+        assert doc3 not in result  # no tags, absent from result
+
+    @pytest.mark.asyncio
+    async def test_get_tags_for_documents_empty(self, db) -> None:
+        """get_tags_for_documents with empty list should return {}."""
+        result = await db.get_tags_for_documents([])
+        assert result == {}
+

@@ -94,6 +94,17 @@ CREATE TABLE IF NOT EXISTS settings (
     value       TEXT,
     updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS document_tags (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    doc_id       INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    tag          TEXT NOT NULL,
+    created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (doc_id, tag)
+);
+
+CREATE INDEX IF NOT EXISTS idx_document_tags_tag ON document_tags(tag);
+CREATE INDEX IF NOT EXISTS idx_document_tags_doc_id ON document_tags(doc_id);
 """
 
 # FTS5 virtual table — created separately because some SQLite builds
@@ -907,6 +918,132 @@ class Database:
             )
             await conn.commit()
             return cursor.rowcount > 0
+
+    # ── Document Tags ────────────────────────────────────────────
+
+    async def add_tag(self, doc_id: int, tag: str) -> dict[str, Any]:
+        """Add a tag to a document. Returns the tag record as a dict.
+
+        If the tag already exists for this document (unique constraint),
+        the existing record is returned without error (idempotent).
+
+        Args:
+            doc_id: The document ID to tag.
+            tag: The tag string (whitespace-trimmed, case-preserved).
+
+        Returns:
+            A dict with keys: id, doc_id, tag, created_at.
+
+        Raises:
+            ValueError: If the tag is empty after trimming.
+        """
+        tag = (tag or "").strip()
+        if not tag:
+            raise ValueError("tag must not be empty")
+        now = _now_iso()
+        async with self.connection() as conn:
+            await conn.execute(
+                """INSERT INTO document_tags (doc_id, tag, created_at)
+                   VALUES (?, ?, ?)
+                   ON CONFLICT(doc_id, tag) DO NOTHING""",
+                (doc_id, tag, now),
+            )
+            await conn.commit()
+            cursor = await conn.execute(
+                """SELECT id, doc_id, tag, created_at
+                   FROM document_tags
+                   WHERE doc_id = ? AND tag = ?""",
+                (doc_id, tag),
+            )
+            row = await cursor.fetchone()
+
+        return {
+            "id": row["id"],
+            "doc_id": row["doc_id"],
+            "tag": row["tag"],
+            "created_at": row["created_at"],
+        }
+
+    async def remove_tag(self, doc_id: int, tag: str) -> bool:
+        """Remove a tag from a document.
+
+        Returns True if a tag was removed, False if the tag was not found.
+        """
+        tag = (tag or "").strip()
+        if not tag:
+            return False
+        async with self.connection() as conn:
+            cursor = await conn.execute(
+                "DELETE FROM document_tags WHERE doc_id = ? AND tag = ?",
+                (doc_id, tag),
+            )
+            await conn.commit()
+            return cursor.rowcount > 0
+
+    async def get_tags(self, doc_id: int) -> list[str]:
+        """Return a list of tag names for the given document, sorted alphabetically."""
+        async with self.connection() as conn:
+            cursor = await conn.execute(
+                "SELECT tag FROM document_tags WHERE doc_id = ? ORDER BY tag",
+                (doc_id,),
+            )
+            rows = await cursor.fetchall()
+        return [row["tag"] for row in rows]
+
+    async def get_documents_by_tag(self, tag: str) -> list[dict[str, Any]]:
+        """Return all documents that have the given tag, newest first."""
+        tag = (tag or "").strip()
+        if not tag:
+            return []
+        async with self.connection() as conn:
+            cursor = await conn.execute(
+                """SELECT d.* FROM documents d
+                   JOIN document_tags dt ON d.id = dt.doc_id
+                   WHERE dt.tag = ?
+                   ORDER BY d.created_at DESC""",
+                (tag,),
+            )
+            rows = await cursor.fetchall()
+        return [self._row_to_doc_dict(r) for r in rows]
+
+    async def get_all_tags(self) -> list[dict[str, Any]]:
+        """Return all tags with their document counts, sorted by count descending.
+
+        Each dict has keys: tag (str), count (int).
+        """
+        async with self.connection() as conn:
+            cursor = await conn.execute(
+                """SELECT tag, COUNT(*) as count
+                   FROM document_tags
+                   GROUP BY tag
+                   ORDER BY count DESC, tag ASC""",
+            )
+            rows = await cursor.fetchall()
+        return [{"tag": row["tag"], "count": row["count"]} for row in rows]
+
+    async def get_tags_for_documents(
+        self, doc_ids: list[int]
+    ) -> dict[int, list[str]]:
+        """Batch-fetch tags for multiple documents.
+
+        Returns a dict mapping doc_id -> list[str] of tag names.
+        Documents with no tags are absent from the result.
+        """
+        if not doc_ids:
+            return {}
+        placeholders = ",".join("?" * len(doc_ids))
+        async with self.connection() as conn:
+            cursor = await conn.execute(
+                f"""SELECT doc_id, tag FROM document_tags
+                    WHERE doc_id IN ({placeholders})
+                    ORDER BY doc_id, tag""",
+                doc_ids,
+            )
+            rows = await cursor.fetchall()
+        result: dict[int, list[str]] = {}
+        for row in rows:
+            result.setdefault(row["doc_id"], []).append(row["tag"])
+        return result
 
     # ── Helpers ─────────────────────────────────────────────────
 
