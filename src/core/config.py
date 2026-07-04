@@ -109,6 +109,46 @@ class JobQueueConfig:
 
 
 @dataclass
+class EmbeddingConfig:
+    """Embedding provider settings for vector/semantic search.
+
+    Supports three providers:
+      - 'local':  sentence-transformers (loads model in-process; heavy dep)
+      - 'ollama': remote Ollama /api/embeddings endpoint (lightweight)
+      - 'openai': remote OpenAI-compatible /v1/embeddings endpoint
+
+    When provider is empty or sentence-transformers is not installed and
+    no remote provider is configured, search gracefully falls back to
+    FTS5-only (no vector embeddings are generated).
+    """
+
+    provider: str = field(
+        default_factory=lambda: _env("DOCMIND_EMBEDDING_PROVIDER", "")
+    )
+    model: str = field(
+        default_factory=lambda: _env(
+            "DOCMIND_EMBEDDING_MODEL", "all-MiniLM-L6-v2"
+        )
+    )
+    base_url: str = field(
+        default_factory=lambda: _env("DOCMIND_EMBEDDING_BASE_URL", "")
+    )
+    api_key: str = field(
+        default_factory=lambda: _env("DOCMIND_EMBEDDING_API_KEY", "")
+    )
+    dim: int = field(
+        default_factory=lambda: _env_int("DOCMIND_EMBEDDING_DIM", 384)
+    )
+    timeout_seconds: float = field(
+        default_factory=lambda: float(_env("DOCMIND_EMBEDDING_TIMEOUT", "30.0"))
+    )
+    # Weight of vector score in hybrid fusion (0.0 = FTS only, 1.0 = vector only)
+    hybrid_vector_weight: float = field(
+        default_factory=lambda: float(_env("DOCMIND_HYBRID_VECTOR_WEIGHT", "0.6"))
+    )
+
+
+@dataclass
 class LLMConfig:
     """LLM provider settings for RAG answer generation.
 
@@ -169,6 +209,7 @@ class Config:
     job_queue: JobQueueConfig = field(default_factory=JobQueueConfig)
     document_limits: DocumentLimits = field(default_factory=DocumentLimits)
     llm: LLMConfig = field(default_factory=LLMConfig)
+    embedding: EmbeddingConfig = field(default_factory=EmbeddingConfig)
     debug: bool = field(
         default_factory=lambda: _env_bool("DOCMIND_DEBUG", False)
     )

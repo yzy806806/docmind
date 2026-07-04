@@ -325,3 +325,200 @@ class SearchEngine:
             structural_hash.encode("utf-8")
         ).hexdigest()
         return content_hash, structural_hash
+
+
+# ── Hybrid (FTS5 + vector) search ──────────────────────────────
+
+
+class HybridSearchEngine:
+    """Combines FTS5 keyword search with vector semantic search.
+
+    Score fusion: weighted combination of normalized FTS5 BM25 score
+    and cosine similarity. Falls back to FTS5-only when no embedding
+    provider is available or no embeddings are stored.
+
+    Usage::
+
+        from src.core.embeddings import EmbeddingClient
+        from src.core.db_sqlite import Database
+
+        db = Database("data/docmind.db")
+        await db.connect()
+        embed_client = EmbeddingClient(config.embedding)
+        engine = HybridSearchEngine(db=db, embed_client=embed_client)
+        results = await engine.search("how to train a model", top_k=5)
+    """
+
+    def __init__(
+        self,
+        db: Any,
+        embed_client: Any = None,
+        *,
+        vector_weight: float = 0.6,
+        fts_candidate_limit: int = 30,
+    ):
+        """Initialize the hybrid search engine.
+
+        Args:
+            db: A Database instance (db_sqlite.Database) with
+                search_documents() and search_similar() methods.
+            embed_client: An EmbeddingClient instance. If None or
+                unavailable, search falls back to FTS5-only.
+            vector_weight: Weight of vector score in fusion (0.0–1.0).
+                Final score = (1 - w) * fts_score_norm + w * vector_score.
+            fts_candidate_limit: Max FTS results to retrieve as candidates.
+        """
+        self.db = db
+        self.embed_client = embed_client
+        self.vector_weight = max(0.0, min(1.0, vector_weight))
+        self.fts_weight = 1.0 - self.vector_weight
+        self.fts_candidate_limit = fts_candidate_limit
+
+    async def search(
+        self,
+        query: str,
+        top_k: int = 5,
+    ) -> list[dict[str, Any]]:
+        """Run hybrid search combining FTS5 and vector similarity.
+
+        Returns a list of dicts with keys: doc_id, path, title, summary,
+        body, snippet, rank (fused score), fts_score, vector_score.
+        """
+        if not query or not query.strip():
+            return []
+
+        # Stage 1: FTS5 keyword search (broad recall)
+        fts_results = await self.db.search_documents(
+            query, limit=self.fts_candidate_limit
+        )
+
+        # Check if vector search is available
+        vector_available = (
+            self.embed_client is not None
+            and self.embed_client.is_available()
+            and await self._has_any_embeddings()
+        )
+
+        if not vector_available:
+            # Fallback: FTS-only
+            return self._format_fts_results(fts_results, top_k)
+
+        # Stage 2: Vector semantic search
+        query_vec = await self.embed_client.embed(query)
+        if not query_vec:
+            return self._format_fts_results(fts_results, top_k)
+
+        similar = await self.db.search_similar(query_vec, top_k=max(top_k, 20))
+
+        # Build lookup for vector scores
+        vector_scores: dict[int, float] = {
+            s["doc_id"]: s["similarity"] for s in similar
+        }
+
+        # Stage 3: Score fusion
+        # Collect all candidate doc_ids from both FTS and vector results
+        fts_doc_ids = {r["id"] for r in fts_results}
+        vec_doc_ids = set(vector_scores.keys())
+        all_doc_ids = fts_doc_ids | vec_doc_ids
+
+        # Normalize FTS scores (BM25 scores can vary wildly)
+        fts_score_map: dict[int, float] = {}
+        if fts_results:
+            max_fts = max((r.get("rank", 0) for r in fts_results), default=1.0)
+            min_fts = min((r.get("rank", 0) for r in fts_results), default=0.0)
+            fts_range = max_fts - min_fts if max_fts > min_fts else 1.0
+            for r in fts_results:
+                # Normalize to [0, 1]
+                normalized = (r.get("rank", 0) - min_fts) / fts_range
+                fts_score_map[r["id"]] = normalized
+
+        # Build fused results
+        fused: list[dict[str, Any]] = []
+        for doc_id in all_doc_ids:
+            fts_score = fts_score_map.get(doc_id, 0.0)
+            vec_score = vector_scores.get(doc_id, 0.0)
+            fused_score = (
+                self.fts_weight * fts_score + self.vector_weight * vec_score
+            )
+            fused.append({
+                "doc_id": doc_id,
+                "fts_score": fts_score,
+                "vector_score": vec_score,
+                "rank": fused_score,
+            })
+
+        # Sort by fused score descending
+        fused.sort(key=lambda x: x["rank"], reverse=True)
+        top = fused[:top_k]
+
+        # Enrich with document metadata
+        results: list[dict[str, Any]] = []
+        for item in top:
+            doc = await self.db.get_document(item["doc_id"])
+            if doc is None:
+                continue
+            results.append({
+                "doc_id": item["doc_id"],
+                "path": doc.get("path", ""),
+                "title": doc.get("title", ""),
+                "summary": doc.get("summary"),
+                "body": doc.get("body", ""),
+                "snippet": (doc.get("body") or "")[:300],
+                "rank": item["rank"],
+                "fts_score": item["fts_score"],
+                "vector_score": item["vector_score"],
+            })
+
+        return results
+
+    async def _has_any_embeddings(self) -> bool:
+        """Check if any documents have stored embeddings."""
+        try:
+            count = await self.db.get_document_count_with_embeddings()
+            return count > 0
+        except Exception:
+            return False
+
+    @staticmethod
+    def _format_fts_results(
+        fts_results: list[dict[str, Any]],
+        top_k: int,
+    ) -> list[dict[str, Any]]:
+        """Format FTS results as hybrid-style output (FTS-only fallback)."""
+        output: list[dict[str, Any]] = []
+        for r in fts_results[:top_k]:
+            output.append({
+                "doc_id": r.get("id", r.get("doc_id")),
+                "path": r.get("path", ""),
+                "title": r.get("title", ""),
+                "summary": r.get("summary"),
+                "body": r.get("body", ""),
+                "snippet": (r.get("body") or "")[:300],
+                "rank": r.get("rank", 0.0),
+                "fts_score": r.get("rank", 0.0),
+                "vector_score": 0.0,
+            })
+        return output
+
+    async def index_document_embedding(
+        self,
+        doc_id: int,
+        title: str = "",
+        summary: str = "",
+        body: str = "",
+    ) -> None:
+        """Generate and store an embedding for a document.
+
+        Uses title + summary + body (first 2000 chars) as embedding input.
+        Skips silently if no embedding provider is available.
+        """
+        if self.embed_client is None or not self.embed_client.is_available():
+            return
+
+        text = self.embed_client.build_embedding_text(title, summary, body)
+        if not text:
+            return
+
+        vec = await self.embed_client.embed(text)
+        if vec:
+            await self.db.save_embedding(doc_id, vec)
