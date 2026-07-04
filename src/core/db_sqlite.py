@@ -70,6 +70,24 @@ CREATE TABLE IF NOT EXISTS jobs (
 );
 
 CREATE INDEX IF NOT EXISTS idx_jobs_state_created ON jobs(state, created_at);
+
+CREATE TABLE IF NOT EXISTS chat_sessions (
+    id           TEXT PRIMARY KEY,
+    title        TEXT NOT NULL DEFAULT 'New Chat',
+    created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS chat_messages (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id      TEXT NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
+    role            TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+    content         TEXT NOT NULL DEFAULT '',
+    citations_json  TEXT DEFAULT '[]',
+    created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON chat_messages(session_id);
 """
 
 # FTS5 virtual table — created separately because some SQLite builds
@@ -657,6 +675,161 @@ class Database:
 
         return [self._row_to_doc_dict(r) for r in rows]
 
+    # ── Chat session & message CRUD ──────────────────────────────
+
+    async def create_chat_session(
+        self, session_id: Optional[str] = None, *, title: str = "New Chat"
+    ) -> dict[str, Any]:
+        """Create a new chat session and return it as a dict.
+
+        Args:
+            session_id: Optional UUID string. If None, one is generated.
+            title: Session title (defaults to "New Chat"; callers typically
+                update this from the first user message via update_chat_session_title).
+        """
+        sid = session_id or str(uuid.uuid4())
+        now = _now_iso()
+        async with self.connection() as conn:
+            await conn.execute(
+                """INSERT INTO chat_sessions (id, title, created_at, updated_at)
+                   VALUES (?, ?, ?, ?)""",
+                (sid, title, now, now),
+            )
+            await conn.commit()
+        return {"id": sid, "title": title, "created_at": now, "updated_at": now}
+
+    async def get_chat_session(self, session_id: str) -> Optional[dict[str, Any]]:
+        """Fetch a single chat session by id. Returns None if not found."""
+        async with self.connection() as conn:
+            cursor = await conn.execute(
+                """SELECT id, title, created_at, updated_at
+                   FROM chat_sessions WHERE id = ?""",
+                (session_id,),
+            )
+            row = await cursor.fetchone()
+
+        if row is None:
+            return None
+        return self._row_to_chat_session_dict(row)
+
+    async def list_chat_sessions(self, limit: int = 50) -> list[dict[str, Any]]:
+        """List recent chat sessions, newest first.
+
+        Each entry includes a ``preview`` field: the first 120 chars of the
+        most recent user message in that session (or empty string if none).
+        """
+        async with self.connection() as conn:
+            cursor = await conn.execute(
+                """SELECT s.id, s.title, s.created_at, s.updated_at,
+                          (
+                              SELECT content FROM chat_messages m
+                              WHERE m.session_id = s.id
+                              ORDER BY m.created_at DESC LIMIT 1
+                          ) AS last_content
+                   FROM chat_sessions s
+                   ORDER BY s.updated_at DESC
+                   LIMIT ?""",
+                (limit,),
+            )
+            rows = await cursor.fetchall()
+
+        result: list[dict[str, Any]] = []
+        for r in rows:
+            preview = (r["last_content"] or "")[:120]
+            result.append({
+                "id": r["id"],
+                "title": r["title"],
+                "preview": preview,
+                "created_at": r["created_at"],
+                "updated_at": r["updated_at"],
+            })
+        return result
+
+    async def delete_chat_session(self, session_id: str) -> bool:
+        """Delete a chat session and all its messages (CASCADE).
+
+        Returns True if a row was deleted, False if the session was not found.
+        """
+        async with self.connection() as conn:
+            cursor = await conn.execute(
+                "DELETE FROM chat_sessions WHERE id = ?", (session_id,)
+            )
+            await conn.commit()
+            return cursor.rowcount > 0
+
+    async def update_chat_session_title(
+        self, session_id: str, title: str
+    ) -> bool:
+        """Update a session's title and bump updated_at.
+
+        Returns True if updated, False if the session does not exist.
+        """
+        now = _now_iso()
+        async with self.connection() as conn:
+            cursor = await conn.execute(
+                """UPDATE chat_sessions SET title = ?, updated_at = ?
+                   WHERE id = ?""",
+                (title, now, session_id),
+            )
+            await conn.commit()
+            return cursor.rowcount > 0
+
+    async def save_chat_message(
+        self,
+        session_id: str,
+        role: str,
+        content: str,
+        citations: Optional[list[dict[str, Any]]] = None,
+    ) -> dict[str, Any]:
+        """Persist a chat message and return it as a dict.
+
+        Also bumps the parent session's updated_at timestamp.
+        """
+        if role not in ("user", "assistant"):
+            raise ValueError(f"role must be 'user' or 'assistant', got {role!r}")
+        citations_json = json.dumps(citations or [], ensure_ascii=False, default=str)
+        now = _now_iso()
+        async with self.connection() as conn:
+            cursor = await conn.execute(
+                """INSERT INTO chat_messages
+                       (session_id, role, content, citations_json, created_at)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (session_id, role, content, citations_json, now),
+            )
+            msg_id = cursor.lastrowid
+            # Bump session updated_at
+            await conn.execute(
+                "UPDATE chat_sessions SET updated_at = ? WHERE id = ?",
+                (now, session_id),
+            )
+            await conn.commit()
+
+        return {
+            "id": msg_id,
+            "session_id": session_id,
+            "role": role,
+            "content": content,
+            "citations": citations or [],
+            "created_at": now,
+        }
+
+    async def get_chat_history(
+        self, session_id: str, limit: int = 50
+    ) -> list[dict[str, Any]]:
+        """Return messages for a session, oldest first, up to ``limit``."""
+        async with self.connection() as conn:
+            cursor = await conn.execute(
+                """SELECT id, session_id, role, content, citations_json, created_at
+                   FROM chat_messages
+                   WHERE session_id = ?
+                   ORDER BY created_at ASC
+                   LIMIT ?""",
+                (session_id, limit),
+            )
+            rows = await cursor.fetchall()
+
+        return [self._row_to_chat_message_dict(r) for r in rows]
+
     # ── Helpers ─────────────────────────────────────────────────
 
     @staticmethod
@@ -695,3 +868,30 @@ class Database:
                     pass
         # Include rank if present (from FTS search)
         return d
+
+    @staticmethod
+    def _row_to_chat_session_dict(row: aiosqlite.Row) -> dict[str, Any]:
+        """Convert a chat_sessions row to a dict."""
+        return {
+            "id": row["id"],
+            "title": row["title"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+
+    @staticmethod
+    def _row_to_chat_message_dict(row: aiosqlite.Row) -> dict[str, Any]:
+        """Convert a chat_messages row to a dict with parsed citations."""
+        citations_raw = row["citations_json"] or "[]"
+        try:
+            citations = json.loads(citations_raw) if isinstance(citations_raw, str) else citations_raw
+        except (json.JSONDecodeError, TypeError):
+            citations = []
+        return {
+            "id": row["id"],
+            "session_id": row["session_id"],
+            "role": row["role"],
+            "content": row["content"],
+            "citations": citations,
+            "created_at": row["created_at"],
+        }

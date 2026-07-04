@@ -1103,3 +1103,273 @@ class TestEdgeCases:
 
         await db.disconnect()
         assert row[0] == 1
+
+
+# ── Chat session & message CRUD tests ────────────────────────────
+
+
+class TestChatSessionCRUD:
+    """Tests for chat_sessions and chat_messages tables and CRUD methods."""
+
+    @pytest.mark.asyncio
+    async def test_create_chat_session_returns_dict(self, db) -> None:
+        """create_chat_session should return a dict with id, title, timestamps."""
+        session = await db.create_chat_session()
+        assert "id" in session
+        assert isinstance(session["id"], str)
+        assert len(session["id"]) > 0
+        assert session["title"] == "New Chat"
+        assert session["created_at"] is not None
+        assert session["updated_at"] is not None
+
+    @pytest.mark.asyncio
+    async def test_create_chat_session_with_explicit_id(self, db) -> None:
+        """create_chat_session should accept an explicit session_id."""
+        sid = "my-custom-session-id-123"
+        session = await db.create_chat_session(session_id=sid)
+        assert session["id"] == sid
+
+    @pytest.mark.asyncio
+    async def test_create_chat_session_with_title(self, db) -> None:
+        """create_chat_session should accept a custom title."""
+        session = await db.create_chat_session(title="My First Chat")
+        assert session["title"] == "My First Chat"
+
+    @pytest.mark.asyncio
+    async def test_get_chat_session_existing(self, db) -> None:
+        """get_chat_session should return the session dict when it exists."""
+        created = await db.create_chat_session(title="Find Me")
+        fetched = await db.get_chat_session(created["id"])
+        assert fetched is not None
+        assert fetched["id"] == created["id"]
+        assert fetched["title"] == "Find Me"
+
+    @pytest.mark.asyncio
+    async def test_get_chat_session_missing(self, db) -> None:
+        """get_chat_session should return None for unknown id."""
+        result = await db.get_chat_session("nonexistent-id")
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_list_chat_sessions_empty(self, db) -> None:
+        """list_chat_sessions on empty db returns empty list."""
+        sessions = await db.list_chat_sessions()
+        assert sessions == []
+
+    @pytest.mark.asyncio
+    async def test_list_chat_sessions_returns_newest_first(self, db) -> None:
+        """list_chat_sessions should return sessions newest-first."""
+        s1 = await db.create_chat_session(title="First")
+        s2 = await db.create_chat_session(title="Second")
+        sessions = await db.list_chat_sessions()
+        assert len(sessions) == 2
+        # Newest (s2) should be first
+        assert sessions[0]["id"] == s2["id"]
+        assert sessions[1]["id"] == s1["id"]
+
+    @pytest.mark.asyncio
+    async def test_list_chat_sessions_includes_preview(self, db) -> None:
+        """list_chat_sessions should include a preview from last message."""
+        session = await db.create_chat_session(title="Preview Test")
+        await db.save_chat_message(session["id"], "user", "Hello preview world")
+        sessions = await db.list_chat_sessions()
+        assert len(sessions) == 1
+        assert "Hello preview world" in sessions[0]["preview"]
+
+    @pytest.mark.asyncio
+    async def test_list_chat_sessions_respects_limit(self, db) -> None:
+        """list_chat_sessions should respect the limit parameter."""
+        for i in range(5):
+            await db.create_chat_session(title=f"Session {i}")
+        sessions = await db.list_chat_sessions(limit=3)
+        assert len(sessions) == 3
+
+    @pytest.mark.asyncio
+    async def test_delete_chat_session_existing(self, db) -> None:
+        """delete_chat_session should return True and remove the session."""
+        session = await db.create_chat_session()
+        deleted = await db.delete_chat_session(session["id"])
+        assert deleted is True
+        # Verify gone
+        result = await db.get_chat_session(session["id"])
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_delete_chat_session_missing(self, db) -> None:
+        """delete_chat_session should return False for unknown id."""
+        deleted = await db.delete_chat_session("nonexistent-id")
+        assert deleted is False
+
+    @pytest.mark.asyncio
+    async def test_update_chat_session_title(self, db) -> None:
+        """update_chat_session_title should change the title."""
+        session = await db.create_chat_session()
+        ok = await db.update_chat_session_title(session["id"], "Updated Title")
+        assert ok is True
+        fetched = await db.get_chat_session(session["id"])
+        assert fetched["title"] == "Updated Title"
+
+    @pytest.mark.asyncio
+    async def test_update_chat_session_title_missing(self, db) -> None:
+        """update_chat_session_title should return False for unknown id."""
+        ok = await db.update_chat_session_title("nonexistent", "Title")
+        assert ok is False
+
+
+class TestChatMessages:
+    """Tests for chat_messages persistence."""
+
+    @pytest.mark.asyncio
+    async def test_save_chat_message_user(self, db) -> None:
+        """save_chat_message should persist a user message."""
+        session = await db.create_chat_session()
+        msg = await db.save_chat_message(
+            session["id"], "user", "What is the API design?"
+        )
+        assert msg["session_id"] == session["id"]
+        assert msg["role"] == "user"
+        assert msg["content"] == "What is the API design?"
+        assert msg["citations"] == []
+        assert msg["id"] > 0
+
+    @pytest.mark.asyncio
+    async def test_save_chat_message_assistant_with_citations(self, db) -> None:
+        """save_chat_message should persist an assistant message with citations."""
+        session = await db.create_chat_session()
+        citations = [
+            {"ref": 1, "doc_id": 42, "title": "Doc", "snippet": "snip"},
+        ]
+        msg = await db.save_chat_message(
+            session["id"], "assistant", "The API uses REST.", citations=citations
+        )
+        assert msg["role"] == "assistant"
+        assert msg["citations"] == citations
+
+    @pytest.mark.asyncio
+    async def test_save_chat_message_invalid_role(self, db) -> None:
+        """save_chat_message should reject invalid role."""
+        session = await db.create_chat_session()
+        with pytest.raises(ValueError, match="role"):
+            await db.save_chat_message(session["id"], "system", "content")
+
+    @pytest.mark.asyncio
+    async def test_get_chat_history_empty(self, db) -> None:
+        """get_chat_history on session with no messages returns empty list."""
+        session = await db.create_chat_session()
+        history = await db.get_chat_history(session["id"])
+        assert history == []
+
+    @pytest.mark.asyncio
+    async def test_get_chat_history_ordered_oldest_first(self, db) -> None:
+        """get_chat_history should return messages oldest-first."""
+        session = await db.create_chat_session()
+        await db.save_chat_message(session["id"], "user", "First question")
+        await db.save_chat_message(session["id"], "assistant", "First answer")
+        await db.save_chat_message(session["id"], "user", "Second question")
+        history = await db.get_chat_history(session["id"])
+        assert len(history) == 3
+        assert history[0]["content"] == "First question"
+        assert history[1]["content"] == "First answer"
+        assert history[2]["content"] == "Second question"
+
+    @pytest.mark.asyncio
+    async def test_get_chat_history_respects_limit(self, db) -> None:
+        """get_chat_history should respect the limit parameter."""
+        session = await db.create_chat_session()
+        for i in range(10):
+            await db.save_chat_message(session["id"], "user", f"Q{i}")
+        history = await db.get_chat_history(session["id"], limit=5)
+        assert len(history) == 5
+        # Should be the FIRST 5 (oldest), since we order ASC then limit
+        assert history[0]["content"] == "Q0"
+        assert history[4]["content"] == "Q4"
+
+    @pytest.mark.asyncio
+    async def test_get_chat_history_citations_roundtrip(self, db) -> None:
+        """Citations should survive a save -> get roundtrip."""
+        session = await db.create_chat_session()
+        cites = [{"ref": 1, "doc_id": 5}, {"ref": 2, "doc_id": 6}]
+        await db.save_chat_message(
+            session["id"], "assistant", "Answer", citations=cites
+        )
+        history = await db.get_chat_history(session["id"])
+        assert len(history) == 1
+        assert history[0]["citations"] == cites
+
+    @pytest.mark.asyncio
+    async def test_save_message_bumps_session_updated_at(self, db) -> None:
+        """Saving a message should update the session's updated_at."""
+        session = await db.create_chat_session()
+        original_updated = session["updated_at"]
+        await db.save_chat_message(session["id"], "user", "Hello")
+        fetched = await db.get_chat_session(session["id"])
+        assert fetched["updated_at"] >= original_updated
+
+    @pytest.mark.asyncio
+    async def test_cascade_delete_removes_messages(self, db) -> None:
+        """Deleting a session should cascade-delete its messages."""
+        session = await db.create_chat_session()
+        await db.save_chat_message(session["id"], "user", "Q1")
+        await db.save_chat_message(session["id"], "assistant", "A1")
+
+        # Verify messages exist
+        history = await db.get_chat_history(session["id"])
+        assert len(history) == 2
+
+        # Delete session
+        await db.delete_chat_session(session["id"])
+
+        # Messages should be gone too
+        history_after = await db.get_chat_history(session["id"])
+        assert history_after == []
+
+    @pytest.mark.asyncio
+    async def test_cascade_delete_does_not_affect_other_sessions(self, db) -> None:
+        """Deleting one session should not affect messages in another."""
+        s1 = await db.create_chat_session()
+        s2 = await db.create_chat_session()
+        await db.save_chat_message(s1["id"], "user", "S1 msg")
+        await db.save_chat_message(s2["id"], "user", "S2 msg")
+
+        await db.delete_chat_session(s1["id"])
+
+        s2_history = await db.get_chat_history(s2["id"])
+        assert len(s2_history) == 1
+        assert s2_history[0]["content"] == "S2 msg"
+
+    @pytest.mark.asyncio
+    async def test_chat_tables_created_on_connect(self, tmp_db_path: str) -> None:
+        """connect() should create chat_sessions and chat_messages tables."""
+        from src.core.db_sqlite import Database
+
+        db = Database(db_path=tmp_db_path)
+        await db.connect()
+
+        async with db.connection() as conn:
+            cursor = await conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+            tables = [row[0] for row in await cursor.fetchall()]
+
+        await db.disconnect()
+
+        assert "chat_sessions" in tables
+        assert "chat_messages" in tables
+
+    @pytest.mark.asyncio
+    async def test_chat_messages_index_exists(self, tmp_db_path: str) -> None:
+        """An index on chat_messages(session_id) should exist."""
+        from src.core.db_sqlite import Database
+
+        db = Database(db_path=tmp_db_path)
+        await db.connect()
+
+        async with db.connection() as conn:
+            cursor = await conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='chat_messages'"
+            )
+            indexes = [row[0] for row in await cursor.fetchall()]
+
+        await db.disconnect()
+        assert "idx_chat_messages_session" in indexes
+

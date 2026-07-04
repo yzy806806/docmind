@@ -379,8 +379,59 @@ def create_app() -> FastAPI:
 
     @app.websocket("/chat")
     async def chat_endpoint(websocket: WebSocket):
-        """Real-time Q&A with citation tracking."""
-        await handle_chat(websocket)
+        """Real-time Q&A with citation tracking and persisted history."""
+        db = get_db()
+        await handle_chat(websocket, db=db)
+
+    # ── Chat session REST API ───────────────────────────────
+
+    @app.get(
+        "/api/v1/chat/sessions",
+        tags=["chat"],
+        summary="List recent chat sessions",
+    )
+    async def list_chat_sessions(limit: int = Query(default=50, ge=1, le=200)):
+        """Return recent chat sessions (newest first) with preview + timestamps."""
+        db = get_db()
+        sessions = await db.list_chat_sessions(limit=limit)
+        return {"sessions": sessions, "count": len(sessions)}
+
+    @app.get(
+        "/api/v1/chat/sessions/{session_id}/messages",
+        tags=["chat"],
+        summary="Get full message history for a chat session",
+    )
+    async def get_chat_messages(session_id: str):
+        """Return all messages for a session, oldest first. 404 if session missing."""
+        db = get_db()
+        session = await db.get_chat_session(session_id)
+        if session is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"No chat session with id {session_id}",
+            )
+        messages = await db.get_chat_history(session_id, limit=200)
+        return {
+            "session": session,
+            "messages": messages,
+            "count": len(messages),
+        }
+
+    @app.delete(
+        "/api/v1/chat/sessions/{session_id}",
+        tags=["chat"],
+        summary="Delete a chat session and all its messages",
+    )
+    async def delete_chat_session_api(session_id: str):
+        """Delete a chat session. Returns 404 if not found."""
+        db = get_db()
+        deleted = await db.delete_chat_session(session_id)
+        if not deleted:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"No chat session with id {session_id}",
+            )
+        return {"id": session_id, "deleted": True}
 
     # ── API v1 Routes ───────────────────────────────────────
 
@@ -766,6 +817,29 @@ def _base_page(title: str, content: str, extra_head: str = "") -> str:
         .citations-panel h3 {{ color: var(--primary); font-size: 1em; }}
         .citation-item {{ font-size: 0.85em; margin: 4px 0; padding: 4px 8px;
                          border-left: 3px solid var(--primary); color: var(--text-muted); }}
+        /* Chat history sidebar */
+        .chat-layout {{ display: flex; gap: 16px; align-items: flex-start; margin: 16px 0; }}
+        .chat-sidebar {{ width: 260px; flex-shrink: 0; background: var(--surface); border-radius: 8px;
+                         box-shadow: var(--shadow); padding: 12px; max-height: 600px; overflow-y: auto; }}
+        .chat-sidebar-header {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }}
+        .chat-sidebar-header h3 {{ font-size: 1em; color: var(--primary); }}
+        .btn-new-chat {{ background: var(--primary); color: var(--header-text); border: none;
+                         border-radius: 6px; padding: 4px 10px; cursor: pointer; font-size: 0.85em; }}
+        .btn-new-chat:hover {{ background: var(--primary-hover); }}
+        .chat-session-list {{ display: flex; flex-direction: column; gap: 4px; }}
+        .chat-session-item {{ position: relative; padding: 8px 10px; border-radius: 6px; cursor: pointer;
+                              border: 1px solid transparent; }}
+        .chat-session-item:hover {{ background: var(--hover-bg); }}
+        .chat-session-item.active {{ background: var(--hover-bg); border-color: var(--primary); }}
+        .chat-session-title {{ font-weight: 600; font-size: 0.9em; color: var(--text);
+                               white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 20px; }}
+        .chat-session-preview {{ font-size: 0.8em; color: var(--text-faint);
+                                white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }}
+        .chat-session-del {{ position: absolute; top: 4px; right: 4px; background: none; border: none;
+                             color: var(--text-faint); cursor: pointer; font-size: 1.2em; line-height: 1;
+                             padding: 2px 6px; border-radius: 4px; }}
+        .chat-session-del:hover {{ color: var(--badge-error-text); background: var(--badge-error-bg); }}
+        .chat-main {{ flex: 1; min-width: 0; }}
         footer {{ text-align: center; padding: 24px; color: var(--text-faint); font-size: 0.85em; }}
         /* Mobile responsive */
         @media (max-width: 640px) {{
@@ -783,6 +857,8 @@ def _base_page(title: str, content: str, extra_head: str = "") -> str:
             .doc-actions {{ flex-direction: column; }}
             .chat-input-row {{ flex-direction: column; }}
             .chat-input-row button {{ width: 100%; }}
+            .chat-layout {{ flex-direction: column; }}
+            .chat-sidebar {{ width: 100%; max-height: 200px; }}
         }}
         {extra_head}
     </style>
@@ -1106,23 +1182,34 @@ def _render_delete_success(doc_id: int) -> str:
 
 def _render_chat_page() -> str:
     content = """
-    <div class="card">
-        <h2>Chat with Your Documents</h2>
-        <p class="pagination-info">Ask questions and get AI-powered answers with citation tracking.</p>
-        <div class="chat-box">
-            <div class="chat-messages" id="chat-messages">
-                <div class="chat-msg bot">Connecting...</div>
+    <div class="chat-layout">
+        <aside class="chat-sidebar" id="chat-sidebar">
+            <div class="chat-sidebar-header">
+                <h3>Conversations</h3>
+                <button id="new-chat-btn" class="btn-new-chat" title="Start a new chat">+ New</button>
             </div>
-            <div class="chat-input-row">
-                <input type="text" id="chat-input" placeholder="Ask a question..."
-                       onkeydown="if(event.key==='Enter')sendChat()" autofocus>
-                <button id="chat-send-btn" onclick="sendChat()">Send</button>
+            <div class="chat-session-list" id="chat-session-list">
+                <p class="pagination-info">Loading...</p>
             </div>
-            <div class="chat-status" id="chat-status">Disconnected</div>
-        </div>
-        <div class="citations-panel" id="citations-panel" style="display:none;">
-            <h3>Citations</h3>
-            <div id="citations-list"></div>
+        </aside>
+        <div class="card chat-main">
+            <h2 id="chat-title">Chat with Your Documents</h2>
+            <p class="pagination-info">Ask questions and get AI-powered answers with citation tracking.</p>
+            <div class="chat-box">
+                <div class="chat-messages" id="chat-messages">
+                    <div class="chat-msg bot">Connecting...</div>
+                </div>
+                <div class="chat-input-row">
+                    <input type="text" id="chat-input" placeholder="Ask a question..."
+                           onkeydown="if(event.key==='Enter')sendChat()" autofocus>
+                    <button id="chat-send-btn" onclick="sendChat()">Send</button>
+                </div>
+                <div class="chat-status" id="chat-status">Disconnected</div>
+            </div>
+            <div class="citations-panel" id="citations-panel" style="display:none;">
+                <h3>Citations</h3>
+                <div id="citations-list"></div>
+            </div>
         </div>
     </div>
     <script>
@@ -1131,16 +1218,46 @@ def _render_chat_page() -> str:
         var currentAnswer = '';
         var isStreaming = false;
         var sendBtn, inputField;
+        var currentSessionId = null;
+        var sessionTitle = 'New Chat';
+
+        function getQueryParam(name) {
+            var params = new URLSearchParams(window.location.search);
+            return params.get(name);
+        }
 
         function getWsUrl() {
             var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-            return proto + '//' + location.host + '/chat';
+            var url = proto + '//' + location.host + '/chat';
+            if (currentSessionId) {
+                url += '?session_id=' + encodeURIComponent(currentSessionId);
+            }
+            return url;
         }
+
+        function setSession(id, title) {
+            currentSessionId = id;
+            sessionTitle = title || 'New Chat';
+            var titleEl = document.getElementById('chat-title');
+            if (titleEl) titleEl.textContent = sessionTitle;
+            // Update URL without reload
+            var newUrl = window.location.pathname;
+            if (id) newUrl += '?session=' + encodeURIComponent(id);
+            history.replaceState({}, '', newUrl);
+        }
+
+        function clearMessages() {
+            document.getElementById('chat-messages').innerHTML = '';
+            citations = [];
+            currentAnswer = '';
+            document.getElementById('citations-panel').style.display = 'none';
+            document.getElementById('citations-list').innerHTML = '';
+        }
+
         function connectChat() {
             ws = new WebSocket(getWsUrl());
             ws.onopen = function() {
                 document.getElementById('chat-status').textContent = 'Connected';
-                addMsg('bot', 'DocMind chat ready. Ask questions about your documents.');
             };
             ws.onclose = function() {
                 document.getElementById('chat-status').textContent = 'Disconnected';
@@ -1188,7 +1305,22 @@ def _render_chat_page() -> str:
         function handleChatMessage(msg) {
             switch(msg.type) {
                 case 'connected':
-                    addMsg('bot', msg.message);
+                    if (msg.session_id) {
+                        setSession(msg.session_id, msg.title);
+                        loadSessionList();
+                    }
+                    break;
+                case 'history':
+                    clearMessages();
+                    if (msg.messages && msg.messages.length) {
+                        msg.messages.forEach(function(m) {
+                            addMsg(m.role === 'user' ? 'user' : 'bot', m.content);
+                            if (m.role === 'assistant' && m.citations && m.citations.length) {
+                                citations = m.citations;
+                                renderCitations();
+                            }
+                        });
+                    }
                     break;
                 case 'citation:added':
                     citations.push(msg);
@@ -1201,7 +1333,6 @@ def _render_chat_page() -> str:
                 case 'answer:done':
                     removeTypingIndicator();
                     if (msg.text && msg.text !== currentAnswer) {
-                        // Replace streamed content with final text if different
                         var box = document.getElementById('chat-messages');
                         var lastBot = box.querySelector('.chat-msg.bot:last-child');
                         if (lastBot && lastBot.dataset.streaming === 'true') {
@@ -1211,6 +1342,9 @@ def _render_chat_page() -> str:
                             addMsg('bot', msg.text);
                         }
                     }
+                    if (msg.session_id && msg.session_id !== currentSessionId) {
+                        setSession(msg.session_id, msg.title);
+                    }
                     isStreaming = false;
                     inputField = document.getElementById('chat-input');
                     sendBtn = document.getElementById('chat-send-btn');
@@ -1218,6 +1352,7 @@ def _render_chat_page() -> str:
                     sendBtn.disabled = false;
                     inputField.focus();
                     renderCitations();
+                    loadSessionList();
                     break;
                 case 'error':
                     removeTypingIndicator();
@@ -1264,7 +1399,67 @@ def _render_chat_page() -> str:
             }).join('');
             panel.style.display = 'block';
         }
-        connectChat();
+        function loadSessionList() {
+            fetch('/api/v1/chat/sessions?limit=30')
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    var listEl = document.getElementById('chat-session-list');
+                    if (!data.sessions || data.sessions.length === 0) {
+                        listEl.innerHTML = '<p class="pagination-info">No conversations yet.</p>';
+                        return;
+                    }
+                    listEl.innerHTML = data.sessions.map(function(s) {
+                        var active = (s.id === currentSessionId) ? ' active' : '';
+                        var title = s.title || 'New Chat';
+                        var preview = s.preview || '';
+                        var safeTitle = title.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                        var safePreview = preview.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                        return '<div class="chat-session-item' + active + '" ' +
+                               'onclick="loadSession(\\'' + s.id + '\\', \\'' + safeTitle.replace(/'/g, "\\\\'") + '\\')">' +
+                               '<div class="chat-session-title">' + safeTitle + '</div>' +
+                               '<div class="chat-session-preview">' + safePreview + '</div>' +
+                               '<button class="chat-session-del" title="Delete" ' +
+                               'onclick="deleteSession(event, \\'' + s.id + '\\')">&times;</button>' +
+                               '</div>';
+                    }).join('');
+                })
+                .catch(function() {
+                    document.getElementById('chat-session-list').innerHTML =
+                        '<p class="pagination-info">Could not load sessions.</p>';
+                });
+        }
+        function loadSession(id, title) {
+            setSession(id, title);
+            clearMessages();
+            // Reconnect WebSocket with the new session_id
+            if (ws) { try { ws.close(); } catch(e) {} }
+            connectChat();
+        }
+        function deleteSession(event, id) {
+            event.stopPropagation();
+            if (!confirm('Delete this conversation? This cannot be undone.')) return;
+            fetch('/api/v1/chat/sessions/' + encodeURIComponent(id), {method: 'DELETE'})
+                .then(function(r) { if (!r.ok) throw new Error('delete failed'); return r.json(); })
+                .then(function() {
+                    if (id === currentSessionId) {
+                        window.location.href = '/chat';
+                    } else {
+                        loadSessionList();
+                    }
+                })
+                .catch(function() { alert('Failed to delete session.'); });
+        }
+        function startNewChat() {
+            window.location.href = '/chat';
+        }
+        document.getElementById('new-chat-btn').addEventListener('click', startNewChat);
+        // On load: pick up ?session=xxx if present
+        (function() {
+            var sid = getQueryParam('session');
+            if (sid) { currentSessionId = sid; }
+            loadSessionList();
+            connectChat();
+        })();
     </script>
     """
     return _base_page("Chat", content)
