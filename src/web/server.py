@@ -212,18 +212,26 @@ def create_app() -> FastAPI:
     @app.get("/documents", response_class=HTMLResponse, include_in_schema=False)
     async def list_documents_page(
         source: str = Query(default=""),
-        limit: int = Query(default=100, le=500),
+        page: int = Query(default=1, ge=1),
+        per_page: int = Query(default=20, ge=1, le=100),
     ):
-        """List all indexed documents."""
+        """List documents with pagination."""
         db = get_db()
         try:
-            documents = await db.list_documents(
-                source=source if source else None, limit=limit
+            result = await db.list_documents_paginated(
+                page=page, per_page=per_page, source=source if source else None
             )
+            documents = result["documents"]
+            total = result["total"]
+            total_pages = result["total_pages"]
         except Exception:
             documents = []
+            total = 0
+            total_pages = 0
 
-        html = _render_documents_list(documents, source)
+        html = _render_documents_list(
+            documents, source, page, per_page, total, total_pages
+        )
         return HTMLResponse(content=html)
 
     @app.get("/documents/{doc_id}", response_class=HTMLResponse, include_in_schema=False)
@@ -309,6 +317,63 @@ def create_app() -> FastAPI:
             return HTMLResponse(
                 content=_render_upload_form(error=str(e)),
             )
+
+    @app.post(
+        "/documents/{doc_id}/delete",
+        response_class=HTMLResponse,
+        include_in_schema=False,
+    )
+    async def delete_document_form(doc_id: int):
+        """Delete a document via form POST, then redirect to documents list."""
+        try:
+            validate_doc_id(doc_id)
+        except ValidationError as e:
+            return HTMLResponse(
+                content=_render_error("Invalid document ID", e.message),
+                status_code=400,
+            )
+
+        db = get_db()
+        deleted = await db.delete_document(doc_id)
+        if not deleted:
+            return HTMLResponse(
+                content=_render_error("Not Found", f"Document {doc_id} not found"),
+                status_code=404,
+            )
+
+        html = _render_delete_success(doc_id)
+        return HTMLResponse(content=html)
+
+    @app.delete(
+        "/api/v1/documents/{doc_id}",
+        tags=["documents"],
+        summary="Delete a document and its FTS index entry",
+    )
+    async def delete_document_api(doc_id: int):
+        """Delete a document by ID. Returns 404 if not found."""
+        try:
+            validate_doc_id(doc_id)
+        except ValidationError as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=e.message,
+            )
+
+        db = get_db()
+        deleted = await db.delete_document(doc_id)
+        if not deleted:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"No document with id {doc_id}",
+            )
+
+        return {"id": doc_id, "deleted": True}
+
+    @app.get("/chat", response_class=HTMLResponse, include_in_schema=False)
+    async def chat_page():
+        """Chat page with WebSocket client for real-time Q&A."""
+        html = _render_chat_page()
+        return HTMLResponse(content=html)
 
     # ── WebSocket ───────────────────────────────────────────
 
@@ -538,7 +603,12 @@ def _extract_body(raw: bytes, ext: str, filename: str) -> str:
 
 
 def _base_page(title: str, content: str, extra_head: str = "") -> str:
-    """Render a base HTML page with minimal styling."""
+    """Render a base HTML page with dark-mode and responsive styling.
+
+    Uses CSS custom properties (variables) for theming. A JavaScript
+    toggle in the nav bar switches between light and dark, and the
+    preference is persisted in localStorage under ``docmind-theme``.
+    """
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -546,73 +616,187 @@ def _base_page(title: str, content: str, extra_head: str = "") -> str:
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{title} — DocMind</title>
     <style>
+        :root {{
+            --bg: #f5f5f5;
+            --surface: #ffffff;
+            --text: #333333;
+            --text-muted: #666666;
+            --text-faint: #888888;
+            --header-bg: #1a1a2e;
+            --header-text: #ffffff;
+            --nav-link: #a8dadc;
+            --border: #eeeeee;
+            --table-header-bg: #f8f8f8;
+            --hover-bg: #fafafa;
+            --primary: #1a1a2e;
+            --primary-hover: #2d2d4e;
+            --input-border: #dddddd;
+            --code-bg: #f5f5f5;
+            --badge-indexed-bg: #e3f2fd; --badge-indexed-text: #1565c0;
+            --badge-summarized-bg: #e8f5e9; --badge-summarized-text: #2e7d32;
+            --badge-pending-bg: #fff3e0; --badge-pending-text: #e65100;
+            --badge-error-bg: #ffebee; --badge-error-text: #c62828;
+            --error-bg: #ffebee; --error-text: #c62828;
+            --success-bg: #e8f5e9; --success-text: #2e7d32;
+            --shadow: 0 2px 4px rgba(0,0,0,0.1);
+            --shadow-sm: 0 1px 3px rgba(0,0,0,0.1);
+        }}
+        [data-theme="dark"] {{
+            --bg: #1a1a2e;
+            --surface: #16213e;
+            --text: #e0e0e0;
+            --text-muted: #b0b0b0;
+            --text-faint: #888888;
+            --header-bg: #0f0f23;
+            --header-text: #e0e0e0;
+            --nav-link: #a8dadc;
+            --border: #2a2a4a;
+            --table-header-bg: #1e1e3a;
+            --hover-bg: #1e1e3a;
+            --primary: #4a4a6a;
+            --primary-hover: #5a5a7a;
+            --input-border: #2a2a4a;
+            --code-bg: #0d0d1f;
+            --badge-indexed-bg: #1a3a5a; --badge-indexed-text: #64b5f6;
+            --badge-summarized-bg: #1a3a2a; --badge-summarized-text: #81c784;
+            --badge-pending-bg: #3a2a1a; --badge-pending-text: #ffb74d;
+            --badge-error-bg: #3a1a1a; --badge-error-text: #ef5350;
+            --error-bg: #3a1a1a; --error-text: #ef5350;
+            --success-bg: #1a3a2a; --success-text: #81c784;
+            --shadow: 0 2px 4px rgba(0,0,0,0.3);
+            --shadow-sm: 0 1px 3px rgba(0,0,0,0.3);
+        }}
         * {{ box-sizing: border-box; margin: 0; padding: 0; }}
         body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                background: #f5f5f5; color: #333; line-height: 1.6; }}
+                background: var(--bg); color: var(--text); line-height: 1.6;
+                transition: background 0.2s, color 0.2s; }}
         .container {{ max-width: 960px; margin: 0 auto; padding: 20px; }}
-        header {{ background: #1a1a2e; color: white; padding: 16px 24px; }}
+        header {{ background: var(--header-bg); color: var(--header-text); padding: 16px 24px; }}
+        .header-row {{ display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; }}
         header h1 {{ font-size: 1.5em; }}
-        header nav {{ margin-top: 8px; }}
-        header nav a {{ color: #a8dadc; text-decoration: none; margin-right: 16px; }}
+        header nav {{ margin-top: 8px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 0; }}
+        header nav a {{ color: var(--nav-link); text-decoration: none; margin-right: 16px; }}
         header nav a:hover {{ text-decoration: underline; }}
-        .card {{ background: white; border-radius: 8px; padding: 20px; margin: 16px 0;
-                 box-shadow: 0 2px 4px rgba(0,0,0,0.1); }}
+        .theme-toggle {{
+            background: none; border: 1px solid var(--nav-link); border-radius: 6px;
+            color: var(--nav-link); padding: 4px 10px; cursor: pointer;
+            font-size: 1.1em; margin-left: 8px; line-height: 1;
+        }}
+        .theme-toggle:hover {{ background: rgba(168,218,220,0.15); }}
+        .nav-toggle {{
+            display: none; background: none; border: none; color: var(--header-text);
+            font-size: 1.5em; cursor: pointer; padding: 4px 8px;
+        }}
+        .card {{ background: var(--surface); border-radius: 8px; padding: 20px; margin: 16px 0;
+                 box-shadow: var(--shadow); }}
         .stats {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
                  gap: 16px; margin: 16px 0; }}
-        .stat {{ background: white; border-radius: 8px; padding: 20px; text-align: center;
-                 box-shadow: 0 2px 4px rgba(0,0,0,0.1); }}
-        .stat-value {{ font-size: 2em; font-weight: bold; color: #1a1a2e; }}
-        .stat-label {{ font-size: 0.85em; color: #666; margin-top: 4px; }}
+        .stat {{ background: var(--surface); border-radius: 8px; padding: 20px; text-align: center;
+                 box-shadow: var(--shadow); }}
+        .stat-value {{ font-size: 2em; font-weight: bold; color: var(--primary); }}
+        .stat-label {{ font-size: 0.85em; color: var(--text-muted); margin-top: 4px; }}
         table {{ width: 100%; border-collapse: collapse; margin: 16px 0; }}
-        th, td {{ padding: 10px 12px; text-align: left; border-bottom: 1px solid #eee; }}
-        th {{ background: #f8f8f8; font-weight: 600; }}
-        tr:hover {{ background: #fafafa; }}
+        th, td {{ padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--border); }}
+        th {{ background: var(--table-header-bg); font-weight: 600; }}
+        tr:hover {{ background: var(--hover-bg); }}
         .search-box {{ display: flex; gap: 8px; }}
-        .search-box input {{ flex: 1; padding: 10px 14px; border: 2px solid #ddd;
-                            border-radius: 6px; font-size: 1em; }}
-        .search-box button {{ padding: 10px 24px; background: #1a1a2e; color: white;
+        .search-box input {{ flex: 1; padding: 10px 14px; border: 2px solid var(--input-border);
+                            border-radius: 6px; font-size: 1em; background: var(--surface); color: var(--text); }}
+        .search-box button {{ padding: 10px 24px; background: var(--primary); color: var(--header-text);
                               border: none; border-radius: 6px; cursor: pointer; font-size: 1em; }}
-        .search-box button:hover {{ background: #2d2d4e; }}
-        .result {{ margin: 16px 0; padding: 16px; background: white; border-radius: 8px;
-                   box-shadow: 0 1px 3px rgba(0,0,0,0.1); }}
-        .result h3 {{ color: #1a1a2e; }}
+        .search-box button:hover {{ background: var(--primary-hover); }}
+        .result {{ margin: 16px 0; padding: 16px; background: var(--surface); border-radius: 8px;
+                   box-shadow: var(--shadow-sm); }}
+        .result h3 {{ color: var(--primary); }}
         .result h3 a {{ color: inherit; text-decoration: none; }}
         .result h3 a:hover {{ text-decoration: underline; }}
-        .snippet {{ color: #555; margin: 8px 0; }}
-        .meta {{ font-size: 0.85em; color: #888; }}
+        .snippet {{ color: var(--text-muted); margin: 8px 0; }}
+        .meta {{ font-size: 0.85em; color: var(--text-faint); }}
         .badge {{ display: inline-block; padding: 2px 8px; border-radius: 12px;
                  font-size: 0.75em; font-weight: 600; }}
-        .badge-indexed {{ background: #e3f2fd; color: #1565c0; }}
-        .badge-summarized {{ background: #e8f5e9; color: #2e7d32; }}
-        .badge-pending {{ background: #fff3e0; color: #e65100; }}
-        .badge-error {{ background: #ffebee; color: #c62828; }}
-        .error {{ background: #ffebee; color: #c62828; padding: 12px 16px;
+        .badge-indexed {{ background: var(--badge-indexed-bg); color: var(--badge-indexed-text); }}
+        .badge-summarized {{ background: var(--badge-summarized-bg); color: var(--badge-summarized-text); }}
+        .badge-pending {{ background: var(--badge-pending-bg); color: var(--badge-pending-text); }}
+        .badge-error {{ background: var(--badge-error-bg); color: var(--badge-error-text); }}
+        .error {{ background: var(--error-bg); color: var(--error-text); padding: 12px 16px;
                  border-radius: 6px; margin: 12px 0; }}
-        .success {{ background: #e8f5e9; color: #2e7d32; padding: 12px 16px;
+        .success {{ background: var(--success-bg); color: var(--success-text); padding: 12px 16px;
                    border-radius: 6px; margin: 12px 0; }}
-        .upload-form {{ background: white; border-radius: 8px; padding: 24px;
-                       box-shadow: 0 2px 4px rgba(0,0,0,0.1); }}
+        .upload-form {{ background: var(--surface); border-radius: 8px; padding: 24px;
+                       box-shadow: var(--shadow); }}
         .upload-form input[type="file"] {{ margin: 12px 0; }}
-        .upload-form button {{ padding: 10px 24px; background: #1a1a2e; color: white;
+        .upload-form button {{ padding: 10px 24px; background: var(--primary); color: var(--header-text);
                                border: none; border-radius: 6px; cursor: pointer; }}
-        .doc-detail h2 {{ color: #1a1a2e; margin-bottom: 16px; }}
+        .doc-detail h2 {{ color: var(--primary); margin-bottom: 16px; }}
         .doc-detail .field {{ margin: 8px 0; }}
-        .doc-detail .field-label {{ font-weight: 600; color: #555; }}
-        .doc-detail pre {{ background: #f5f5f5; padding: 16px; border-radius: 6px;
-                          overflow-x: auto; font-size: 0.9em; white-space: pre-wrap; }}
-        footer {{ text-align: center; padding: 24px; color: #888; font-size: 0.85em; }}
+        .doc-detail .field-label {{ font-weight: 600; color: var(--text-muted); }}
+        .doc-detail pre {{ background: var(--code-bg); padding: 16px; border-radius: 6px;
+                          overflow-x: auto; font-size: 0.9em; white-space: pre-wrap; color: var(--text); }}
+        .doc-actions {{ margin-top: 20px; display: flex; gap: 12px; }}
+        .btn-delete {{ padding: 10px 24px; background: var(--badge-error-bg); color: var(--badge-error-text);
+                       border: 1px solid var(--badge-error-text); border-radius: 6px; cursor: pointer; font-size: 1em; }}
+        .btn-delete:hover {{ background: var(--error-bg); }}
+        .pagination {{ display: flex; justify-content: center; align-items: center; gap: 8px; margin: 20px 0; flex-wrap: wrap; }}
+        .pagination a, .pagination span {{
+            padding: 6px 12px; border-radius: 6px; text-decoration: none;
+            border: 1px solid var(--input-border); color: var(--text); background: var(--surface);
+        }}
+        .pagination a:hover {{ background: var(--hover-bg); }}
+        .pagination .current {{ background: var(--primary); color: var(--header-text); border-color: var(--primary); }}
+        .pagination .disabled {{ color: var(--text-faint); opacity: 0.5; cursor: default; }}
+        .pagination-info {{ text-align: center; color: var(--text-muted); font-size: 0.85em; margin-bottom: 8px; }}
+        .chat-box {{ display: flex; flex-direction: column; gap: 8px; }}
+        .chat-messages {{ min-height: 300px; max-height: 500px; overflow-y: auto; border: 1px solid var(--border);
+                         border-radius: 6px; padding: 12px; background: var(--code-bg); }}
+        .chat-msg {{ margin: 4px 0; }}
+        .chat-msg.user {{ color: var(--primary); }}
+        .chat-msg.bot {{ color: var(--text-muted); }}
+        .chat-msg.error {{ color: var(--badge-error-text); }}
+        .chat-input-row {{ display: flex; gap: 8px; }}
+        .chat-input-row input {{ flex: 1; padding: 10px 14px; border: 2px solid var(--input-border);
+                                 border-radius: 6px; font-size: 1em; background: var(--surface); color: var(--text); }}
+        .chat-input-row button {{ padding: 10px 24px; background: var(--primary); color: var(--header-text);
+                                  border: none; border-radius: 6px; cursor: pointer; }}
+        .chat-status {{ font-size: 0.85em; color: var(--text-faint); }}
+        .citations-panel {{ margin-top: 12px; }}
+        .citations-panel h3 {{ color: var(--primary); font-size: 1em; }}
+        .citation-item {{ font-size: 0.85em; margin: 4px 0; padding: 4px 8px;
+                         border-left: 3px solid var(--primary); color: var(--text-muted); }}
+        footer {{ text-align: center; padding: 24px; color: var(--text-faint); font-size: 0.85em; }}
+        /* Mobile responsive */
+        @media (max-width: 640px) {{
+            .container {{ padding: 12px; }}
+            .header-row {{ flex-direction: column; align-items: flex-start; }}
+            .nav-toggle {{ display: block; }}
+            header nav {{ display: none; flex-direction: column; width: 100%; }}
+            header nav.open {{ display: flex; }}
+            header nav a {{ margin-right: 0; margin-bottom: 8px; display: block; }}
+            .stats {{ grid-template-columns: 1fr; }}
+            .search-box {{ flex-direction: column; }}
+            .search-box button {{ width: 100%; }}
+            table {{ font-size: 0.85em; }}
+            th, td {{ padding: 6px 8px; }}
+            .doc-actions {{ flex-direction: column; }}
+            .chat-input-row {{ flex-direction: column; }}
+            .chat-input-row button {{ width: 100%; }}
+        }}
         {extra_head}
     </style>
 </head>
 <body>
     <header>
         <div class="container">
-            <h1>📚 DocMind</h1>
+            <div class="header-row">
+                <h1>📚 DocMind</h1>
+                <button class="nav-toggle" onclick="document.querySelector('header nav').classList.toggle('open')">☰</button>
+                <button class="theme-toggle" onclick="toggleTheme()" title="Toggle dark mode">🌙</button>
+            </div>
             <nav>
                 <a href="/">Dashboard</a>
                 <a href="/search">Search</a>
                 <a href="/documents">Documents</a>
                 <a href="/upload">Upload</a>
+                <a href="/chat">Chat</a>
                 <a href="/docs">API Docs</a>
             </nav>
         </div>
@@ -621,6 +805,24 @@ def _base_page(title: str, content: str, extra_head: str = "") -> str:
         {content}
     </div>
     <footer>DocMind v0.1.0 — AI-Powered Document Knowledge Base</footer>
+    <script>
+        (function() {{
+            var t = localStorage.getItem('docmind-theme') || 'light';
+            document.documentElement.setAttribute('data-theme', t);
+            updateToggleIcon(t);
+        }})();
+        function toggleTheme() {{
+            var cur = document.documentElement.getAttribute('data-theme') || 'light';
+            var next = cur === 'dark' ? 'light' : 'dark';
+            document.documentElement.setAttribute('data-theme', next);
+            localStorage.setItem('docmind-theme', next);
+            updateToggleIcon(next);
+        }}
+        function updateToggleIcon(theme) {{
+            var btn = document.querySelector('.theme-toggle');
+            if (btn) btn.textContent = theme === 'dark' ? '☀️' : '🌙';
+        }}
+    </script>
 </body>
 </html>"""
 
@@ -727,7 +929,14 @@ def _render_search_results(query: str, results: list[dict]) -> str:
     return _base_page(f"Search: {query}", content)
 
 
-def _render_documents_list(documents: list[dict], source: str) -> str:
+def _render_documents_list(
+    documents: list[dict],
+    source: str,
+    page: int = 1,
+    per_page: int = 20,
+    total: int = 0,
+    total_pages: int = 0,
+) -> str:
     rows = ""
     for doc in documents:
         status_class = f"badge-{doc.get('status', 'pending')}"
@@ -740,11 +949,19 @@ def _render_documents_list(documents: list[dict], source: str) -> str:
             <td>{_fmt_date(doc.get('created_at', ''))}</td>
         </tr>"""
 
+    source_param = f"&source={_escape(source)}" if source else ""
+    pagination_html = _render_pagination(page, per_page, total, total_pages, source_param)
+
+    start = (page - 1) * per_page + 1 if total > 0 else 0
+    end = min(page * per_page, total)
+
     content = f"""
     <div class="card">
-        <h2>Documents {'— ' + source if source else ''}</h2>
+        <h2>Documents {'— ' + _escape(source) if source else ''}</h2>
+        <div class="pagination-info">Showing {start}–{end} of {total} document(s)</div>
         {'<table><tr><th>Document</th><th>Status</th><th>Source</th><th>Type</th><th>Date</th></tr>' + rows + '</table>' if documents else '<p>No documents found.</p>'}
     </div>
+    {pagination_html}
     """
     return _base_page("Documents", content)
 
@@ -771,6 +988,13 @@ def _render_document_detail(doc: dict) -> str:
 
         <h3>Content Preview</h3>
         <pre>{_escape(body_preview)}</pre>
+
+        <div class="doc-actions">
+            <form action="/documents/{doc.get('id', '?')}/delete" method="post"
+                  onsubmit="return confirm('Are you sure you want to delete document {doc.get('id', '?')}? This cannot be undone.');">
+                <button type="submit" class="btn-delete">🗑 Delete Document</button>
+            </form>
+        </div>
     </div>
     """
     return _base_page(doc.get('title', 'Document Detail'), content)
@@ -805,6 +1029,196 @@ def _render_upload_success(title: str, doc_id: int, job_id: str) -> str:
     <p><a href="/upload">Upload another</a> | <a href="/documents">View all documents</a></p>
     """
     return _base_page("Upload Success", content)
+
+
+def _render_pagination(
+    page: int,
+    per_page: int,
+    total: int,
+    total_pages: int,
+    extra_params: str = "",
+) -> str:
+    """Render pagination navigation with prev/next and page numbers."""
+    if total_pages <= 1:
+        return ""
+
+    base = f"?per_page={per_page}{extra_params}"
+
+    parts: list[str] = ['<div class="pagination">']
+
+    # Prev button
+    if page > 1:
+        parts.append(f'<a href="{base}&page={page - 1}">← Prev</a>')
+    else:
+        parts.append('<span class="disabled">← Prev</span>')
+
+    # Page numbers (show up to 7 pages with ellipsis)
+    max_show = 7
+    if total_pages <= max_show:
+        for p in range(1, total_pages + 1):
+            if p == page:
+                parts.append(f'<span class="current">{p}</span>')
+            else:
+                parts.append(f'<a href="{base}&page={p}">{p}</a>')
+    else:
+        # Show first, last, and pages around current
+        half = max_show // 2
+        start_page = max(1, page - half)
+        end_page = min(total_pages, page + half)
+        if start_page > 1:
+            parts.append(f'<a href="{base}&page=1">1</a>')
+            if start_page > 2:
+                parts.append('<span class="disabled">…</span>')
+        for p in range(start_page, end_page + 1):
+            if p == page:
+                parts.append(f'<span class="current">{p}</span>')
+            else:
+                parts.append(f'<a href="{base}&page={p}">{p}</a>')
+        if end_page < total_pages:
+            if end_page < total_pages - 1:
+                parts.append('<span class="disabled">…</span>')
+            parts.append(f'<a href="{base}&page={total_pages}">{total_pages}</a>')
+
+    # Next button
+    if page < total_pages:
+        parts.append(f'<a href="{base}&page={page + 1}">Next →</a>')
+    else:
+        parts.append('<span class="disabled">Next →</span>')
+
+    parts.append("</div>")
+    return "\n".join(parts)
+
+
+def _render_delete_success(doc_id: int) -> str:
+    content = f"""
+    <div class="success">
+        <h2>🗑 Document Deleted</h2>
+        <p>Document <strong>{doc_id}</strong> has been deleted from the knowledge base.</p>
+    </div>
+    <p><a href="/documents">← Back to Documents</a></p>
+    """
+    return _base_page("Document Deleted", content)
+
+
+def _render_chat_page() -> str:
+    content = """
+    <div class="card">
+        <h2>Chat with Your Documents</h2>
+        <p class="pagination-info">Ask questions and get answers with citation tracking.</p>
+        <div class="chat-box">
+            <div class="chat-messages" id="chat-messages">
+                <div class="chat-msg bot">Connecting...</div>
+            </div>
+            <div class="chat-input-row">
+                <input type="text" id="chat-input" placeholder="Ask a question..."
+                       onkeydown="if(event.key==='Enter')sendChat()" autofocus>
+                <button onclick="sendChat()">Send</button>
+            </div>
+            <div class="chat-status" id="chat-status">Disconnected</div>
+        </div>
+        <div class="citations-panel" id="citations-panel" style="display:none;">
+            <h3>Citations</h3>
+            <div id="citations-list"></div>
+        </div>
+    </div>
+    <script>
+        var ws = null;
+        var citations = [];
+        function getWsUrl() {
+            var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            return proto + '//' + location.host + '/chat';
+        }
+        function connectChat() {
+            ws = new WebSocket(getWsUrl());
+            ws.onopen = function() {
+                document.getElementById('chat-status').textContent = 'Connected';
+                addMsg('bot', 'DocMind chat ready. Ask questions about your documents.');
+            };
+            ws.onclose = function() {
+                document.getElementById('chat-status').textContent = 'Disconnected';
+                addMsg('bot', 'Disconnected. Reconnecting in 3s...');
+                setTimeout(connectChat, 3000);
+            };
+            ws.onerror = function() {
+                document.getElementById('chat-status').textContent = 'Error';
+            };
+            ws.onmessage = function(event) {
+                var msg = JSON.parse(event.data);
+                handleChatMessage(msg);
+            };
+        }
+        function sendChat() {
+            var input = document.getElementById('chat-input');
+            var text = input.value.trim();
+            if (!text || !ws || ws.readyState !== WebSocket.OPEN) return;
+            addMsg('user', text);
+            ws.send(JSON.stringify({type: 'question', text: text}));
+            input.value = '';
+            citations = [];
+            document.getElementById('citations-panel').style.display = 'none';
+            document.getElementById('citations-list').innerHTML = '';
+        }
+        function handleChatMessage(msg) {
+            switch(msg.type) {
+                case 'connected':
+                    addMsg('bot', msg.message);
+                    break;
+                case 'citation:added':
+                    citations.push(msg);
+                    renderCitations();
+                    break;
+                case 'answer:chunk':
+                    appendChunk(msg.text);
+                    break;
+                case 'answer:done':
+                    if (msg.text) addMsg('bot', msg.text);
+                    renderCitations();
+                    break;
+                case 'error':
+                    addMsg('error', msg.message);
+                    break;
+                case 'pong':
+                    break;
+            }
+        }
+        function addMsg(cls, text) {
+            var div = document.createElement('div');
+            div.className = 'chat-msg ' + cls;
+            div.textContent = text;
+            document.getElementById('chat-messages').appendChild(div);
+            var box = document.getElementById('chat-messages');
+            box.scrollTop = box.scrollHeight;
+        }
+        var currentAnswer = '';
+        function appendChunk(text) {
+            currentAnswer += text;
+            var box = document.getElementById('chat-messages');
+            var lastBot = box.querySelector('.chat-msg.bot:last-child');
+            if (lastBot && lastBot.dataset.streaming === 'true') {
+                lastBot.textContent = currentAnswer;
+            } else {
+                currentAnswer = text;
+                addMsg('bot', currentAnswer);
+                var last = box.querySelector('.chat-msg.bot:last-child');
+                if (last) last.dataset.streaming = 'true';
+            }
+            box.scrollTop = box.scrollHeight;
+        }
+        function renderCitations() {
+            if (citations.length === 0) return;
+            var panel = document.getElementById('citations-panel');
+            var list = document.getElementById('citations-list');
+            list.innerHTML = citations.map(function(c) {
+                return '<div class="citation-item"><strong>[' + c.ref + ']</strong> ' +
+                       '<a href="/documents/' + c.doc_id + '">' + c.title + '</a>' +
+                       ' (confidence: ' + (c.confidence || 'low') + ')</div>';
+            }).join('');
+            panel.style.display = 'block';
+        }
+        connectChat();
+    </script>
+    """
+    return _base_page("Chat", content)
 
 
 def _render_error(title: str, message: str) -> str:
