@@ -1,7 +1,7 @@
 """DocMind core engine."""
 
 from .indexer import Indexer
-from .search import SearchEngine
+from .search import SearchEngine, HybridSearchEngine
 from .search import CitationConfidence, DualHashCitation
 from .extractor import Extractor
 from .summarizer import Summarizer
@@ -24,11 +24,13 @@ from .parser_sandbox import ParserSandbox, RlimitSandbox
 from .db_sqlite import Database
 from .db_sqlite import Database as SqliteDatabase
 from .job_queue import JobQueue
+from .embeddings import EmbeddingClient
 from .config import config, Config
 
 __all__ = [
     "Indexer",
     "SearchEngine",
+    "HybridSearchEngine",
     "CitationConfidence",
     "DualHashCitation",
     "Extractor",
@@ -49,6 +51,7 @@ __all__ = [
     "Database",
     "SqliteDatabase",
     "JobQueue",
+    "EmbeddingClient",
     "config",
     "Config",
 ]

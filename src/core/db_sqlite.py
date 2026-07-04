@@ -25,6 +25,11 @@ from typing import Any, AsyncIterator, Optional
 
 import aiosqlite
 
+from .embeddings import (
+    cosine_similarity,
+    deserialize_vector,
+    serialize_vector,
+)
 from .models import JobRecord, JobState
 
 logger = logging.getLogger(__name__)
@@ -105,6 +110,14 @@ CREATE TABLE IF NOT EXISTS document_tags (
 
 CREATE INDEX IF NOT EXISTS idx_document_tags_tag ON document_tags(tag);
 CREATE INDEX IF NOT EXISTS idx_document_tags_doc_id ON document_tags(doc_id);
+
+CREATE TABLE IF NOT EXISTS document_embeddings (
+    doc_id      INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    embedding   BLOB NOT NULL,
+    dim         INTEGER NOT NULL DEFAULT 384,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (doc_id)
+);
 """
 
 # FTS5 virtual table — created separately because some SQLite builds
@@ -185,6 +198,10 @@ class Database:
         self._lock = asyncio.Lock()
         self._min_size = min_size
         self._max_size = max_size
+        # Optional async callback invoked after a document is saved.
+        # Signature: async fn(doc_id: int, path: str, title: str, summary: str, body: str)
+        # Used by the embedding pipeline to generate vectors on document index.
+        self.on_document_saved = None
 
     # ── Lifecycle ───────────────────────────────────────────────
 
@@ -534,7 +551,25 @@ class Database:
             )
             row = await cursor.fetchone()
 
-        return row["id"] if row else 0
+        doc_id = row["id"] if row else 0
+
+        # Fire the embedding hook if configured (non-blocking, error-tolerant)
+        if doc_id and self.on_document_saved is not None:
+            try:
+                import asyncio
+                asyncio.ensure_future(
+                    self.on_document_saved(
+                        doc_id=doc_id,
+                        path=path,
+                        title=title,
+                        summary=summary or "",
+                        body=body or "",
+                    )
+                )
+            except Exception as e:
+                logger.warning("on_document_saved hook failed: %s", e)
+
+        return doc_id
 
     async def upsert_document(
         self,
@@ -1111,6 +1146,114 @@ class Database:
         for row in rows:
             result.setdefault(row["doc_id"], []).append(row["tag"])
         return result
+
+    # ── Vector Embeddings ────────────────────────────────────────
+
+    async def save_embedding(self, doc_id: int, embedding: list[float]) -> None:
+        """Store or update a document's embedding vector.
+
+        Args:
+            doc_id: The document ID.
+            embedding: A list of floats (e.g. 384-dim MiniLM vector).
+        """
+        if not embedding:
+            return
+        blob = serialize_vector(embedding)
+        dim = len(embedding)
+        now = _now_iso()
+        async with self.connection() as conn:
+            await conn.execute(
+                """INSERT INTO document_embeddings (doc_id, embedding, dim, created_at)
+                   VALUES (?, ?, ?, ?)
+                   ON CONFLICT(doc_id) DO UPDATE SET
+                       embedding = excluded.embedding,
+                       dim = excluded.dim,
+                       created_at = excluded.created_at""",
+                (doc_id, blob, dim, now),
+            )
+            await conn.commit()
+
+    async def get_embedding(self, doc_id: int) -> list[float]:
+        """Retrieve a document's embedding vector.
+
+        Returns an empty list if no embedding is stored.
+        """
+        async with self.connection() as conn:
+            cursor = await conn.execute(
+                "SELECT embedding FROM document_embeddings WHERE doc_id = ?",
+                (doc_id,),
+            )
+            row = await cursor.fetchone()
+
+        if row is None:
+            return []
+        return deserialize_vector(row["embedding"])
+
+    async def delete_embedding(self, doc_id: int) -> bool:
+        """Delete a document's embedding. Returns True if a row was removed."""
+        async with self.connection() as conn:
+            cursor = await conn.execute(
+                "DELETE FROM document_embeddings WHERE doc_id = ?",
+                (doc_id,),
+            )
+            await conn.commit()
+            return cursor.rowcount > 0
+
+    async def has_embedding(self, doc_id: int) -> bool:
+        """Check whether a document has a stored embedding."""
+        async with self.connection() as conn:
+            cursor = await conn.execute(
+                "SELECT 1 FROM document_embeddings WHERE doc_id = ? LIMIT 1",
+                (doc_id,),
+            )
+            row = await cursor.fetchone()
+        return row is not None
+
+    async def search_similar(
+        self,
+        embedding: list[float],
+        top_k: int = 5,
+    ) -> list[dict[str, Any]]:
+        """Find documents whose embeddings are most similar to the query vector.
+
+        Uses cosine similarity. Returns a list of dicts sorted by descending
+        similarity, each with keys: doc_id, similarity (float in [-1, 1]).
+
+        Args:
+            embedding: The query embedding vector.
+            top_k: Maximum number of results to return.
+        """
+        if not embedding:
+            return []
+
+        async with self.connection() as conn:
+            cursor = await conn.execute(
+                "SELECT doc_id, embedding FROM document_embeddings"
+            )
+            rows = await cursor.fetchall()
+
+        if not rows:
+            return []
+
+        # Compute cosine similarity for each stored embedding
+        scored: list[dict[str, Any]] = []
+        for row in rows:
+            stored_vec = deserialize_vector(row["embedding"])
+            sim = cosine_similarity(embedding, stored_vec)
+            scored.append({"doc_id": row["doc_id"], "similarity": sim})
+
+        # Sort by descending similarity and return top_k
+        scored.sort(key=lambda x: x["similarity"], reverse=True)
+        return scored[:top_k]
+
+    async def get_document_count_with_embeddings(self) -> int:
+        """Return the number of documents that have stored embeddings."""
+        async with self.connection() as conn:
+            cursor = await conn.execute(
+                "SELECT COUNT(*) AS c FROM document_embeddings"
+            )
+            row = await cursor.fetchone()
+        return row["c"] if row else 0
 
     # ── Helpers ─────────────────────────────────────────────────
 
