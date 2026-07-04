@@ -20,7 +20,7 @@ import asyncio
 import logging
 from typing import Optional
 
-from .db import Database
+from .db_sqlite import Database
 from .models import JobRecord, JobState
 
 logger = logging.getLogger(__name__)

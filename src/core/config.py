@@ -40,19 +40,19 @@ def _env_bool(key: str, default: bool = False) -> bool:
 
 @dataclass
 class DatabaseConfig:
-    """PostgreSQL connection settings."""
+    """SQLite database settings for standalone operation."""
 
-    dsn: str = field(
+    path: str = field(
         default_factory=lambda: _env(
-            "DOCMIND_DATABASE_DSN",
-            "postgresql://docmind:docmind@localhost:5432/docmind",
+            "DOCMIND_DATABASE_PATH",
+            "data/docmind.db",
         )
     )
     pool_min_size: int = field(
-        default_factory=lambda: _env_int("DOCMIND_DB_POOL_MIN", 2)
+        default_factory=lambda: _env_int("DOCMIND_DB_POOL_MIN", 1)
     )
     pool_max_size: int = field(
-        default_factory=lambda: _env_int("DOCMIND_DB_POOL_MAX", 10)
+        default_factory=lambda: _env_int("DOCMIND_DB_POOL_MAX", 5)
     )
 
 
@@ -109,6 +109,37 @@ class JobQueueConfig:
 
 
 @dataclass
+class LLMConfig:
+    """LLM provider settings for RAG answer generation.
+
+    Supports OpenAI-compatible APIs (openai, openai-compat) and Ollama.
+    When provider is empty, the chat falls back to extractive answers.
+    """
+
+    provider: str = field(
+        default_factory=lambda: _env("DOCMIND_LLM_PROVIDER", "")
+    )
+    model: str = field(
+        default_factory=lambda: _env("DOCMIND_LLM_MODEL", "gpt-4o-mini")
+    )
+    api_key: str = field(
+        default_factory=lambda: _env("DOCMIND_LLM_API_KEY", "")
+    )
+    base_url: str = field(
+        default_factory=lambda: _env("DOCMIND_LLM_BASE_URL", "")
+    )
+    max_tokens: int = field(
+        default_factory=lambda: _env_int("DOCMIND_LLM_MAX_TOKENS", 1000)
+    )
+    temperature: float = field(
+        default_factory=lambda: float(_env("DOCMIND_LLM_TEMPERATURE", "0.3"))
+    )
+    timeout_seconds: float = field(
+        default_factory=lambda: float(_env("DOCMIND_LLM_TIMEOUT", "30.0"))
+    )
+
+
+@dataclass
 class DocumentLimits:
     """Document processing limits."""
 
@@ -137,6 +168,7 @@ class Config:
     sanitizer: SanitizerConfig = field(default_factory=SanitizerConfig)
     job_queue: JobQueueConfig = field(default_factory=JobQueueConfig)
     document_limits: DocumentLimits = field(default_factory=DocumentLimits)
+    llm: LLMConfig = field(default_factory=LLMConfig)
     debug: bool = field(
         default_factory=lambda: _env_bool("DOCMIND_DEBUG", False)
     )

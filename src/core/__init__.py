@@ -21,7 +21,8 @@ from .search_backend import (
     create_backend,
 )
 from .parser_sandbox import ParserSandbox, RlimitSandbox
-from .db import Database
+from .db_sqlite import Database
+from .db_sqlite import Database as SqliteDatabase
 from .job_queue import JobQueue
 from .config import config, Config
 
@@ -46,6 +47,7 @@ __all__ = [
     "ParserSandbox",
     "RlimitSandbox",
     "Database",
+    "SqliteDatabase",
     "JobQueue",
     "config",
     "Config",
