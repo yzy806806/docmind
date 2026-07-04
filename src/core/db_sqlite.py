@@ -88,6 +88,12 @@ CREATE TABLE IF NOT EXISTS chat_messages (
 );
 
 CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON chat_messages(session_id);
+
+CREATE TABLE IF NOT EXISTS settings (
+    key         TEXT PRIMARY KEY,
+    value       TEXT,
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
 """
 
 # FTS5 virtual table — created separately because some SQLite builds
@@ -829,6 +835,78 @@ class Database:
             rows = await cursor.fetchall()
 
         return [self._row_to_chat_message_dict(r) for r in rows]
+
+    # ── Settings key/value store ─────────────────────────────────
+
+    async def get_setting(
+        self, key: str, default: Optional[str] = None
+    ) -> Optional[str]:
+        """Fetch a single setting by key.
+
+        Args:
+            key: The setting key (case-sensitive).
+            default: Value to return when the key is absent.
+
+        Returns:
+            The stored value as a string, or ``default`` if not found.
+        """
+        async with self.connection() as conn:
+            cursor = await conn.execute(
+                "SELECT value FROM settings WHERE key = ?", (key,)
+            )
+            row = await cursor.fetchone()
+
+        if row is None:
+            return default
+        val = row["value"]
+        return val if val is not None else default
+
+    async def set_setting(self, key: str, value: str) -> None:
+        """Insert or update a setting (upsert by key).
+
+        Args:
+            key: The setting key.
+            value: The setting value. Empty string is permitted and
+                distinct from ``None``; pass ``None`` to store SQL NULL.
+        """
+        now = _now_iso()
+        async with self.connection() as conn:
+            await conn.execute(
+                """INSERT INTO settings (key, value, updated_at)
+                   VALUES (?, ?, ?)
+                   ON CONFLICT(key) DO UPDATE SET
+                       value = excluded.value,
+                       updated_at = excluded.updated_at""",
+                (key, value, now),
+            )
+            await conn.commit()
+
+    async def get_all_settings(self) -> dict[str, str]:
+        """Return all settings as a {key: value} dict.
+
+        Values that are SQL NULL are skipped (matching the get_setting
+        default semantics — callers that need a value should provide one).
+        """
+        async with self.connection() as conn:
+            cursor = await conn.execute(
+                "SELECT key, value FROM settings ORDER BY key"
+            )
+            rows = await cursor.fetchall()
+
+        return {
+            row["key"]: row["value"]
+            for row in rows
+            if row["value"] is not None
+        }
+
+    async def delete_setting(self, key: str) -> bool:
+        """Delete a setting by key. Returns True if a row was removed."""
+        async with self.connection() as conn:
+            cursor = await conn.execute(
+                "DELETE FROM settings WHERE key = ?", (key,)
+            )
+            await conn.commit()
+            return cursor.rowcount > 0
 
     # ── Helpers ─────────────────────────────────────────────────
 

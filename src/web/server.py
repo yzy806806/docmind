@@ -375,6 +375,90 @@ def create_app() -> FastAPI:
         html = _render_chat_page()
         return HTMLResponse(content=html)
 
+    # ── Settings page (LLM configuration) ─────────────────────
+
+    @app.get("/settings", response_class=HTMLResponse, include_in_schema=False)
+    async def settings_page(
+        saved: str = Query(default="", description="Show success banner when '1'")
+    ):
+        """Settings page for LLM provider/model/key configuration."""
+        db = get_db()
+        try:
+            settings = await db.get_all_settings()
+        except Exception:
+            settings = {}
+
+        success = saved == "1"
+        html = _render_settings_page(settings, success=success)
+        return HTMLResponse(content=html)
+
+    @app.post("/settings", response_class=HTMLResponse, include_in_schema=False)
+    async def settings_save(
+        provider: str = Form(default=""),
+        model: str = Form(default=""),
+        api_key: str = Form(default=""),
+        base_url: str = Form(default=""),
+        max_tokens: str = Form(default="1000"),
+        temperature: str = Form(default="0.3"),
+        chat_fallback: str = Form(default=""),
+    ):
+        """Save LLM settings to the DB and reload the in-memory config.
+
+        Security note: if the submitted api_key field is the masked
+        placeholder (``****`` prefix), the existing stored key is kept
+        unchanged — the user only sees the masked value in the form.
+        """
+        db = get_db()
+
+        # ── Persist each field ──────────────────────────────────
+        await db.set_setting("llm_provider", provider.strip())
+        await db.set_setting("llm_model", model.strip())
+
+        # API key masking: never overwrite the stored key with the
+        # masked placeholder. Only update when the user typed a new key.
+        masked_placeholder_prefix = "****"
+        submitted_key = api_key.strip()
+        if submitted_key and not submitted_key.startswith(masked_placeholder_prefix):
+            await db.set_setting("llm_api_key", submitted_key)
+        # If empty or masked, leave the existing stored value alone.
+
+        await db.set_setting("llm_base_url", base_url.strip())
+
+        # Numeric fields with bounds validation
+        try:
+            mt = int(max_tokens)
+            mt = max(100, min(4000, mt))
+        except (ValueError, TypeError):
+            mt = 1000
+        await db.set_setting("llm_max_tokens", str(mt))
+
+        try:
+            temp = float(temperature)
+            temp = max(0.0, min(1.0, temp))
+        except (ValueError, TypeError):
+            temp = 0.3
+        await db.set_setting("llm_temperature", f"{temp:.2f}")
+
+        # Chat fallback toggle: HTML checkboxes only submit when checked
+        fallback_val = "1" if chat_fallback else "0"
+        await db.set_setting("llm_chat_fallback", fallback_val)
+
+        # ── Reload the in-memory LLMConfig from DB ──────────────
+        # Re-read all settings (including the just-saved ones) and apply
+        # them to the global config singleton. The LLMClient in chat.py
+        # constructs from config.llm on each WebSocket connection, so
+        # the new values take effect on the next chat request.
+        saved_settings = await db.get_all_settings()
+        _reload_llm_config_from_db(saved_settings)
+
+        # Redirect back to /settings?saved=1 to show success banner
+        html = _render_settings_redirect()
+        return HTMLResponse(
+            content=html,
+            status_code=status.HTTP_302_FOUND,
+            headers={"Location": "/settings?saved=1"},
+        )
+
     # ── WebSocket ───────────────────────────────────────────
 
     @app.websocket("/chat")
@@ -840,6 +924,21 @@ def _base_page(title: str, content: str, extra_head: str = "") -> str:
                              padding: 2px 6px; border-radius: 4px; }}
         .chat-session-del:hover {{ color: var(--badge-error-text); background: var(--badge-error-bg); }}
         .chat-main {{ flex: 1; min-width: 0; }}
+        /* Settings form */
+        .settings-field {{ margin: 16px 0; }}
+        .settings-field label {{ display: block; margin-bottom: 4px; }}
+        .settings-field input[type="text"],
+        .settings-field input[type="password"],
+        .settings-field select {{ width: 100%; padding: 8px 12px; border: 2px solid var(--input-border);
+                                  border-radius: 6px; font-size: 1em; background: var(--surface); color: var(--text); }}
+        .settings-field input[type="range"] {{ width: 100%; }}
+        .settings-hint {{ font-size: 0.85em; color: var(--text-faint); margin-top: 4px; }}
+        .settings-actions {{ margin-top: 20px; display: flex; gap: 12px; align-items: center; }}
+        .btn-save {{ padding: 10px 24px; background: var(--primary); color: var(--header-text);
+                     border: none; border-radius: 6px; cursor: pointer; font-size: 1em; }}
+        .btn-save:hover {{ background: var(--primary-hover); }}
+        .btn-cancel {{ color: var(--text-muted); text-decoration: none; }}
+        .btn-cancel:hover {{ text-decoration: underline; }}
         footer {{ text-align: center; padding: 24px; color: var(--text-faint); font-size: 0.85em; }}
         /* Mobile responsive */
         @media (max-width: 640px) {{
@@ -877,6 +976,7 @@ def _base_page(title: str, content: str, extra_head: str = "") -> str:
                 <a href="/documents">Documents</a>
                 <a href="/upload">Upload</a>
                 <a href="/chat">Chat</a>
+                <a href="/settings">Settings</a>
                 <a href="/docs">API Docs</a>
             </nav>
         </div>
@@ -1463,6 +1563,191 @@ def _render_chat_page() -> str:
     </script>
     """
     return _base_page("Chat", content)
+
+
+# ── Settings page renderer ──────────────────────────────────────
+
+
+def _mask_api_key(key: str) -> str:
+    """Mask an API key for display, showing only the last 4 characters.
+
+    Examples:
+        "sk-abc123XYZ" -> "****XYZ"
+        "ab"            -> "****ab"   (short keys still masked)
+        ""              -> ""         (empty shows nothing)
+
+    SECURITY: This is the ONLY function that produces a value safe to
+    embed in HTML. Never send the raw key to the browser.
+    """
+    if not key:
+        return ""
+    if len(key) <= 4:
+        return "****" + key
+    return "****" + key[-4:]
+
+
+def _render_settings_page(settings: dict[str, str], *, success: bool = False) -> str:
+    """Render the LLM settings page.
+
+    Args:
+        settings: A {key: value} dict from db.get_all_settings().
+        success: When True, show a green "Settings saved" banner.
+    """
+    provider = settings.get("llm_provider", "")
+    model = settings.get("llm_model", "")
+    raw_api_key = settings.get("llm_api_key", "")
+    base_url = settings.get("llm_base_url", "")
+    max_tokens = settings.get("llm_max_tokens", "1000")
+    temperature = settings.get("llm_temperature", "0.3")
+    chat_fallback = settings.get("llm_chat_fallback", "1")
+
+    masked_key = _mask_api_key(raw_api_key)
+    # The form's api_key field shows the masked value as a placeholder hint.
+    # The actual value attribute is left empty so the browser never has the
+    # raw key; if the user wants to change it they type a new one.
+    fallback_checked = "checked" if chat_fallback == "1" else ""
+
+    show_base_url = provider in ("openai-compat", "ollama")
+    base_url_row_display = "block" if show_base_url else "none"
+
+    success_html = (
+        '<div class="success">✅ Settings saved. The new LLM configuration '
+        "is now active — chat will use it on the next request.</div>"
+        if success
+        else ""
+    )
+
+    content = f"""
+    <div class="card">
+        <h2>⚙️ LLM Settings</h2>
+        <p class="pagination-info">Configure the language model used for chat answers and document summarization. Settings persist across restarts.</p>
+        {success_html}
+        <form action="/settings" method="post" id="settings-form">
+            <div class="settings-field">
+                <label for="provider"><strong>LLM Provider</strong></label>
+                <select name="provider" id="provider" onchange="toggleBaseUrl()">
+                    <option value="" {'' if provider else 'selected'}>(none — extractive fallback)</option>
+                    <option value="openai" {'selected' if provider == 'openai' else ''}>OpenAI</option>
+                    <option value="openai-compat" {'selected' if provider == 'openai-compat' else ''}>OpenAI-compatible (vLLM, LM Studio, etc.)</option>
+                    <option value="ollama" {'selected' if provider == 'ollama' else ''}>Ollama (local)</option>
+                </select>
+            </div>
+
+            <div class="settings-field">
+                <label for="model"><strong>Model Name</strong></label>
+                <input type="text" name="model" id="model" value="{_escape(model)}"
+                       placeholder="e.g. gpt-4o-mini, llama3, qwen2.5">
+            </div>
+
+            <div class="settings-field">
+                <label for="api_key"><strong>API Key</strong></label>
+                <input type="password" name="api_key" id="api_key"
+                       value="{_escape(masked_key)}"
+                       placeholder="Leave as-is to keep current key, or type a new one">
+                <p class="settings-hint">Current key: {_escape(masked_key) if masked_key else '(not set)'} — only the last 4 characters are shown for security.</p>
+            </div>
+
+            <div class="settings-field" id="base_url_row" style="display:{base_url_row_display}">
+                <label for="base_url"><strong>Base URL</strong></label>
+                <input type="text" name="base_url" id="base_url" value="{_escape(base_url)}"
+                       placeholder="https://api.openai.com/v1 or http://localhost:11434">
+                <p class="settings-hint">Required for OpenAI-compatible and Ollama providers.</p>
+            </div>
+
+            <div class="settings-field">
+                <label for="max_tokens"><strong>Max Tokens</strong> <span id="max_tokens_val">{_escape(max_tokens)}</span></label>
+                <input type="range" name="max_tokens" id="max_tokens" min="100" max="4000" step="100"
+                       value="{_escape(max_tokens)}" oninput="document.getElementById('max_tokens_val').textContent=this.value">
+            </div>
+
+            <div class="settings-field">
+                <label for="temperature"><strong>Temperature</strong> <span id="temperature_val">{_escape(temperature)}</span></label>
+                <input type="range" name="temperature" id="temperature" min="0.0" max="1.0" step="0.05"
+                       value="{_escape(temperature)}" oninput="document.getElementById('temperature_val').textContent=this.value">
+            </div>
+
+            <div class="settings-field">
+                <label>
+                    <input type="checkbox" name="chat_fallback" value="1" {fallback_checked}>
+                    <strong>Chat Fallback</strong> — if the LLM call fails, use an extractive answer from search snippets instead of erroring.
+                </label>
+            </div>
+
+            <div class="settings-actions">
+                <button type="submit" class="btn-save">💾 Save Settings</button>
+                <a href="/" class="btn-cancel">Cancel</a>
+            </div>
+        </form>
+    </div>
+    <script>
+        function toggleBaseUrl() {{
+            var p = document.getElementById('provider').value;
+            var row = document.getElementById('base_url_row');
+            row.style.display = (p === 'openai-compat' || p === 'ollama') ? 'block' : 'none';
+        }}
+        // Run once on load to sync the base URL row visibility
+        toggleBaseUrl();
+    </script>
+    """
+    return _base_page("Settings", content)
+
+
+def _render_settings_redirect() -> str:
+    """Render a minimal HTML page with a meta-refresh redirect.
+
+    Used as the body of a 302 response so that even clients which don't
+    follow the Location header (e.g. some test clients) still land on
+    the settings page.
+    """
+    return (
+        '<!DOCTYPE html><html><head>'
+        '<meta http-equiv="refresh" content="0; url=/settings?saved=1">'
+        '<title>Redirecting…</title></head>'
+        '<body>Settings saved. <a href="/settings?saved=1">Continue</a>.</body>'
+        '</html>'
+    )
+
+
+def _reload_llm_config_from_db(settings: dict[str, str]) -> None:
+    """Reload the in-memory LLMConfig from DB-stored settings.
+
+    This mutates the global ``config.llm`` dataclass in place so that
+    the next ``LLMClient(config.llm)`` construction (which happens per
+    WebSocket chat connection in ``chat.py``) picks up the new values.
+    Existing in-flight LLMClient instances are unaffected; they will be
+    closed and replaced on the next chat connection.
+
+    Args:
+        settings: A {key: value} dict freshly read from the DB. Pass
+            the same dict that was just saved so no extra DB round-trip
+            is needed. Keys not present fall back to the current config
+            value, so calling this with an empty dict is a no-op.
+    """
+    from ..core.config import config
+
+    config.llm.provider = settings.get("llm_provider", config.llm.provider)
+    config.llm.model = settings.get("llm_model", config.llm.model)
+    # API key: only override if a real (non-masked) value is stored.
+    # Masked values (**** prefix) come from the form's display field and
+    # should never overwrite the real key in config.
+    stored_key = settings.get("llm_api_key")
+    if stored_key and not stored_key.startswith("****"):
+        config.llm.api_key = stored_key
+    config.llm.base_url = settings.get("llm_base_url", config.llm.base_url)
+
+    try:
+        config.llm.max_tokens = int(
+            settings.get("llm_max_tokens", config.llm.max_tokens)
+        )
+    except (ValueError, TypeError):
+        pass
+
+    try:
+        config.llm.temperature = float(
+            settings.get("llm_temperature", config.llm.temperature)
+        )
+    except (ValueError, TypeError):
+        pass
 
 
 def _render_error(title: str, message: str) -> str:
