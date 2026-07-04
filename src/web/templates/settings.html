@@ -58,6 +58,25 @@
                 </label>
             </div>
 
+            <hr style="margin: 28px 0; border: none; border-top: 1px solid var(--border);">
+            <h3>🔐 Authentication</h3>
+            <p class="pagination-info">Protect the web UI and REST API with a password/API key. When enabled, all requests require either a valid session cookie (web UI) or an <code>X-API-Key</code> header (programmatic API).</p>
+
+            <div class="settings-field">
+                <label>
+                    <input type="checkbox" name="auth_enabled" value="1" {{ auth_enabled_checked }}>
+                    <strong>Enable Authentication</strong> — require login to access the web UI and API.
+                </label>
+            </div>
+
+            <div class="settings-field">
+                <label for="auth_api_key"><strong>Password / API Key</strong></label>
+                <input type="password" name="auth_api_key" id="auth_api_key"
+                       value="{{ masked_auth_key }}"
+                       placeholder="Leave as-is to keep current key, or type a new one">
+                <p class="settings-hint">Current key: {% if masked_auth_key %}{{ masked_auth_key }}{% else %}(not set — a random one will be generated on enable){% endif %} — only the last 4 characters are shown. For API access, send this value in the <code>X-API-Key</code> header.</p>
+            </div>
+
             <div class="settings-actions">
                 <button type="submit" class="btn-save">💾 Save Settings</button>
                 <a href="/" class="btn-cancel">Cancel</a>

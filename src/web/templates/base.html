@@ -278,6 +278,9 @@
                 <a href="/chat">Chat</a>
                 <a href="/settings">Settings</a>
                 <a href="/docs">API Docs</a>
+                {% if auth_enabled %}
+                <a href="/logout" style="margin-left: 24px;">🔓 Logout</a>
+                {% endif %}
             </nav>
         </div>
     </header>

@@ -73,13 +73,19 @@ def _render_template(template_name: str, **context) -> str:
 
     This is the central template rendering helper used by all
     _render_* functions. It adds common utility functions to the
-    context so templates can call them directly.
+    context so templates can call them directly. It also injects the
+    current ``auth_enabled`` flag so base.html can render a logout
+    button when authentication is active.
     """
     template = _jinja_env.get_template(template_name)
     # Add utility functions to context for template use
     context.setdefault("escape", _escape)
     context.setdefault("fmt_date", _fmt_date)
     context.setdefault("fmt_size", _fmt_size)
+    # Inject auth state for nav-bar rendering (base.html). Templates
+    # that don't reference this variable simply ignore it.
+    from ..core.config import config
+    context.setdefault("auth_enabled", bool(config.auth.enabled))
     return template.render(**context)
 
 
@@ -645,8 +651,18 @@ def _mask_api_key(key: str) -> str:
     return "****" + key[-4:]
 
 
+def _render_login_page(*, error: str = "") -> str:
+    """Render the standalone login page (no base.html nav).
+
+    The login page is dark-mode compatible and uses its own minimal
+    styling so it renders correctly even when the user is not yet
+    authenticated.
+    """
+    return _render_template("login.html", error=error)
+
+
 def _render_settings_page(settings: dict[str, str], *, success: bool = False) -> str:
-    """Render the LLM settings page."""
+    """Render the LLM settings page (now including an auth section)."""
     provider = settings.get("llm_provider", "")
     model = settings.get("llm_model", "")
     raw_api_key = settings.get("llm_api_key", "")
@@ -661,11 +677,19 @@ def _render_settings_page(settings: dict[str, str], *, success: bool = False) ->
     show_base_url = provider in ("openai-compat", "ollama")
     base_url_row_display = "block" if show_base_url else "none"
 
+    # ── Auth settings ──────────────────────────────────────────────
+    auth_enabled = settings.get("auth_enabled", "0") == "1"
+    auth_enabled_checked = "checked" if auth_enabled else ""
+    auth_api_key = settings.get("auth_api_key", "")
+    masked_auth_key = _mask_api_key(auth_api_key)
+
     return _render_template("settings.html",
         provider=provider, model=model, masked_key=masked_key,
         base_url=base_url, max_tokens=max_tokens, temperature=temperature,
         fallback_checked=fallback_checked,
         base_url_row_display=base_url_row_display,
+        auth_enabled_checked=auth_enabled_checked,
+        masked_auth_key=masked_auth_key,
         success=success,
     )
 
