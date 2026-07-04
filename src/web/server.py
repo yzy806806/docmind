@@ -12,6 +12,8 @@ REST:
 - POST /documents/<id>/tags/<tag>/delete  Remove a tag
 - GET  /jobs                     Job processing status page (filterable, auto-refresh)
 - GET  /jobs/<job_id>            Job detail page with error and document link
+- GET  /analytics                Full analytics page with charts and date range
+- GET  /api/v1/analytics         Analytics data as JSON
 - POST /upload                   File upload form
 - POST /api/v1/documents/submit  Programmatic document submission
 - POST /api/v1/documents/batch   Batch document submission
@@ -26,6 +28,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import mimetypes
 import uuid
 from datetime import datetime, timezone
@@ -176,22 +179,103 @@ def create_app() -> FastAPI:
 
     @app.get("/", response_class=HTMLResponse, include_in_schema=False)
     async def dashboard():
-        """Dashboard page with knowledge base statistics."""
+        """Dashboard page with knowledge base statistics and analytics."""
         db = get_db()
         try:
             stats = await db.get_stats()
-
-            # Get recent documents
             recent = await db.list_documents(limit=10)
+            # Analytics data for the enhanced dashboard
+            doc_growth = await db.get_document_growth(days=30)
+            tag_dist = await db.get_tag_distribution()
+            storage = await db.get_storage_stats()
+            search_stats = await db.get_search_stats(days=30)
+            popular_queries = await db.get_popular_queries(limit=5)
+            search_trend = await db.get_search_trend(days=30)
+            chat_activity = await db.get_chat_activity(days=30)
+            job_stats = await db.get_job_stats()
         except Exception:
             stats = {
                 "total": 0, "pending": 0, "indexed": 0,
                 "summarized": 0, "active_jobs": 0,
             }
             recent = []
+            doc_growth = []
+            tag_dist = []
+            storage = {"total_size": 0, "by_type": {}, "avg_doc_size": 0, "doc_count": 0}
+            search_stats = {"total_searches": 0, "avg_results": 0.0, "unique_queries": 0}
+            popular_queries = []
+            search_trend = []
+            chat_activity = []
+            job_stats = {"by_state": {}, "total": 0, "success_rate": 0.0,
+                         "avg_processing_time_seconds": 0.0, "recent_failures": []}
 
-        html = _render_dashboard(stats, recent)
+        html = _render_dashboard(stats, recent, doc_growth, tag_dist, storage,
+                                 search_stats, popular_queries, search_trend,
+                                 chat_activity, job_stats)
         return HTMLResponse(content=html)
+
+    @app.get("/analytics", response_class=HTMLResponse, include_in_schema=False)
+    async def analytics_page(days: int = Query(default=30, ge=1, le=365)):
+        """Full analytics page with charts and date range selector."""
+        db = get_db()
+        try:
+            stats = await db.get_stats()
+            doc_growth = await db.get_document_growth(days=days)
+            tag_dist = await db.get_tag_distribution()
+            storage = await db.get_storage_stats()
+            search_stats = await db.get_search_stats(days=days)
+            popular_queries = await db.get_popular_queries(limit=20)
+            search_trend = await db.get_search_trend(days=days)
+            chat_activity = await db.get_chat_activity(days=days)
+            job_stats = await db.get_job_stats()
+        except Exception:
+            stats = {"total": 0, "pending": 0, "indexed": 0,
+                     "summarized": 0, "error": 0, "active_jobs": 0}
+            doc_growth = []
+            tag_dist = []
+            storage = {"total_size": 0, "by_type": {}, "avg_doc_size": 0, "doc_count": 0}
+            search_stats = {"total_searches": 0, "avg_results": 0.0, "unique_queries": 0}
+            popular_queries = []
+            search_trend = []
+            chat_activity = []
+            job_stats = {"by_state": {}, "total": 0, "success_rate": 0.0,
+                         "avg_processing_time_seconds": 0.0, "recent_failures": []}
+
+        html = _render_analytics_page(
+            stats, doc_growth, tag_dist, storage, search_stats,
+            popular_queries, search_trend, chat_activity, job_stats, days,
+        )
+        return HTMLResponse(content=html)
+
+    @app.get("/api/v1/analytics", include_in_schema=False)
+    async def analytics_api(days: int = Query(default=30, ge=1, le=365)):
+        """Return analytics data as JSON."""
+        db = get_db()
+        try:
+            stats = await db.get_stats()
+            doc_growth = await db.get_document_growth(days=days)
+            tag_dist = await db.get_tag_distribution()
+            storage = await db.get_storage_stats()
+            search_stats = await db.get_search_stats(days=days)
+            popular_queries = await db.get_popular_queries(limit=20)
+            search_trend = await db.get_search_trend(days=days)
+            chat_activity = await db.get_chat_activity(days=days)
+            job_stats = await db.get_job_stats()
+        except Exception as exc:
+            return {"error": str(exc)}
+
+        return {
+            "days": days,
+            "stats": stats,
+            "document_growth": doc_growth,
+            "tag_distribution": tag_dist,
+            "storage": storage,
+            "search_stats": search_stats,
+            "popular_queries": popular_queries,
+            "search_trend": search_trend,
+            "chat_activity": chat_activity,
+            "job_stats": job_stats,
+        }
 
     @app.get("/search", response_class=HTMLResponse, include_in_schema=False)
     async def search_page(q: str = Query(default="", description="Search query")):
@@ -208,6 +292,12 @@ def create_app() -> FastAPI:
         results: list[dict] = []
         try:
             results = await db.fulltext_search(validated_q, limit=20)
+        except Exception:
+            pass
+
+        # Log the search for analytics (best-effort, don't fail on logging errors)
+        try:
+            await db.log_search(validated_q, len(results))
         except Exception:
             pass
 
@@ -1198,6 +1288,7 @@ def _base_page(title: str, content: str, extra_head: str = "") -> str:
                 <a href="/documents">Documents</a>
                 <a href="/upload">Upload</a>
                 <a href="/jobs">Jobs</a>
+                <a href="/analytics">Analytics</a>
                 <a href="/chat">Chat</a>
                 <a href="/settings">Settings</a>
                 <a href="/docs">API Docs</a>
@@ -1230,7 +1321,219 @@ def _base_page(title: str, content: str, extra_head: str = "") -> str:
 </html>"""
 
 
-def _render_dashboard(stats: dict, recent: list[dict]) -> str:
+def _svg_line_chart(data: list[dict], value_key: str, label_key: str = "date",
+                    width: int = 600, height: int = 200, color: str = "#4a90d9") -> str:
+    """Generate an inline SVG line chart from a list of dicts.
+
+    Each dict should have a ``label_key`` (x-axis) and ``value_key`` (y-axis).
+    Returns an SVG string, or an empty-placeholder message if data is empty.
+    """
+    if not data:
+        return '<div class="chart-empty">No data for this period</div>'
+
+    values = [d.get(value_key, 0) for d in data]
+    labels = [str(d.get(label_key, "")) for d in data]
+    max_val = max(values) if values else 1
+    if max_val == 0:
+        max_val = 1
+
+    # Chart layout
+    margin_left = 40
+    margin_right = 10
+    margin_top = 15
+    margin_bottom = 25
+    chart_w = width - margin_left - margin_right
+    chart_h = height - margin_top - margin_bottom
+
+    # Calculate points
+    n = len(values)
+    step_x = chart_w / max(n - 1, 1) if n > 1 else chart_w
+
+    points = []
+    for i, v in enumerate(values):
+        x = margin_left + (i * step_x if n > 1 else chart_w / 2)
+        y = margin_top + chart_h - (v / max_val) * chart_h
+        points.append((x, y))
+
+    # Build polyline path
+    polyline = " ".join(f"{x:.1f},{y:.1f}" for x, y in points)
+
+    # Build area fill path (close to bottom)
+    area_path = f"M {margin_left:.1f},{margin_top + chart_h:.1f} "
+    area_path += " ".join(f"L {x:.1f},{y:.1f}" for x, y in points)
+    area_path += f" L {margin_left + chart_w:.1f},{margin_top + chart_h:.1f} Z"
+
+    # Y-axis labels (0, max/2, max)
+    y_labels = ""
+    for frac, label in [(0, "0"), (0.5, str(int(max_val / 2))), (1, str(max_val))]:
+        y = margin_top + chart_h - frac * chart_h
+        y_labels += f'<text x="{margin_left - 5}" y="{y + 4:.1f}" text-anchor="end" class="chart-axis-label">{label}</text>'
+
+    # X-axis labels (show first, middle, last to avoid crowding)
+    x_labels = ""
+    label_indices = set()
+    if n <= 7:
+        label_indices = set(range(n))
+    else:
+        label_indices = {0, n // 2, n - 1}
+    for i in label_indices:
+        x = margin_left + (i * step_x if n > 1 else chart_w / 2)
+        label = labels[i]
+        # Shorten date labels (YYYY-MM-DD -> MM-DD)
+        if len(label) == 10 and label[4] == "-":
+            label = label[5:]
+        x_labels += f'<text x="{x:.1f}" y="{margin_top + chart_h + 18}" text-anchor="middle" class="chart-axis-label">{label}</text>'
+
+    # Grid lines
+    grid_lines = ""
+    for frac in [0, 0.25, 0.5, 0.75, 1.0]:
+        y = margin_top + chart_h - frac * chart_h
+        grid_lines += f'<line x1="{margin_left}" y1="{y:.1f}" x2="{margin_left + chart_w}" y2="{y:.1f}" class="chart-grid"/>'
+
+    # Points (circles)
+    circles = ""
+    for x, y in points:
+        circles += f'<circle cx="{x:.1f}" cy="{y:.1f}" r="3" fill="{color}" class="chart-point"/>'
+
+    return f"""<svg viewBox="0 0 {width} {height}" class="chart-svg" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Line chart">
+        <defs><linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="{color}" stop-opacity="0.3"/>
+            <stop offset="100%" stop-color="{color}" stop-opacity="0.05"/>
+        </linearGradient></defs>
+        {grid_lines}
+        <path d="{area_path}" fill="url(#areaGrad)"/>
+        <polyline points="{polyline}" fill="none" stroke="{color}" stroke-width="2" class="chart-line"/>
+        {circles}
+        {y_labels}
+        {x_labels}
+    </svg>"""
+
+
+def _svg_bar_chart(data: list[dict], label_key: str, value_key: str,
+                   width: int = 600, height: int = 200, color: str = "#6c5ce7") -> str:
+    """Generate an inline SVG bar chart from a list of dicts."""
+    if not data:
+        return '<div class="chart-empty">No data available</div>'
+
+    # Limit to top items to keep chart readable
+    data = data[:15]
+    values = [d.get(value_key, 0) for d in data]
+    labels = [str(d.get(label_key, "")) for d in data]
+    max_val = max(values) if values else 1
+    if max_val == 0:
+        max_val = 1
+
+    margin_left = 80
+    margin_right = 10
+    margin_top = 10
+    margin_bottom = 10
+    chart_w = width - margin_left - margin_right
+    chart_h = height - margin_top - margin_bottom
+    n = len(values)
+    bar_h = chart_h / n * 0.7
+    gap = chart_h / n * 0.3
+
+    bars = ""
+    y_labels = ""
+    for i, (v, label) in enumerate(zip(values, labels)):
+        y = margin_top + i * (bar_h + gap)
+        bar_w = (v / max_val) * chart_w
+        # Truncate long labels
+        display_label = label[:12] + "…" if len(label) > 13 else label
+        bars += f'<rect x="{margin_left}" y="{y:.1f}" width="{bar_w:.1f}" height="{bar_h:.1f}" fill="{color}" rx="3" class="chart-bar"/>'
+        bars += f'<text x="{margin_left + bar_w + 5:.1f}" y="{y + bar_h * 0.75:.1f}" class="chart-bar-value">{v}</text>'
+        y_labels += f'<text x="{margin_left - 5}" y="{y + bar_h * 0.75:.1f}" text-anchor="end" class="chart-axis-label">{display_label}</text>'
+
+    return f"""<svg viewBox="0 0 {width} {height}" class="chart-svg" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Bar chart">
+        {y_labels}
+        {bars}
+    </svg>"""
+
+
+def _svg_pie_chart(data: list[tuple[str, float]], width: int = 200, height: int = 200) -> str:
+    """Generate an inline SVG pie/donut chart from (label, value) tuples."""
+    if not data:
+        return '<div class="chart-empty">No data available</div>'
+
+    total = sum(v for _, v in data)
+    if total == 0:
+        return '<div class="chart-empty">No data available</div>'
+
+    colors = ["#4a90d9", "#6c5ce7", "#00b894", "#fdcb6e", "#e17055",
+              "#0984e3", "#e84393", "#00cec9", "#fab1a0", "#74b9ff"]
+    cx, cy, r = width / 2, height / 2, min(width, height) / 2 - 5
+    inner_r = r * 0.55  # Donut hole
+
+    slices = ""
+    legend = ""
+    angle = -90.0  # Start at top
+    for i, (label, value) in enumerate(data):
+        if value == 0:
+            continue
+        frac = value / total
+        sweep = frac * 360
+        color = colors[i % len(colors)]
+
+        # Calculate arc path
+        start_rad = math.radians(angle)
+        end_rad = math.radians(angle + sweep)
+
+        x1 = cx + r * math.cos(start_rad)
+        y1 = cy + r * math.sin(start_rad)
+        x2 = cx + r * math.cos(end_rad)
+        y2 = cy + r * math.sin(end_rad)
+
+        # Inner arc points
+        ix1 = cx + inner_r * math.cos(start_rad)
+        iy1 = cy + inner_r * math.sin(start_rad)
+        ix2 = cx + inner_r * math.cos(end_rad)
+        iy2 = cy + inner_r * math.sin(end_rad)
+
+        large_arc = 1 if sweep > 180 else 0
+
+        if sweep >= 360:
+            # Full circle (single slice)
+            slices += f'<circle cx="{cx}" cy="{cy}" r="{r}" fill="{color}" class="chart-slice"/>'
+            slices += f'<circle cx="{cx}" cy="{cy}" r="{inner_r}" fill="var(--surface)" />'
+        else:
+            path = f"M {x1:.1f},{y1:.1f} A {r},{r} 0 {large_arc} 1 {x2:.1f},{y2:.1f} L {ix2:.1f},{iy2:.1f} A {inner_r},{inner_r} 0 {large_arc} 0 {ix1:.1f},{iy1:.1f} Z"
+            slices += f'<path d="{path}" fill="{color}" class="chart-slice"/>'
+
+        pct = f"{frac * 100:.1f}%"
+        legend += f'<div class="pie-legend-item"><span class="pie-legend-color" style="background:{color}"></span>{label} ({pct})</div>'
+        angle += sweep
+
+    return f"""<div class="pie-chart-container">
+        <svg viewBox="0 0 {width} {height}" class="chart-svg pie-svg" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Pie chart">
+            {slices}
+        </svg>
+        <div class="pie-legend">{legend}</div>
+    </div>"""
+
+
+def _render_dashboard(
+    stats: dict,
+    recent: list[dict],
+    doc_growth: list[dict] | None = None,
+    tag_dist: list[dict] | None = None,
+    storage: dict | None = None,
+    search_stats: dict | None = None,
+    popular_queries: list[dict] | None = None,
+    search_trend: list[dict] | None = None,
+    chat_activity: list[dict] | None = None,
+    job_stats: dict | None = None,
+) -> str:
+    """Render the enhanced dashboard with analytics charts."""
+    doc_growth = doc_growth or []
+    tag_dist = tag_dist or []
+    storage = storage or {"total_size": 0, "by_type": {}, "avg_doc_size": 0, "doc_count": 0}
+    search_stats = search_stats or {"total_searches": 0, "avg_results": 0.0, "unique_queries": 0}
+    popular_queries = popular_queries or []
+    search_trend = search_trend or []
+    chat_activity = chat_activity or []
+    job_stats = job_stats or {"by_state": {}, "total": 0, "success_rate": 0.0,
+                              "avg_processing_time_seconds": 0.0, "recent_failures": []}
+
     recent_rows = ""
     for doc in recent:
         status_class = f"badge-{doc.get('status', 'pending')}"
@@ -1241,6 +1544,86 @@ def _render_dashboard(stats: dict, recent: list[dict]) -> str:
             <td>{doc.get('ext', '')}</td>
             <td>{_fmt_date(doc.get('created_at', ''))}</td>
         </tr>"""
+
+    # Document growth chart
+    growth_chart = _svg_line_chart(doc_growth, "count", "date", color="#4a90d9")
+
+    # Search trend chart
+    search_chart = _svg_line_chart(search_trend, "count", "date", color="#00b894")
+
+    # Chat activity chart
+    chat_chart = _svg_line_chart(chat_activity, "message_count", "date", color="#e84393")
+
+    # Tag distribution bar chart (top 10)
+    tag_chart = _svg_bar_chart(tag_dist[:10], "tag", "count", color="#6c5ce7")
+
+    # Storage pie chart data
+    storage_by_type = storage.get("by_type", {})
+    pie_data = [(ext, size) for ext, size in storage_by_type.items()][:8]
+    storage_pie = _svg_pie_chart(pie_data)
+
+    # Popular queries table
+    popular_rows = ""
+    for q in popular_queries[:5]:
+        popular_rows += f"""
+        <tr>
+            <td>{_escape(q['query'])}</td>
+            <td>{q['count']}</td>
+            <td>{q.get('avg_results', 0)}</td>
+        </tr>"""
+    popular_html = f"""<table><tr><th>Query</th><th>Searches</th><th>Avg Results</th></tr>{popular_rows}</table>""" if popular_rows else "<p>No searches logged yet.</p>"
+
+    # Job stats
+    by_state = job_stats.get("by_state", {})
+    job_states_html = " · ".join(f"{s}: {c}" for s, c in by_state.items()) or "No jobs"
+    success_rate = job_stats.get("success_rate", 0)
+    avg_time = job_stats.get("avg_processing_time_seconds", 0)
+
+    # Recent failures
+    failures_html = ""
+    for f in job_stats.get("recent_failures", [])[:3]:
+        failures_html += f'<div class="job-failure"><strong>{_escape(f.get("document_title", ""))}</strong>: {_escape(f.get("error", "")[:100])}</div>'
+    if not failures_html:
+        failures_html = "<p>No recent failures.</p>"
+
+    # Status distribution for pie chart
+    status_pie_data = [
+        ("Pending", stats.get("pending", 0)),
+        ("Indexed", stats.get("indexed", 0)),
+        ("Summarized", stats.get("summarized", 0)),
+        ("Error", stats.get("error", 0)),
+    ]
+    status_pie = _svg_pie_chart(status_pie_data, width=160, height=160)
+
+    analytics_css = """
+        <style>
+        .chart-svg { width: 100%; height: auto; max-height: 250px; }
+        .chart-grid { stroke: var(--border); stroke-width: 0.5; stroke-dasharray: 3,3; }
+        .chart-line { stroke-linejoin: round; stroke-linecap: round; }
+        .chart-point { stroke: var(--surface); stroke-width: 1.5; }
+        .chart-bar { transition: opacity 0.2s; }
+        .chart-bar:hover { opacity: 0.8; }
+        .chart-slice { stroke: var(--surface); stroke-width: 1; transition: opacity 0.2s; }
+        .chart-slice:hover { opacity: 0.85; }
+        .chart-axis-label { font-size: 10px; fill: var(--text-faint); font-family: sans-serif; }
+        .chart-bar-value { font-size: 10px; fill: var(--text-muted); font-family: sans-serif; }
+        .chart-empty { color: var(--text-faint); text-align: center; padding: 40px; font-style: italic; }
+        .analytics-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 16px 0; }
+        .analytics-grid-full { grid-column: 1 / -1; }
+        .pie-chart-container { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+        .pie-svg { max-width: 200px; flex-shrink: 0; }
+        .pie-legend { flex: 1; }
+        .pie-legend-item { font-size: 0.85em; margin: 4px 0; display: flex; align-items: center; gap: 6px; }
+        .pie-legend-color { display: inline-block; width: 12px; height: 12px; border-radius: 3px; }
+        .chart-card h3 { color: var(--primary); margin-bottom: 8px; }
+        .job-failure { background: var(--badge-error-bg); color: var(--badge-error-text); padding: 8px 12px; border-radius: 6px; margin: 6px 0; font-size: 0.85em; }
+        .stat-extra { font-size: 0.8em; color: var(--text-faint); margin-top: 4px; }
+        .date-range-selector { display: flex; gap: 8px; align-items: center; margin: 16px 0; }
+        .date-range-selector a { padding: 6px 16px; border-radius: 6px; text-decoration: none; border: 1px solid var(--input-border); color: var(--text); background: var(--surface); }
+        .date-range-selector a.active { background: var(--primary); color: var(--header-text); border-color: var(--primary); }
+        @media (max-width: 768px) { .analytics-grid { grid-template-columns: 1fr; } }
+        </style>
+    """
 
     content = f"""
     <div class="stats">
@@ -1260,6 +1643,14 @@ def _render_dashboard(stats: dict, recent: list[dict]) -> str:
             <div class="stat-value">{stats['active_jobs']}</div>
             <div class="stat-label">Active Jobs</div>
         </div>
+        <div class="stat">
+            <div class="stat-value">{search_stats.get('total_searches', 0)}</div>
+            <div class="stat-label">Searches (30d)</div>
+        </div>
+        <div class="stat">
+            <div class="stat-value">{success_rate:.0f}%</div>
+            <div class="stat-label">Job Success Rate</div>
+        </div>
     </div>
 
     <div class="card">
@@ -1270,12 +1661,261 @@ def _render_dashboard(stats: dict, recent: list[dict]) -> str:
         </form>
     </div>
 
+    <div class="analytics-grid">
+        <div class="card chart-card">
+            <h3>📊 Document Growth (30 days)</h3>
+            {growth_chart}
+        </div>
+        <div class="card chart-card">
+            <h3>🔍 Search Trend (30 days)</h3>
+            {search_chart}
+        </div>
+        <div class="card chart-card">
+            <h3>💬 Chat Activity (30 days)</h3>
+            {chat_chart}
+        </div>
+        <div class="card chart-card">
+            <h3>🏷️ Top Tags</h3>
+            {tag_chart}
+        </div>
+    </div>
+
+    <div class="analytics-grid">
+        <div class="card chart-card">
+            <h3>📁 Document Status</h3>
+            {status_pie}
+        </div>
+        <div class="card chart-card">
+            <h3>💾 Storage by Type</h3>
+            <p class="stat-extra">Total: {_fmt_size(storage.get('total_size', 0))} · Avg: {_fmt_size(storage.get('avg_doc_size', 0))}</p>
+            {storage_pie}
+        </div>
+    </div>
+
+    <div class="analytics-grid">
+        <div class="card chart-card">
+            <h3>🔍 Popular Searches</h3>
+            {popular_html}
+        </div>
+        <div class="card chart-card">
+            <h3>⚙️ Job Statistics</h3>
+            <p><strong>States:</strong> {job_states_html}</p>
+            <p><strong>Success Rate:</strong> {success_rate:.1f}%</p>
+            <p><strong>Avg Processing Time:</strong> {avg_time:.1f}s</p>
+            <h4>Recent Failures</h4>
+            {failures_html}
+        </div>
+    </div>
+
     <div class="card">
         <h2>Recent Documents</h2>
         {'<table><tr><th>Document</th><th>Status</th><th>Type</th><th>Date</th></tr>' + recent_rows + '</table>' if recent else '<p>No documents indexed yet. <a href="/upload">Upload one</a> to get started.</p>'}
     </div>
+
+    <div class="card" style="text-align:center;">
+        <a href="/analytics" class="btn-read-full">View Full Analytics →</a>
+    </div>
     """
-    return _base_page("Dashboard", content)
+    return _base_page("Dashboard", content, extra_head=analytics_css)
+
+
+def _render_analytics_page(
+    stats: dict,
+    doc_growth: list[dict],
+    tag_dist: list[dict],
+    storage: dict,
+    search_stats: dict,
+    popular_queries: list[dict],
+    search_trend: list[dict],
+    chat_activity: list[dict],
+    job_stats: dict,
+    days: int = 30,
+) -> str:
+    """Render the full analytics page with detailed charts and tables."""
+    # Charts
+    growth_chart = _svg_line_chart(doc_growth, "count", "date", color="#4a90d9")
+    search_chart = _svg_line_chart(search_trend, "count", "date", color="#00b894")
+    chat_chart = _svg_line_chart(chat_activity, "message_count", "date", color="#e84393")
+    tag_chart = _svg_bar_chart(tag_dist[:15], "tag", "count", color="#6c5ce7", height=300)
+
+    # Storage pie
+    storage_by_type = storage.get("by_type", {})
+    pie_data = [(ext, size) for ext, size in storage_by_type.items()][:8]
+    storage_pie = _svg_pie_chart(pie_data)
+
+    # Status pie
+    status_pie_data = [
+        ("Pending", stats.get("pending", 0)),
+        ("Indexed", stats.get("indexed", 0)),
+        ("Summarized", stats.get("summarized", 0)),
+        ("Error", stats.get("error", 0)),
+    ]
+    status_pie = _svg_pie_chart(status_pie_data)
+
+    # Popular queries table
+    popular_rows = ""
+    for q in popular_queries:
+        popular_rows += f"""
+        <tr>
+            <td>{_escape(q['query'])}</td>
+            <td>{q['count']}</td>
+            <td>{q.get('avg_results', 0)}</td>
+        </tr>"""
+    popular_html = f"""<table><tr><th>Query</th><th>Searches</th><th>Avg Results</th></tr>{popular_rows}</table>""" if popular_rows else "<p>No searches logged yet.</p>"
+
+    # Job stats
+    by_state = job_stats.get("by_state", {})
+    job_states_html = " · ".join(f"{s}: {c}" for s, c in by_state.items()) or "No jobs"
+    success_rate = job_stats.get("success_rate", 0)
+    avg_time = job_stats.get("avg_processing_time_seconds", 0)
+
+    # Tag table
+    tag_rows = ""
+    for t in tag_dist:
+        tag_rows += f"<tr><td><a href='/documents?tag={_escape(t['tag'])}'>{_escape(t['tag'])}</a></td><td>{t['count']}</td></tr>"
+    tag_table = f"<table><tr><th>Tag</th><th>Documents</th></tr>{tag_rows}</table>" if tag_rows else "<p>No tags yet.</p>"
+
+    # Storage table
+    storage_rows = ""
+    for ext, size in sorted(storage_by_type.items(), key=lambda x: x[1], reverse=True):
+        storage_rows += f"<tr><td>{ext}</td><td>{_fmt_size(size)}</td><td>{storage.get('doc_count', 0)}</td></tr>"
+    storage_table = f"<table><tr><th>File Type</th><th>Total Size</th><th>Documents</th></tr>{storage_rows}</table>" if storage_rows else "<p>No storage data.</p>"
+
+    # Recent failures
+    failures_html = ""
+    for f in job_stats.get("recent_failures", []):
+        failures_html += f'<div class="job-failure"><strong>{_escape(f.get("document_title", ""))}</strong> ({_fmt_date(f.get("created_at", ""))}): {_escape(f.get("error", "")[:150])}</div>'
+    if not failures_html:
+        failures_html = "<p>No recent failures.</p>"
+
+    # Date range selector
+    range_links = ""
+    for d in [7, 30, 90]:
+        active = "active" if d == days else ""
+        range_links += f'<a href="/analytics?days={d}" class="{active}">{d} days</a>'
+
+    analytics_css = """
+        <style>
+        .chart-svg { width: 100%; height: auto; max-height: 300px; }
+        .chart-grid { stroke: var(--border); stroke-width: 0.5; stroke-dasharray: 3,3; }
+        .chart-line { stroke-linejoin: round; stroke-linecap: round; }
+        .chart-point { stroke: var(--surface); stroke-width: 1.5; }
+        .chart-bar { transition: opacity 0.2s; }
+        .chart-bar:hover { opacity: 0.8; }
+        .chart-slice { stroke: var(--surface); stroke-width: 1; transition: opacity 0.2s; }
+        .chart-slice:hover { opacity: 0.85; }
+        .chart-axis-label { font-size: 10px; fill: var(--text-faint); font-family: sans-serif; }
+        .chart-bar-value { font-size: 10px; fill: var(--text-muted); font-family: sans-serif; }
+        .chart-empty { color: var(--text-faint); text-align: center; padding: 40px; font-style: italic; }
+        .analytics-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 16px 0; }
+        .analytics-grid-full { grid-column: 1 / -1; }
+        .pie-chart-container { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+        .pie-svg { max-width: 200px; flex-shrink: 0; }
+        .pie-legend { flex: 1; }
+        .pie-legend-item { font-size: 0.85em; margin: 4px 0; display: flex; align-items: center; gap: 6px; }
+        .pie-legend-color { display: inline-block; width: 12px; height: 12px; border-radius: 3px; }
+        .chart-card h3 { color: var(--primary); margin-bottom: 8px; }
+        .job-failure { background: var(--badge-error-bg); color: var(--badge-error-text); padding: 8px 12px; border-radius: 6px; margin: 6px 0; font-size: 0.85em; }
+        .stat-extra { font-size: 0.8em; color: var(--text-faint); margin-top: 4px; }
+        .date-range-selector { display: flex; gap: 8px; align-items: center; margin: 16px 0; }
+        .date-range-selector a { padding: 6px 16px; border-radius: 6px; text-decoration: none; border: 1px solid var(--input-border); color: var(--text); background: var(--surface); }
+        .date-range-selector a.active { background: var(--primary); color: var(--header-text); border-color: var(--primary); }
+        .export-link { float: right; font-size: 0.85em; }
+        @media (max-width: 768px) { .analytics-grid { grid-template-columns: 1fr; } }
+        </style>
+    """
+
+    content = f"""
+    <div class="card">
+        <h2>📈 Analytics Overview</h2>
+        <div class="date-range-selector">
+            <span>Range:</span>
+            {range_links}
+        </div>
+        <a href="/api/v1/analytics?days={days}" class="export-link">Export as JSON →</a>
+    </div>
+
+    <div class="stats">
+        <div class="stat">
+            <div class="stat-value">{stats.get('total', 0)}</div>
+            <div class="stat-label">Total Documents</div>
+        </div>
+        <div class="stat">
+            <div class="stat-value">{search_stats.get('total_searches', 0)}</div>
+            <div class="stat-label">Searches ({days}d)</div>
+        </div>
+        <div class="stat">
+            <div class="stat-value">{search_stats.get('unique_queries', 0)}</div>
+            <div class="stat-label">Unique Queries</div>
+        </div>
+        <div class="stat">
+            <div class="stat-value">{success_rate:.0f}%</div>
+            <div class="stat-label">Job Success Rate</div>
+        </div>
+    </div>
+
+    <div class="analytics-grid">
+        <div class="card chart-card analytics-grid-full">
+            <h3>📊 Document Growth ({days} days)</h3>
+            {growth_chart}
+        </div>
+        <div class="card chart-card">
+            <h3>🔍 Search Trend ({days} days)</h3>
+            {search_chart}
+        </div>
+        <div class="card chart-card">
+            <h3>💬 Chat Activity ({days} days)</h3>
+            {chat_chart}
+        </div>
+    </div>
+
+    <div class="analytics-grid">
+        <div class="card chart-card">
+            <h3>📁 Document Status Distribution</h3>
+            {status_pie}
+        </div>
+        <div class="card chart-card">
+            <h3>💾 Storage by File Type</h3>
+            <p class="stat-extra">Total: {_fmt_size(storage.get('total_size', 0))} · Avg doc: {_fmt_size(storage.get('avg_doc_size', 0))}</p>
+            {storage_pie}
+        </div>
+    </div>
+
+    <div class="analytics-grid">
+        <div class="card chart-card analytics-grid-full">
+            <h3>🏷️ Tag Distribution</h3>
+            {tag_chart}
+        </div>
+    </div>
+
+    <div class="analytics-grid">
+        <div class="card chart-card">
+            <h3>🔍 Popular Search Queries</h3>
+            {popular_html}
+        </div>
+        <div class="card chart-card">
+            <h3>⚙️ Job Statistics</h3>
+            <p><strong>Total Jobs:</strong> {job_stats.get('total', 0)}</p>
+            <p><strong>States:</strong> {job_states_html}</p>
+            <p><strong>Success Rate:</strong> {success_rate:.1f}%</p>
+            <p><strong>Avg Processing Time:</strong> {avg_time:.1f}s</p>
+            <h4>Recent Failures</h4>
+            {failures_html}
+        </div>
+    </div>
+
+    <div class="analytics-grid">
+        <div class="card chart-card">
+            <h3>📋 All Tags</h3>
+            {tag_table}
+        </div>
+        <div class="card chart-card">
+            <h3>💾 Storage Breakdown</h3>
+            {storage_table}
+        </div>
+    </div>
+    """
+    return _base_page("Analytics", content, extra_head=analytics_css)
 
 
 def _render_search_form(error: str = "") -> str:
