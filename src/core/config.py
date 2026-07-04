@@ -149,6 +149,26 @@ class EmbeddingConfig:
 
 
 @dataclass
+class ChunkingConfig:
+    """Document chunking settings for granular search and RAG retrieval.
+
+    Documents are split into chunks so that search returns the most
+    relevant passage (not the whole document) and LLM context includes
+    only the pertinent chunk (fewer tokens).
+    """
+
+    chunk_size: int = field(
+        default_factory=lambda: _env_int("DOCMIND_CHUNK_SIZE", 500)
+    )
+    chunk_overlap: int = field(
+        default_factory=lambda: _env_int("DOCMIND_CHUNK_OVERLAP", 50)
+    )
+    min_chunk_size: int = field(
+        default_factory=lambda: _env_int("DOCMIND_CHUNK_MIN_SIZE", 100)
+    )
+
+
+@dataclass
 class LLMConfig:
     """LLM provider settings for RAG answer generation.
 
@@ -210,6 +230,7 @@ class Config:
     document_limits: DocumentLimits = field(default_factory=DocumentLimits)
     llm: LLMConfig = field(default_factory=LLMConfig)
     embedding: EmbeddingConfig = field(default_factory=EmbeddingConfig)
+    chunking: ChunkingConfig = field(default_factory=ChunkingConfig)
     debug: bool = field(
         default_factory=lambda: _env_bool("DOCMIND_DEBUG", False)
     )

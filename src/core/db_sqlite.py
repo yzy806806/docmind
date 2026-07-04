@@ -118,6 +118,22 @@ CREATE TABLE IF NOT EXISTS document_embeddings (
     created_at  TEXT NOT NULL DEFAULT (datetime('now')),
     PRIMARY KEY (doc_id)
 );
+
+CREATE TABLE IF NOT EXISTS document_chunks (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    doc_id          INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    chunk_index     INTEGER NOT NULL DEFAULT 0,
+    content         TEXT NOT NULL DEFAULT '',
+    start_char      INTEGER NOT NULL DEFAULT 0,
+    end_char        INTEGER NOT NULL DEFAULT 0,
+    token_count     INTEGER NOT NULL DEFAULT 0,
+    embedding       BLOB,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (doc_id, chunk_index)
+);
+
+CREATE INDEX IF NOT EXISTS idx_document_chunks_doc_id ON document_chunks(doc_id);
+CREATE INDEX IF NOT EXISTS idx_document_chunks_chunk_index ON document_chunks(chunk_index);
 """
 
 # FTS5 virtual table — created separately because some SQLite builds
@@ -148,6 +164,37 @@ CREATE TRIGGER IF NOT EXISTS documents_au AFTER UPDATE ON documents BEGIN
     VALUES ('delete', old.id, old.title, old.summary, old.raw_preview, old.body);
     INSERT INTO documents_fts(rowid, title, summary, raw_preview, body)
     VALUES (new.id, new.title, new.summary, new.raw_preview, new.body);
+END;
+"""
+
+# FTS5 virtual table for document chunks — enables keyword search at the
+# chunk level for more granular retrieval.
+CHUNK_FTS_SCHEMA_SQL = r"""
+CREATE VIRTUAL TABLE IF NOT EXISTS document_chunks_fts
+    USING fts5(
+        content,
+        content='document_chunks',
+        content_rowid='id'
+    );
+"""
+
+# Triggers to keep chunk FTS5 in sync with the document_chunks table
+CHUNK_FTS_TRIGGERS_SQL = r"""
+CREATE TRIGGER IF NOT EXISTS document_chunks_ai AFTER INSERT ON document_chunks BEGIN
+    INSERT INTO document_chunks_fts(rowid, content)
+    VALUES (new.id, new.content);
+END;
+
+CREATE TRIGGER IF NOT EXISTS document_chunks_ad AFTER DELETE ON document_chunks BEGIN
+    INSERT INTO document_chunks_fts(document_chunks_fts, rowid, content)
+    VALUES ('delete', old.id, old.content);
+END;
+
+CREATE TRIGGER IF NOT EXISTS document_chunks_au AFTER UPDATE ON document_chunks BEGIN
+    INSERT INTO document_chunks_fts(document_chunks_fts, rowid, content)
+    VALUES ('delete', old.id, old.content);
+    INSERT INTO document_chunks_fts(rowid, content)
+    VALUES (new.id, new.content);
 END;
 """
 
@@ -228,6 +275,8 @@ class Database:
         await self._conn.executescript(SCHEMA_SQL)
         await self._conn.executescript(FTS_SCHEMA_SQL)
         await self._conn.executescript(FTS_TRIGGERS_SQL)
+        await self._conn.executescript(CHUNK_FTS_SCHEMA_SQL)
+        await self._conn.executescript(CHUNK_FTS_TRIGGERS_SQL)
         await self._conn.commit()
 
     @asynccontextmanager
@@ -685,8 +734,17 @@ class Database:
         return row["c"] if row else 0
 
     async def delete_document(self, doc_id: int) -> bool:
-        """Delete a document by ID. Returns True if deleted, False if not found."""
+        """Delete a document by ID. Returns True if deleted, False if not found.
+
+        Chunks and embeddings are cascade-deleted via FK constraints.
+        We also explicitly delete chunks to ensure FTS triggers fire
+        even if FK cascade hasn't propagated yet.
+        """
         async with self.connection() as conn:
+            # Explicitly delete chunks first (ensures FTS trigger cleanup)
+            await conn.execute(
+                "DELETE FROM document_chunks WHERE doc_id = ?", (doc_id,)
+            )
             cursor = await conn.execute(
                 "DELETE FROM documents WHERE id = ?", (doc_id,)
             )
@@ -1251,6 +1309,247 @@ class Database:
         async with self.connection() as conn:
             cursor = await conn.execute(
                 "SELECT COUNT(*) AS c FROM document_embeddings"
+            )
+            row = await cursor.fetchone()
+        return row["c"] if row else 0
+
+    # ── Document Chunks ──────────────────────────────────────────
+
+    async def save_chunks(
+        self,
+        doc_id: int,
+        chunks: list[dict[str, Any]],
+    ) -> int:
+        """Save document chunks, replacing any existing chunks for the doc.
+
+        Args:
+            doc_id: The document ID these chunks belong to.
+            chunks: List of chunk dicts from TextChunker.chunk(), each
+                with keys: text, start_char, end_char, chunk_index,
+                token_count.
+
+        Returns:
+            Number of chunks saved.
+        """
+        if not chunks:
+            return 0
+
+        now = _now_iso()
+        async with self.connection() as conn:
+            # Delete existing chunks (FTS triggers handle cleanup)
+            await conn.execute(
+                "DELETE FROM document_chunks WHERE doc_id = ?", (doc_id,)
+            )
+            rows = [
+                (doc_id, c["chunk_index"], c["text"],
+                 c["start_char"], c["end_char"],
+                 c.get("token_count", 0), None, now)
+                for c in chunks
+            ]
+            await conn.executemany(
+                """INSERT INTO document_chunks
+                       (doc_id, chunk_index, content, start_char, end_char,
+                        token_count, embedding, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                rows,
+            )
+            await conn.commit()
+
+        return len(chunks)
+
+    async def get_chunks(
+        self, doc_id: int
+    ) -> list[dict[str, Any]]:
+        """Retrieve all chunks for a document, ordered by chunk_index.
+
+        Returns a list of dicts with keys: id, doc_id, chunk_index,
+        content, start_char, end_char, token_count, has_embedding,
+        created_at.
+        """
+        async with self.connection() as conn:
+            cursor = await conn.execute(
+                """SELECT id, doc_id, chunk_index, content,
+                          start_char, end_char, token_count,
+                          (embedding IS NOT NULL) AS has_embedding,
+                          created_at
+                   FROM document_chunks
+                   WHERE doc_id = ?
+                   ORDER BY chunk_index""",
+                (doc_id,),
+            )
+            rows = await cursor.fetchall()
+
+        return [
+            {
+                "id": r["id"],
+                "doc_id": r["doc_id"],
+                "chunk_index": r["chunk_index"],
+                "content": r["content"],
+                "start_char": r["start_char"],
+                "end_char": r["end_char"],
+                "token_count": r["token_count"],
+                "has_embedding": bool(r["has_embedding"]),
+                "created_at": r["created_at"],
+            }
+            for r in rows
+        ]
+
+    async def get_chunk_count(self, doc_id: int) -> int:
+        """Return the number of chunks stored for a document."""
+        async with self.connection() as conn:
+            cursor = await conn.execute(
+                "SELECT COUNT(*) AS c FROM document_chunks WHERE doc_id = ?",
+                (doc_id,),
+            )
+            row = await cursor.fetchone()
+        return row["c"] if row else 0
+
+    async def delete_chunks(self, doc_id: int) -> int:
+        """Delete all chunks for a document.
+
+        Returns the number of chunks deleted.
+        """
+        async with self.connection() as conn:
+            cursor = await conn.execute(
+                "DELETE FROM document_chunks WHERE doc_id = ?",
+                (doc_id,),
+            )
+            await conn.commit()
+            return cursor.rowcount
+
+    async def save_chunk_embedding(
+        self, chunk_id: int, embedding: list[float]
+    ) -> None:
+        """Store an embedding vector for a specific chunk."""
+        if not embedding:
+            return
+        blob = serialize_vector(embedding)
+        async with self.connection() as conn:
+            await conn.execute(
+                "UPDATE document_chunks SET embedding = ? WHERE id = ?",
+                (blob, chunk_id),
+            )
+            await conn.commit()
+
+    async def get_chunks_with_embeddings(
+        self, doc_id: int
+    ) -> list[dict[str, Any]]:
+        """Retrieve chunks with their embedding vectors for a document.
+
+        Returns dicts with: id, doc_id, chunk_index, content, start_char,
+        end_char, embedding (list[float] or empty).
+        """
+        async with self.connection() as conn:
+            cursor = await conn.execute(
+                """SELECT id, doc_id, chunk_index, content,
+                          start_char, end_char, embedding
+                   FROM document_chunks
+                   WHERE doc_id = ? AND embedding IS NOT NULL
+                   ORDER BY chunk_index""",
+                (doc_id,),
+            )
+            rows = await cursor.fetchall()
+
+        return [
+            {
+                "id": r["id"],
+                "doc_id": r["doc_id"],
+                "chunk_index": r["chunk_index"],
+                "content": r["content"],
+                "start_char": r["start_char"],
+                "end_char": r["end_char"],
+                "embedding": deserialize_vector(r["embedding"])
+                if r["embedding"] else [],
+            }
+            for r in rows
+        ]
+
+    async def search_chunks_fts(
+        self, query: str, top_k: int = 5
+    ) -> list[dict[str, Any]]:
+        """Full-text search on document chunks using FTS5.
+
+        Returns a list of dicts with: id, doc_id, chunk_index, content,
+        start_char, end_char, rank (BM25 score).
+        """
+        safe_query = _sanitize_fts_query(query)
+        if not safe_query or safe_query == '""':
+            return []
+
+        async with self.connection() as conn:
+            cursor = await conn.execute(
+                """SELECT c.id, c.doc_id, c.chunk_index, c.content,
+                          c.start_char, c.end_char,
+                          -bm25(document_chunks_fts) AS rank
+                   FROM document_chunks c
+                   JOIN document_chunks_fts fts ON c.id = fts.rowid
+                   WHERE document_chunks_fts MATCH ?
+                   ORDER BY rank DESC
+                   LIMIT ?""",
+                (safe_query, top_k),
+            )
+            rows = await cursor.fetchall()
+
+        return [
+            {
+                "id": r["id"],
+                "doc_id": r["doc_id"],
+                "chunk_index": r["chunk_index"],
+                "content": r["content"],
+                "start_char": r["start_char"],
+                "end_char": r["end_char"],
+                "rank": r["rank"],
+            }
+            for r in rows
+        ]
+
+    async def search_chunks_similar(
+        self,
+        embedding: list[float],
+        top_k: int = 5,
+    ) -> list[dict[str, Any]]:
+        """Find chunks whose embeddings are most similar to the query vector.
+
+        Returns dicts with: id, doc_id, chunk_index, content, start_char,
+        end_char, similarity (float in [-1, 1]).
+        """
+        if not embedding:
+            return []
+
+        async with self.connection() as conn:
+            cursor = await conn.execute(
+                """SELECT id, doc_id, chunk_index, content,
+                          start_char, end_char, embedding
+                   FROM document_chunks
+                   WHERE embedding IS NOT NULL"""
+            )
+            rows = await cursor.fetchall()
+
+        if not rows:
+            return []
+
+        scored: list[dict[str, Any]] = []
+        for row in rows:
+            stored_vec = deserialize_vector(row["embedding"])
+            sim = cosine_similarity(embedding, stored_vec)
+            scored.append({
+                "id": row["id"],
+                "doc_id": row["doc_id"],
+                "chunk_index": row["chunk_index"],
+                "content": row["content"],
+                "start_char": row["start_char"],
+                "end_char": row["end_char"],
+                "similarity": sim,
+            })
+
+        scored.sort(key=lambda x: x["similarity"], reverse=True)
+        return scored[:top_k]
+
+    async def get_chunk_count_with_embeddings(self) -> int:
+        """Return the total number of chunks with stored embeddings."""
+        async with self.connection() as conn:
+            cursor = await conn.execute(
+                "SELECT COUNT(*) AS c FROM document_chunks WHERE embedding IS NOT NULL"
             )
             row = await cursor.fetchone()
         return row["c"] if row else 0

@@ -1795,3 +1795,350 @@ class TestDocumentTags:
         result = await db.get_tags_for_documents([])
         assert result == {}
 
+
+# ── Document Chunks tests ───────────────────────────────────────
+
+
+class TestDocumentChunks:
+    """Tests for the document_chunks table and CRUD methods."""
+
+    @pytest.mark.asyncio
+    async def test_save_and_get_chunks(self, db) -> None:
+        """save_chunks should store chunks, get_chunks should retrieve them."""
+        doc_id = await db.save_document(
+            path="/docs/chunk1.txt",
+            source_type="api",
+            source_name="test",
+            title="Chunked Doc",
+            ext=".txt",
+            mime_type="text/plain",
+            body="A" * 100 + "\n\n" + "B" * 100,
+        )
+        chunks = [
+            {"text": "Chunk zero content", "start_char": 0, "end_char": 19,
+             "chunk_index": 0, "token_count": 5},
+            {"text": "Chunk one content", "start_char": 20, "end_char": 38,
+             "chunk_index": 1, "token_count": 4},
+        ]
+        count = await db.save_chunks(doc_id, chunks)
+        assert count == 2
+
+        retrieved = await db.get_chunks(doc_id)
+        assert len(retrieved) == 2
+        assert retrieved[0]["content"] == "Chunk zero content"
+        assert retrieved[0]["chunk_index"] == 0
+        assert retrieved[0]["start_char"] == 0
+        assert retrieved[0]["end_char"] == 19
+        assert retrieved[0]["token_count"] == 5
+        assert retrieved[0]["has_embedding"] is False
+
+        assert retrieved[1]["content"] == "Chunk one content"
+        assert retrieved[1]["chunk_index"] == 1
+
+    @pytest.mark.asyncio
+    async def test_get_chunk_count(self, db) -> None:
+        """get_chunk_count should return the number of chunks."""
+        doc_id = await db.save_document(
+            path="/docs/count.txt",
+            source_type="api",
+            source_name="test",
+            title="Count Doc",
+            ext=".txt",
+            mime_type="text/plain",
+            body="Content",
+        )
+        assert await db.get_chunk_count(doc_id) == 0
+
+        chunks = [
+            {"text": "A", "start_char": 0, "end_char": 1,
+             "chunk_index": 0, "token_count": 1},
+            {"text": "B", "start_char": 1, "end_char": 2,
+             "chunk_index": 1, "token_count": 1},
+            {"text": "C", "start_char": 2, "end_char": 3,
+             "chunk_index": 2, "token_count": 1},
+        ]
+        await db.save_chunks(doc_id, chunks)
+        assert await db.get_chunk_count(doc_id) == 3
+
+    @pytest.mark.asyncio
+    async def test_save_chunks_replaces_existing(self, db) -> None:
+        """save_chunks should replace existing chunks for the document."""
+        doc_id = await db.save_document(
+            path="/docs/replace.txt",
+            source_type="api",
+            source_name="test",
+            title="Replace Doc",
+            ext=".txt",
+            mime_type="text/plain",
+            body="Content",
+        )
+        chunks_v1 = [
+            {"text": "Old chunk", "start_char": 0, "end_char": 9,
+             "chunk_index": 0, "token_count": 2},
+        ]
+        await db.save_chunks(doc_id, chunks_v1)
+        assert await db.get_chunk_count(doc_id) == 1
+
+        chunks_v2 = [
+            {"text": "New A", "start_char": 0, "end_char": 5,
+             "chunk_index": 0, "token_count": 1},
+            {"text": "New B", "start_char": 5, "end_char": 10,
+             "chunk_index": 1, "token_count": 1},
+        ]
+        await db.save_chunks(doc_id, chunks_v2)
+        assert await db.get_chunk_count(doc_id) == 2
+
+        retrieved = await db.get_chunks(doc_id)
+        assert retrieved[0]["content"] == "New A"
+        assert retrieved[1]["content"] == "New B"
+
+    @pytest.mark.asyncio
+    async def test_delete_chunks(self, db) -> None:
+        """delete_chunks should remove all chunks for a document."""
+        doc_id = await db.save_document(
+            path="/docs/del.txt",
+            source_type="api",
+            source_name="test",
+            title="Del Doc",
+            ext=".txt",
+            mime_type="text/plain",
+            body="Content",
+        )
+        chunks = [
+            {"text": "A", "start_char": 0, "end_char": 1,
+             "chunk_index": 0, "token_count": 1},
+            {"text": "B", "start_char": 1, "end_char": 2,
+             "chunk_index": 1, "token_count": 1},
+        ]
+        await db.save_chunks(doc_id, chunks)
+        assert await db.get_chunk_count(doc_id) == 2
+
+        deleted = await db.delete_chunks(doc_id)
+        assert deleted == 2
+        assert await db.get_chunk_count(doc_id) == 0
+
+    @pytest.mark.asyncio
+    async def test_delete_document_cascades_chunks(self, db) -> None:
+        """Deleting a document should cascade-delete its chunks."""
+        doc_id = await db.save_document(
+            path="/docs/cascade.txt",
+            source_type="api",
+            source_name="test",
+            title="Cascade Doc",
+            ext=".txt",
+            mime_type="text/plain",
+            body="Content",
+        )
+        chunks = [
+            {"text": "A", "start_char": 0, "end_char": 1,
+             "chunk_index": 0, "token_count": 1},
+            {"text": "B", "start_char": 1, "end_char": 2,
+             "chunk_index": 1, "token_count": 1},
+        ]
+        await db.save_chunks(doc_id, chunks)
+        assert await db.get_chunk_count(doc_id) == 2
+
+        result = await db.delete_document(doc_id)
+        assert result is True
+        assert await db.get_chunk_count(doc_id) == 0
+
+    @pytest.mark.asyncio
+    async def test_save_and_get_chunk_embedding(self, db) -> None:
+        """save_chunk_embedding should store, get_chunks should show it."""
+        doc_id = await db.save_document(
+            path="/docs/emb.txt",
+            source_type="api",
+            source_name="test",
+            title="Emb Doc",
+            ext=".txt",
+            mime_type="text/plain",
+            body="Content",
+        )
+        chunks = [
+            {"text": "Chunk A", "start_char": 0, "end_char": 7,
+             "chunk_index": 0, "token_count": 2},
+            {"text": "Chunk B", "start_char": 7, "end_char": 14,
+             "chunk_index": 1, "token_count": 2},
+        ]
+        await db.save_chunks(doc_id, chunks)
+        retrieved = await db.get_chunks(doc_id)
+
+        # Save embedding for first chunk
+        vec = [0.1, 0.2, 0.3, 0.4]
+        await db.save_chunk_embedding(retrieved[0]["id"], vec)
+
+        # Check has_embedding flag
+        retrieved2 = await db.get_chunks(doc_id)
+        assert retrieved2[0]["has_embedding"] is True
+        assert retrieved2[1]["has_embedding"] is False
+
+        # Get chunks with embeddings
+        with_emb = await db.get_chunks_with_embeddings(doc_id)
+        assert len(with_emb) == 1
+        assert with_emb[0]["content"] == "Chunk A"
+        assert len(with_emb[0]["embedding"]) == 4
+
+    @pytest.mark.asyncio
+    async def test_search_chunks_fts(self, db) -> None:
+        """search_chunks_fts should find chunks by keyword."""
+        doc_id = await db.save_document(
+            path="/docs/fts.txt",
+            source_type="api",
+            source_name="test",
+            title="FTS Doc",
+            ext=".txt",
+            mime_type="text/plain",
+            body="Content",
+        )
+        chunks = [
+            {"text": "The quick brown fox jumps", "start_char": 0,
+             "end_char": 26, "chunk_index": 0, "token_count": 6},
+            {"text": "Machine learning models require data", "start_char": 26,
+             "end_char": 62, "chunk_index": 1, "token_count": 9},
+            {"text": "The lazy dog sleeps", "start_char": 62,
+             "end_char": 82, "chunk_index": 2, "token_count": 5},
+        ]
+        await db.save_chunks(doc_id, chunks)
+
+        results = await db.search_chunks_fts("machine learning", top_k=5)
+        assert len(results) >= 1
+        assert results[0]["content"] == "Machine learning models require data"
+        assert results[0]["doc_id"] == doc_id
+        assert results[0]["chunk_index"] == 1
+
+    @pytest.mark.asyncio
+    async def test_search_chunks_fts_no_results(self, db) -> None:
+        """search_chunks_fts should return empty for non-matching query."""
+        doc_id = await db.save_document(
+            path="/docs/fts_empty.txt",
+            source_type="api",
+            source_name="test",
+            title="FTS Empty",
+            ext=".txt",
+            mime_type="text/plain",
+            body="Content",
+        )
+        chunks = [
+            {"text": "Hello world", "start_char": 0, "end_char": 11,
+             "chunk_index": 0, "token_count": 2},
+        ]
+        await db.save_chunks(doc_id, chunks)
+
+        results = await db.search_chunks_fts("nonexistent", top_k=5)
+        assert len(results) == 0
+
+    @pytest.mark.asyncio
+    async def test_search_chunks_similar(self, db) -> None:
+        """search_chunks_similar should find chunks by vector similarity."""
+        doc_id = await db.save_document(
+            path="/docs/sim.txt",
+            source_type="api",
+            source_name="test",
+            title="Sim Doc",
+            ext=".txt",
+            mime_type="text/plain",
+            body="Content",
+        )
+        chunks = [
+            {"text": "Chunk A", "start_char": 0, "end_char": 7,
+             "chunk_index": 0, "token_count": 2},
+            {"text": "Chunk B", "start_char": 7, "end_char": 14,
+             "chunk_index": 1, "token_count": 2},
+        ]
+        await db.save_chunks(doc_id, chunks)
+        retrieved = await db.get_chunks(doc_id)
+
+        # Save embeddings — chunk 0 is similar to query, chunk 1 is not
+        await db.save_chunk_embedding(retrieved[0]["id"], [1.0, 0.0, 0.0])
+        await db.save_chunk_embedding(retrieved[1]["id"], [0.0, 1.0, 0.0])
+
+        # Query vector close to chunk 0
+        results = await db.search_chunks_similar([1.0, 0.1, 0.0], top_k=5)
+        assert len(results) == 2
+        assert results[0]["content"] == "Chunk A"
+        assert results[0]["similarity"] > results[1]["similarity"]
+
+    @pytest.mark.asyncio
+    async def test_search_chunks_similar_empty(self, db) -> None:
+        """search_chunks_similar should return empty when no embeddings."""
+        doc_id = await db.save_document(
+            path="/docs/sim_empty.txt",
+            source_type="api",
+            source_name="test",
+            title="Sim Empty",
+            ext=".txt",
+            mime_type="text/plain",
+            body="Content",
+        )
+        chunks = [
+            {"text": "No embedding", "start_char": 0, "end_char": 12,
+             "chunk_index": 0, "token_count": 3},
+        ]
+        await db.save_chunks(doc_id, chunks)
+
+        results = await db.search_chunks_similar([1.0, 0.0], top_k=5)
+        assert len(results) == 0
+
+    @pytest.mark.asyncio
+    async def test_get_chunk_count_with_embeddings(self, db) -> None:
+        """get_chunk_count_with_embeddings should count chunks with embeddings."""
+        doc_id = await db.save_document(
+            path="/docs/count_emb.txt",
+            source_type="api",
+            source_name="test",
+            title="Count Emb",
+            ext=".txt",
+            mime_type="text/plain",
+            body="Content",
+        )
+        chunks = [
+            {"text": "A", "start_char": 0, "end_char": 1,
+             "chunk_index": 0, "token_count": 1},
+            {"text": "B", "start_char": 1, "end_char": 2,
+             "chunk_index": 1, "token_count": 1},
+        ]
+        await db.save_chunks(doc_id, chunks)
+        assert await db.get_chunk_count_with_embeddings() == 0
+
+        retrieved = await db.get_chunks(doc_id)
+        await db.save_chunk_embedding(retrieved[0]["id"], [0.1, 0.2])
+        assert await db.get_chunk_count_with_embeddings() == 1
+
+    @pytest.mark.asyncio
+    async def test_save_empty_chunks(self, db) -> None:
+        """save_chunks with empty list should return 0."""
+        doc_id = await db.save_document(
+            path="/docs/empty_chunks.txt",
+            source_type="api",
+            source_name="test",
+            title="Empty Chunks",
+            ext=".txt",
+            mime_type="text/plain",
+            body="Content",
+        )
+        count = await db.save_chunks(doc_id, [])
+        assert count == 0
+        assert await db.get_chunk_count(doc_id) == 0
+
+    @pytest.mark.asyncio
+    async def test_chunks_fts_table_created(self, tmp_db_path: str) -> None:
+        """The document_chunks and document_chunks_fts tables should exist."""
+        from src.core.db_sqlite import Database
+
+        db = Database(db_path=tmp_db_path)
+        await db.connect()
+
+        async with db.connection() as conn:
+            cursor = await conn.execute(
+                "SELECT name FROM sqlite_master WHERE type IN ('table', 'trigger')"
+            )
+            names = [row[0] for row in await cursor.fetchall()]
+
+        await db.disconnect()
+
+        assert "document_chunks" in names
+        assert "document_chunks_fts" in names
+        assert "document_chunks_ai" in names
+        assert "document_chunks_ad" in names
+        assert "document_chunks_au" in names
+

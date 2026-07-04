@@ -22,6 +22,7 @@ from enum import Enum
 from typing import Any, Optional
 
 from .search_backend import SearchBackend, SearchResult, SearchResults
+from .chunking import TextChunker
 
 
 # ── Citation confidence ────────────────────────────────────────
@@ -500,6 +501,150 @@ class HybridSearchEngine:
             })
         return output
 
+    # ── Chunk-level search ───────────────────────────────────────
+
+    async def search_chunks(
+        self,
+        query: str,
+        top_k: int = 5,
+    ) -> list[dict[str, Any]]:
+        """Hybrid search at the chunk level.
+
+        Combines FTS5 keyword search on chunk content with vector
+        similarity on chunk embeddings. Results are returned as
+        individual chunks (not grouped by document), each enriched
+        with the parent document's title and path.
+
+        Returns a list of dicts with keys: doc_id, title, path,
+        chunk_id, chunk_index, chunk_content, snippet, rank (fused
+        score), fts_score, vector_score.
+        """
+        if not query or not query.strip():
+            return []
+
+        # Stage 1: FTS5 on chunk content
+        fts_chunks = await self.db.search_chunks_fts(
+            query, top_k=max(top_k, 20)
+        )
+
+        # Check if vector search is available at chunk level
+        vector_available = (
+            self.embed_client is not None
+            and self.embed_client.is_available()
+            and await self._has_any_chunk_embeddings()
+        )
+
+        if not vector_available:
+            return await self._format_chunk_fts_results(fts_chunks, top_k)
+
+        # Stage 2: Vector search on chunk embeddings
+        query_vec = await self.embed_client.embed(query)
+        if not query_vec:
+            return await self._format_chunk_fts_results(fts_chunks, top_k)
+
+        similar_chunks = await self.db.search_chunks_similar(
+            query_vec, top_k=max(top_k, 20)
+        )
+
+        # Build score lookups
+        vec_scores: dict[int, float] = {
+            c["id"]: c["similarity"] for c in similar_chunks
+        }
+
+        # Normalize FTS scores
+        fts_score_map: dict[int, float] = {}
+        if fts_chunks:
+            max_fts = max((c.get("rank", 0) for c in fts_chunks), default=1.0)
+            min_fts = min((c.get("rank", 0) for c in fts_chunks), default=0.0)
+            fts_range = max_fts - min_fts if max_fts > min_fts else 1.0
+            for c in fts_chunks:
+                normalized = (c.get("rank", 0) - min_fts) / fts_range
+                fts_score_map[c["id"]] = normalized
+
+        # Score fusion
+        all_chunk_ids = set(fts_score_map.keys()) | set(vec_scores.keys())
+        fused: list[dict[str, Any]] = []
+        for chunk_id in all_chunk_ids:
+            fts_score = fts_score_map.get(chunk_id, 0.0)
+            vec_score = vec_scores.get(chunk_id, 0.0)
+            fused_score = (
+                self.fts_weight * fts_score + self.vector_weight * vec_score
+            )
+            fused.append({
+                "chunk_id": chunk_id,
+                "fts_score": fts_score,
+                "vector_score": vec_score,
+                "rank": fused_score,
+            })
+
+        fused.sort(key=lambda x: x["rank"], reverse=True)
+        top = fused[:top_k]
+
+        # Build a lookup for chunk metadata from both FTS and vector results
+        chunk_lookup: dict[int, dict[str, Any]] = {}
+        for c in fts_chunks:
+            chunk_lookup[c["id"]] = c
+        for c in similar_chunks:
+            if c["id"] not in chunk_lookup:
+                chunk_lookup[c["id"]] = c
+
+        # Enrich with document metadata
+        results: list[dict[str, Any]] = []
+        for item in top:
+            chunk = chunk_lookup.get(item["chunk_id"], {})
+            doc_id = chunk.get("doc_id", 0)
+            doc = await self.db.get_document(doc_id) if doc_id else None
+            content = chunk.get("content", "")
+            results.append({
+                "doc_id": doc_id,
+                "title": doc.get("title", "") if doc else "",
+                "path": doc.get("path", "") if doc else "",
+                "chunk_id": item["chunk_id"],
+                "chunk_index": chunk.get("chunk_index", 0),
+                "chunk_content": content,
+                "snippet": content[:300],
+                "rank": item["rank"],
+                "fts_score": item["fts_score"],
+                "vector_score": item["vector_score"],
+            })
+
+        return results
+
+    async def _has_any_chunk_embeddings(self) -> bool:
+        """Check if any chunks have stored embeddings."""
+        try:
+            count = await self.db.get_chunk_count_with_embeddings()
+            return count > 0
+        except Exception:
+            return False
+
+    @staticmethod
+    async def _format_chunk_fts_results(
+        fts_chunks: list[dict[str, Any]],
+        top_k: int,
+    ) -> list[dict[str, Any]]:
+        """Format chunk FTS results as chunk-level output (FTS-only fallback).
+
+        This is a static method but needs to be async because it's called
+        from an async context and may be overridden.
+        """
+        output: list[dict[str, Any]] = []
+        for c in fts_chunks[:top_k]:
+            content = c.get("content", "")
+            output.append({
+                "doc_id": c.get("doc_id", 0),
+                "title": "",
+                "path": "",
+                "chunk_id": c.get("id", 0),
+                "chunk_index": c.get("chunk_index", 0),
+                "chunk_content": content,
+                "snippet": content[:300],
+                "rank": c.get("rank", 0.0),
+                "fts_score": c.get("rank", 0.0),
+                "vector_score": 0.0,
+            })
+        return output
+
     async def index_document_embedding(
         self,
         doc_id: int,
@@ -507,18 +652,52 @@ class HybridSearchEngine:
         summary: str = "",
         body: str = "",
     ) -> None:
-        """Generate and store an embedding for a document.
+        """Generate and store embeddings for a document.
 
-        Uses title + summary + body (first 2000 chars) as embedding input.
+        Chunks the document body and generates per-chunk embeddings for
+        granular retrieval. Also stores a document-level embedding (the
+        mean of chunk embeddings) for backward-compatible document search.
+
         Skips silently if no embedding provider is available.
         """
         if self.embed_client is None or not self.embed_client.is_available():
             return
 
-        text = self.embed_client.build_embedding_text(title, summary, body)
-        if not text:
+        # Chunk the document body
+        chunker = TextChunker()
+        chunks = chunker.chunk(body or "")
+
+        if not chunks:
+            # Fall back to whole-document embedding (no body to chunk)
+            text = self.embed_client.build_embedding_text(title, summary, body)
+            if not text:
+                return
+            vec = await self.embed_client.embed(text)
+            if vec:
+                await self.db.save_embedding(doc_id, vec)
             return
 
-        vec = await self.embed_client.embed(text)
-        if vec:
-            await self.db.save_embedding(doc_id, vec)
+        # Save chunks to the database (without embeddings yet)
+        await self.db.save_chunks(doc_id, chunks)
+
+        # Generate per-chunk embeddings
+        chunk_texts = [c["text"] for c in chunks]
+        chunk_embeddings = await self.embed_client.embed_batch(chunk_texts)
+
+        # Save each chunk's embedding
+        saved_chunks = await self.db.get_chunks(doc_id)
+        for i, chunk_row in enumerate(saved_chunks):
+            if i < len(chunk_embeddings) and chunk_embeddings[i]:
+                await self.db.save_chunk_embedding(
+                    chunk_row["id"], chunk_embeddings[i]
+                )
+
+        # Document-level embedding = mean of chunk embeddings
+        valid_vecs = [v for v in chunk_embeddings if v]
+        if valid_vecs:
+            dim = len(valid_vecs[0])
+            mean_vec = [
+                sum(v[j] for v in valid_vecs) / len(valid_vecs)
+                for j in range(dim)
+            ]
+            await self.db.save_embedding(doc_id, mean_vec)

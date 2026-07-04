@@ -31,7 +31,7 @@ from fastapi import WebSocket, WebSocketDisconnect
 from ..core.config import config
 from ..core.db_sqlite import Database
 from ..core.llm_client import LLMClient
-from ..core.search import SearchEngine
+from ..core.search import SearchEngine, HybridSearchEngine
 from ..core.search_backend import SearchBackend, create_backend
 
 logger = logging.getLogger(__name__)
@@ -259,12 +259,24 @@ async def _handle_question(ctx: ConversationContext, text: str) -> None:
             logger.exception("Failed to persist user question")
 
     # Search for relevant documents
+    # If the search engine supports chunk-level search, use it for
+    # more precise context (fewer tokens, specific passages).
     try:
-        results = ctx.search_engine.search(
-            text,
-            top_k=5,
-            include_citations=True,
-        )
+        if isinstance(ctx.search_engine, HybridSearchEngine):
+            # Chunk-level hybrid search — returns individual chunks
+            chunk_results = await ctx.search_engine.search_chunks(
+                text, top_k=5
+            )
+            if chunk_results:
+                results = _convert_chunk_results(chunk_results)
+            else:
+                results = []
+        else:
+            results = ctx.search_engine.search(
+                text,
+                top_k=5,
+                include_citations=True,
+            )
     except Exception as e:
         logger.exception("Search failed during chat")
         await _send(ctx, {"type": "error", "message": f"Search failed: {e}"})
@@ -307,17 +319,21 @@ async def _handle_question(ctx: ConversationContext, text: str) -> None:
             confidence=citation.get("confidence", "low"),
         )
 
-        await _send(
-            ctx,
-            {
-                "type": "citation:added",
-                "ref": ref,
-                "doc_id": result["doc_id"],
-                "title": result.get("title", ""),
-                "snippet": result.get("snippet", ""),
-                "confidence": citation.get("confidence", "low"),
-            },
-        )
+        citation_event: dict[str, Any] = {
+            "type": "citation:added",
+            "ref": ref,
+            "doc_id": result["doc_id"],
+            "title": result.get("title", ""),
+            "snippet": result.get("snippet", ""),
+            "confidence": citation.get("confidence", "low"),
+        }
+        # Include chunk-level citation metadata when available
+        if "chunk_index" in citation:
+            citation_event["chunk_index"] = citation["chunk_index"]
+        if "chunk_id" in citation:
+            citation_event["chunk_id"] = citation["chunk_id"]
+
+        await _send(ctx, citation_event)
 
     # Stream the answer using LLM (with extractive fallback)
     full_answer = ""
@@ -355,3 +371,33 @@ async def _send(ctx: ConversationContext, message: dict[str, Any]) -> None:
         await ctx.websocket.send_text(json.dumps(message, default=str))
     except Exception:
         pass  # Connection may be closed
+
+
+def _convert_chunk_results(
+    chunk_results: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Convert chunk-level search results to the format expected by chat.
+
+    Each chunk result is converted to a dict with keys compatible with
+    the rest of _handle_question: doc_id, title, snippet, body, citation.
+    The snippet is the chunk content (truncated), and the citation
+    references the specific chunk, not just the document.
+    """
+    output: list[dict[str, Any]] = []
+    for chunk in chunk_results:
+        content = chunk.get("chunk_content", "")
+        output.append({
+            "doc_id": chunk.get("doc_id", 0),
+            "title": chunk.get("title", "Untitled"),
+            "snippet": content[:500],
+            "body": content,
+            "rank": chunk.get("rank", 0.0),
+            "citation": {
+                "confidence": "medium",
+                "chunk_index": chunk.get("chunk_index", 0),
+                "chunk_id": chunk.get("chunk_id", 0),
+                "start_char": chunk.get("start_char", 0),
+                "end_char": chunk.get("end_char", 0),
+            },
+        })
+    return output

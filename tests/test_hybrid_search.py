@@ -51,6 +51,7 @@ def mock_embed_client():
         # Simple deterministic vector: 3-dim based on text
         return [float(len(text) % 10), float(hash(text) % 100) / 100.0, 0.5]
     client.embed = AsyncMock(side_effect=fake_embed)
+    client.embed_batch = AsyncMock(side_effect=lambda texts: [fake_embed(t) for t in texts])
     client.build_embedding_text = MagicMock(
         side_effect=lambda title="", summary="", body="": " ".join(
             filter(None, [title, summary, body[:2000] if body else ""])
@@ -658,3 +659,209 @@ class TestDocumentSavedHook:
             body="Body.",
         )
         assert doc_id > 0
+
+
+# ── Chunk-level search tests ────────────────────────────────────
+
+
+class TestChunkLevelSearch:
+    """Tests for HybridSearchEngine.search_chunks()."""
+
+    @pytest.mark.asyncio
+    async def test_search_chunks_fts_only(
+        self, db, unavailable_embed_client
+    ) -> None:
+        """search_chunks should return FTS-only results when no embeddings."""
+        from src.core.search import HybridSearchEngine
+
+        doc_id = await db.save_document(
+            path="/docs/chunk_fts.txt",
+            source_type="api",
+            source_name="test",
+            title="Chunk FTS Doc",
+            ext=".txt",
+            mime_type="text/plain",
+            body="Content",
+        )
+        chunks = [
+            {"text": "Machine learning is powerful", "start_char": 0,
+             "end_char": 28, "chunk_index": 0, "token_count": 7},
+            {"text": "Cooking recipes are fun", "start_char": 28,
+             "end_char": 52, "chunk_index": 1, "token_count": 6},
+        ]
+        await db.save_chunks(doc_id, chunks)
+
+        engine = HybridSearchEngine(
+            db=db, embed_client=unavailable_embed_client
+        )
+        results = await engine.search_chunks("machine learning", top_k=5)
+
+        assert len(results) >= 1
+        assert results[0]["chunk_content"] == "Machine learning is powerful"
+        assert results[0]["doc_id"] == doc_id
+        assert results[0]["chunk_index"] == 0
+        assert "rank" in results[0]
+        assert "fts_score" in results[0]
+
+    @pytest.mark.asyncio
+    async def test_search_chunks_empty_query(self, db) -> None:
+        """search_chunks should return empty for empty query."""
+        from src.core.search import HybridSearchEngine
+
+        engine = HybridSearchEngine(db=db)
+        results = await engine.search_chunks("", top_k=5)
+        assert results == []
+
+    @pytest.mark.asyncio
+    async def test_search_chunks_no_chunks(self, db) -> None:
+        """search_chunks should return empty when no chunks exist."""
+        from src.core.search import HybridSearchEngine
+
+        engine = HybridSearchEngine(db=db)
+        results = await engine.search_chunks("anything", top_k=5)
+        assert results == []
+
+    @pytest.mark.asyncio
+    async def test_search_chunks_with_embeddings(
+        self, db, mock_embed_client
+    ) -> None:
+        """search_chunks should fuse FTS + vector scores."""
+        from src.core.search import HybridSearchEngine
+
+        doc_id = await db.save_document(
+            path="/docs/chunk_hybrid.txt",
+            source_type="api",
+            source_name="test",
+            title="Hybrid Chunk Doc",
+            ext=".txt",
+            mime_type="text/plain",
+            body="Content",
+        )
+        chunks = [
+            {"text": "Neural networks learn patterns", "start_char": 0,
+             "end_char": 31, "chunk_index": 0, "token_count": 8},
+            {"text": "Weather forecast tomorrow", "start_char": 31,
+             "end_char": 56, "chunk_index": 1, "token_count": 6},
+        ]
+        await db.save_chunks(doc_id, chunks)
+        retrieved = await db.get_chunks(doc_id)
+
+        # Save embeddings
+        await db.save_chunk_embedding(retrieved[0]["id"], [1.0, 0.0, 0.0])
+        await db.save_chunk_embedding(retrieved[1]["id"], [0.0, 1.0, 0.0])
+
+        engine = HybridSearchEngine(
+            db=db, embed_client=mock_embed_client, vector_weight=0.5
+        )
+        results = await engine.search_chunks("neural", top_k=5)
+
+        assert len(results) >= 1
+        # The neural network chunk should be in the results
+        found = any("neural" in r["chunk_content"].lower() for r in results)
+        assert found
+
+    @pytest.mark.asyncio
+    async def test_index_document_embedding_creates_chunks(
+        self, db, mock_embed_client
+    ) -> None:
+        """index_document_embedding should chunk and embed per-chunk."""
+        from src.core.search import HybridSearchEngine
+        from src.core.chunking import TextChunker
+        from src.core.config import ChunkingConfig
+
+        # Use long enough paragraphs to avoid merging (default min_chunk_size=100)
+        body = (
+            "This is a detailed paragraph about artificial intelligence "
+            "and machine learning. It covers neural networks, deep learning, "
+            "and natural language processing in great detail.\n\n"
+            "This second paragraph discusses cooking recipes and culinary "
+            "arts. It explores various cuisines, cooking techniques, and "
+            "ingredient selection for gourmet meals."
+        )
+        doc_id = await db.save_document(
+            path="/docs/auto_chunk.txt",
+            source_type="api",
+            source_name="test",
+            title="Auto Chunk",
+            ext=".txt",
+            mime_type="text/plain",
+            body=body,
+        )
+
+        engine = HybridSearchEngine(
+            db=db, embed_client=mock_embed_client
+        )
+        await engine.index_document_embedding(
+            doc_id=doc_id,
+            title="Auto Chunk",
+            summary="",
+            body=body,
+        )
+
+        # Verify chunks were created
+        chunk_count = await db.get_chunk_count(doc_id)
+        assert chunk_count >= 2
+
+        # Verify chunk embeddings were stored
+        emb_count = await db.get_chunk_count_with_embeddings()
+        assert emb_count >= 2
+
+        # Verify document-level embedding (mean of chunks) was stored
+        doc_emb = await db.get_embedding(doc_id)
+        assert len(doc_emb) > 0
+
+    @pytest.mark.asyncio
+    async def test_index_document_embedding_no_provider(self, db) -> None:
+        """index_document_embedding should skip when no provider."""
+        from src.core.search import HybridSearchEngine
+
+        doc_id = await db.save_document(
+            path="/docs/no_provider.txt",
+            source_type="api",
+            source_name="test",
+            title="No Provider",
+            ext=".txt",
+            mime_type="text/plain",
+            body="Some content here.",
+        )
+
+        # No embed client
+        engine = HybridSearchEngine(db=db, embed_client=None)
+        await engine.index_document_embedding(
+            doc_id=doc_id,
+            title="No Provider",
+            body="Some content here.",
+        )
+
+        # No chunks should be created
+        assert await db.get_chunk_count(doc_id) == 0
+
+    @pytest.mark.asyncio
+    async def test_index_document_embedding_empty_body(
+        self, db, mock_embed_client
+    ) -> None:
+        """index_document_embedding should handle empty body gracefully."""
+        from src.core.search import HybridSearchEngine
+
+        doc_id = await db.save_document(
+            path="/docs/empty_body.txt",
+            source_type="api",
+            source_name="test",
+            title="Empty Body",
+            ext=".txt",
+            mime_type="text/plain",
+            body="",
+        )
+
+        engine = HybridSearchEngine(
+            db=db, embed_client=mock_embed_client
+        )
+        await engine.index_document_embedding(
+            doc_id=doc_id,
+            title="Empty Body",
+            summary="A summary",
+            body="",
+        )
+
+        # No chunks, no embedding
+        assert await db.get_chunk_count(doc_id) == 0

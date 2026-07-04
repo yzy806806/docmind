@@ -25,6 +25,7 @@ from .db_sqlite import Database
 from .db_sqlite import Database as SqliteDatabase
 from .job_queue import JobQueue
 from .embeddings import EmbeddingClient
+from .chunking import TextChunker, chunk_text
 from .config import config, Config
 
 __all__ = [
@@ -52,6 +53,8 @@ __all__ = [
     "SqliteDatabase",
     "JobQueue",
     "EmbeddingClient",
+    "TextChunker",
+    "chunk_text",
     "config",
     "Config",
 ]
