@@ -370,6 +370,73 @@ class Database:
 
         return [self._row_to_job_record(r) for r in rows]
 
+    async def list_jobs_paginated(
+        self,
+        *,
+        state: Optional[str] = None,
+        page: int = 1,
+        per_page: int = 20,
+    ) -> dict[str, Any]:
+        """List jobs with pagination, optionally filtered by state.
+
+        Returns a dict with ``jobs``, ``total``, ``page``, ``per_page``,
+        and ``total_pages`` keys.
+        """
+        offset = (page - 1) * per_page
+        async with self.connection() as conn:
+            if state:
+                cursor = await conn.execute(
+                    """SELECT id, state, document_path, document_title, source_name,
+                              document_id, error, created_at, updated_at
+                       FROM jobs WHERE state = ?
+                       ORDER BY created_at DESC
+                       LIMIT ? OFFSET ?""",
+                    (state, per_page, offset),
+                )
+                count_cursor = await conn.execute(
+                    "SELECT COUNT(*) AS cnt FROM jobs WHERE state = ?",
+                    (state,),
+                )
+            else:
+                cursor = await conn.execute(
+                    """SELECT id, state, document_path, document_title, source_name,
+                              document_id, error, created_at, updated_at
+                       FROM jobs
+                       ORDER BY created_at DESC
+                       LIMIT ? OFFSET ?""",
+                    (per_page, offset),
+                )
+                count_cursor = await conn.execute(
+                    "SELECT COUNT(*) AS cnt FROM jobs",
+                )
+            rows = await cursor.fetchall()
+            count_row = await count_cursor.fetchone()
+
+        total = count_row["cnt"] if count_row else 0
+        total_pages = (total + per_page - 1) // per_page if per_page > 0 else 0
+        return {
+            "jobs": [self._row_to_job_record(r) for r in rows],
+            "total": total,
+            "page": page,
+            "per_page": per_page,
+            "total_pages": total_pages,
+        }
+
+    async def count_jobs(self, *, state: Optional[str] = None) -> int:
+        """Count jobs, optionally filtered by state."""
+        async with self.connection() as conn:
+            if state:
+                cursor = await conn.execute(
+                    "SELECT COUNT(*) AS cnt FROM jobs WHERE state = ?",
+                    (state,),
+                )
+            else:
+                cursor = await conn.execute(
+                    "SELECT COUNT(*) AS cnt FROM jobs",
+                )
+            row = await cursor.fetchone()
+        return row["cnt"] if row else 0
+
     async def update_job_status(
         self,
         job_id: str,

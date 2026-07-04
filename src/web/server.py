@@ -10,6 +10,8 @@ REST:
 - GET  /documents/<id>           Document detail with summary and tags
 - POST /documents/<id>/tags      Add a tag to a document
 - POST /documents/<id>/tags/<tag>/delete  Remove a tag
+- GET  /jobs                     Job processing status page (filterable, auto-refresh)
+- GET  /jobs/<job_id>            Job detail page with error and document link
 - POST /upload                   File upload form
 - POST /api/v1/documents/submit  Programmatic document submission
 - POST /api/v1/documents/batch   Batch document submission
@@ -546,6 +548,66 @@ def create_app() -> FastAPI:
             headers={"Location": "/settings?saved=1"},
         )
 
+    # ── Jobs page ─────────────────────────────────────────────
+
+    @app.get("/jobs", response_class=HTMLResponse, include_in_schema=False)
+    async def jobs_page(
+        state: str = Query(default="", description="Filter by job state"),
+        page: int = Query(default=1, ge=1),
+        per_page: int = Query(default=20, ge=1, le=100),
+    ):
+        """Job processing status page with table, filter, and auto-refresh."""
+        db = get_db()
+        # Validate the state filter — empty means "all"
+        valid_states = {"", "pending", "processing", "completed", "failed"}
+        if state not in valid_states:
+            state = ""
+
+        try:
+            result = await db.list_jobs_paginated(
+                state=state or None, page=page, per_page=per_page
+            )
+            jobs = result["jobs"]
+            total = result["total"]
+            total_pages = result["total_pages"]
+        except Exception:
+            jobs = []
+            total = 0
+            total_pages = 0
+
+        # Check if there are any active (pending/processing) jobs for auto-refresh
+        try:
+            pending_count = await db.count_jobs(state="pending")
+            processing_count = await db.count_jobs(state="processing")
+        except Exception:
+            pending_count = 0
+            processing_count = 0
+        has_active = pending_count + processing_count > 0
+
+        html = _render_jobs_page(
+            jobs, state, page, per_page, total, total_pages, has_active
+        )
+        return HTMLResponse(content=html)
+
+    @app.get("/jobs/{job_id}", response_class=HTMLResponse, include_in_schema=False)
+    async def job_detail_page(job_id: str):
+        """Job detail page showing all fields, error, and linked document."""
+        db = get_db()
+        job = await db.get_job(job_id)
+        if job is None:
+            return HTMLResponse(
+                content=_render_error("Not Found", f"Job {job_id} not found"),
+                status_code=404,
+            )
+
+        # Fetch associated document if document_id is set
+        document = None
+        if job.document_id is not None:
+            document = await db.get_document(job.document_id)
+
+        html = _render_job_detail(job, document)
+        return HTMLResponse(content=html)
+
     # ── WebSocket ───────────────────────────────────────────
 
     @app.websocket("/chat")
@@ -858,6 +920,9 @@ def _base_page(title: str, content: str, extra_head: str = "") -> str:
             --badge-summarized-bg: #e8f5e9; --badge-summarized-text: #2e7d32;
             --badge-pending-bg: #fff3e0; --badge-pending-text: #e65100;
             --badge-error-bg: #ffebee; --badge-error-text: #c62828;
+            --badge-processing-bg: #e3f2fd; --badge-processing-text: #1565c0;
+            --badge-completed-bg: #e8f5e9; --badge-completed-text: #2e7d32;
+            --badge-failed-bg: #ffebee; --badge-failed-text: #c62828;
             --error-bg: #ffebee; --error-text: #c62828;
             --success-bg: #e8f5e9; --success-text: #2e7d32;
             --shadow: 0 2px 4px rgba(0,0,0,0.1);
@@ -883,6 +948,9 @@ def _base_page(title: str, content: str, extra_head: str = "") -> str:
             --badge-summarized-bg: #1a3a2a; --badge-summarized-text: #81c784;
             --badge-pending-bg: #3a2a1a; --badge-pending-text: #ffb74d;
             --badge-error-bg: #3a1a1a; --badge-error-text: #ef5350;
+            --badge-processing-bg: #1a3a5a; --badge-processing-text: #64b5f6;
+            --badge-completed-bg: #1a3a2a; --badge-completed-text: #81c784;
+            --badge-failed-bg: #3a1a1a; --badge-failed-text: #ef5350;
             --error-bg: #3a1a1a; --error-text: #ef5350;
             --success-bg: #1a3a2a; --success-text: #81c784;
             --shadow: 0 2px 4px rgba(0,0,0,0.3);
@@ -940,6 +1008,9 @@ def _base_page(title: str, content: str, extra_head: str = "") -> str:
         .badge-summarized {{ background: var(--badge-summarized-bg); color: var(--badge-summarized-text); }}
         .badge-pending {{ background: var(--badge-pending-bg); color: var(--badge-pending-text); }}
         .badge-error {{ background: var(--badge-error-bg); color: var(--badge-error-text); }}
+        .badge-processing {{ background: var(--badge-processing-bg); color: var(--badge-processing-text); }}
+        .badge-completed {{ background: var(--badge-completed-bg); color: var(--badge-completed-text); }}
+        .badge-failed {{ background: var(--badge-failed-bg); color: var(--badge-failed-text); }}
         .tag-pill {{ display: inline-block; padding: 2px 10px; border-radius: 14px;
                      font-size: 0.75em; font-weight: 500; text-decoration: none;
                      background: var(--surface); color: var(--text);
@@ -1088,6 +1159,7 @@ def _base_page(title: str, content: str, extra_head: str = "") -> str:
                 <a href="/search">Search</a>
                 <a href="/documents">Documents</a>
                 <a href="/upload">Upload</a>
+                <a href="/jobs">Jobs</a>
                 <a href="/chat">Chat</a>
                 <a href="/settings">Settings</a>
                 <a href="/docs">API Docs</a>
@@ -1938,6 +2010,157 @@ def _reload_llm_config_from_db(settings: dict[str, str]) -> None:
         )
     except (ValueError, TypeError):
         pass
+
+
+def _render_jobs_page(
+    jobs: list[JobRecord],
+    state_filter: str,
+    page: int,
+    per_page: int,
+    total: int,
+    total_pages: int,
+    has_active: bool,
+) -> str:
+    """Render the job processing status page.
+
+    Shows a table of all jobs with color-coded state badges, a dropdown
+    filter for state, pagination, and auto-refresh when active jobs exist.
+    """
+    # State filter dropdown
+    states = [
+        ("", "All"),
+        ("pending", "Pending"),
+        ("processing", "Processing"),
+        ("completed", "Completed"),
+        ("failed", "Failed"),
+    ]
+    options = ""
+    for val, label in states:
+        selected = " selected" if val == state_filter else ""
+        options += f'<option value="{val}"{selected}>{label}</option>\n'
+
+    # Auto-refresh: meta refresh every 10 seconds when there are active jobs
+    refresh_meta = (
+        '<meta http-equiv="refresh" content="10">'
+        if has_active
+        else ""
+    )
+
+    # Build table rows
+    rows = ""
+    for job in jobs:
+        state_class = f"badge-{job.state.value}"
+        # Truncate job ID for display (show first 8 chars)
+        short_id = job.id[:8]
+        error_cell = ""
+        if job.state.value == "failed" and job.error:
+            # Truncate error for the table view
+            err_display = job.error[:100]
+            if len(job.error) > 100:
+                err_display += "…"
+            error_cell = f'<td class="error">{_escape(err_display)}</td>'
+        else:
+            error_cell = "<td></td>"
+
+        rows += f"""
+        <tr style="cursor: pointer;" onclick="window.location='/jobs/{_escape(job.id)}'">
+            <td><a href="/jobs/{_escape(job.id)}">{_escape(short_id)}</a></td>
+            <td>{_escape(job.document_title or job.document_path or '—')}</td>
+            <td><span class="badge {state_class}">{job.state.value}</span></td>
+            <td>{_escape(job.source_name)}</td>
+            <td>{_fmt_date(job.created_at)}</td>
+            <td>{_fmt_date(job.updated_at)}</td>
+            {error_cell}
+        </tr>"""
+
+    state_param = f"&state={_escape(state_filter)}" if state_filter else ""
+    pagination_html = _render_pagination(
+        page, per_page, total, total_pages, state_param
+    )
+
+    start = (page - 1) * per_page + 1 if total > 0 else 0
+    end = min(page * per_page, total)
+
+    content = f"""
+    <div class="card">
+        <h2>⚙️ Job Processing Status</h2>
+        <div class="pagination-info">Showing {start}–{end} of {total} job(s)</div>
+        <form method="get" action="/jobs" style="margin: 12px 0; display: flex; gap: 8px; align-items: center;">
+            <label for="state-filter">Filter by state:</label>
+            <select name="state" id="state-filter" onchange="this.form.submit()" style="padding: 6px 10px; border-radius: 6px; border: 1px solid var(--input-border); background: var(--surface); color: var(--text);">
+                {options}
+            </select>
+            <input type="hidden" name="per_page" value="{per_page}">
+        </form>
+        {refresh_meta and '<div class="success" style="padding: 8px 12px;">🔄 Auto-refreshing every 10 seconds — active jobs in progress.</div>'}
+        {'<table><tr><th>Job ID</th><th>Document</th><th>State</th><th>Source</th><th>Created</th><th>Updated</th><th>Error</th></tr>' + rows + '</table>' if jobs else '<p>No jobs found.</p>'}
+    </div>
+    {pagination_html}
+    """
+    return _base_page("Jobs", content, extra_head=refresh_meta)
+
+
+def _render_job_detail(job: JobRecord, document: dict | None = None) -> str:
+    """Render a single job's detail page.
+
+    Shows all job fields, the full error traceback if failed, a link to
+    the associated document (if any), and a back button to /jobs.
+    """
+    state_class = f"badge-{job.state.value}"
+
+    # Error section (full traceback)
+    error_html = ""
+    if job.error:
+        error_html = f"""
+        <div class="card">
+            <h3 style="color: var(--error-text);">❌ Error Details</h3>
+            <pre style="background: var(--code-bg); padding: 16px; border-radius: 6px; overflow-x: auto; white-space: pre-wrap; color: var(--text);">{_escape(job.error)}</pre>
+        </div>"""
+
+    # Associated document section
+    doc_html = ""
+    if document:
+        doc_id = document.get("id", "?")
+        doc_title = document.get("title", "Untitled")
+        doc_status = document.get("status", "")
+        doc_status_class = f"badge-{doc_status}"
+        doc_html = f"""
+        <div class="card">
+            <h3>📄 Associated Document</h3>
+            <div class="field"><span class="field-label">Document:</span> <a href="/documents/{doc_id}">[{doc_id}] {_escape(doc_title)}</a></div>
+            <div class="field"><span class="field-label">Status:</span> <span class="badge {doc_status_class}">{doc_status}</span></div>
+            <div class="field"><span class="field-label">Path:</span> {_escape(document.get('path', ''))}</div>
+        </div>"""
+    elif job.document_id is not None:
+        doc_html = """
+        <div class="card">
+            <h3>📄 Associated Document</h3>
+            <p class="pagination-info">Document was deleted (id: {}).</p>
+        </div>""".format(job.document_id)
+    else:
+        doc_html = """
+        <div class="card">
+            <h3>📄 Associated Document</h3>
+            <p class="pagination-info">No document linked yet — job may still be processing.</p>
+        </div>"""
+
+    content = f"""
+    <div class="card doc-detail">
+        <h2>Job Details</h2>
+        <div class="field"><span class="field-label">Job ID:</span> <code>{_escape(job.id)}</code></div>
+        <div class="field"><span class="field-label">State:</span> <span class="badge {state_class}">{job.state.value}</span></div>
+        <div class="field"><span class="field-label">Document Path:</span> {_escape(job.document_path)}</div>
+        <div class="field"><span class="field-label">Document Title:</span> {_escape(job.document_title or '—')}</div>
+        <div class="field"><span class="field-label">Source:</span> {_escape(job.source_name)}</div>
+        <div class="field"><span class="field-label">Document ID:</span> {job.document_id if job.document_id is not None else '—'}</div>
+        <div class="field"><span class="field-label">Created At:</span> {_fmt_date(job.created_at)}</div>
+        <div class="field"><span class="field-label">Updated At:</span> {_fmt_date(job.updated_at)}</div>
+    </div>
+    {error_html}
+    {doc_html}
+    <p><a href="/jobs" class="btn-cancel">← Back to Jobs</a></p>
+    """
+    return _base_page(f"Job {job.id[:8]}", content)
 
 
 def _render_error(title: str, message: str) -> str:
