@@ -119,6 +119,17 @@ CREATE TABLE IF NOT EXISTS document_embeddings (
     PRIMARY KEY (doc_id)
 );
 
+CREATE TABLE IF NOT EXISTS search_log (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    query           TEXT NOT NULL,
+    results_count   INTEGER NOT NULL DEFAULT 0,
+    searched_at     TEXT NOT NULL DEFAULT (datetime('now')),
+    user_session    TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_search_log_searched_at ON search_log(searched_at);
+CREATE INDEX IF NOT EXISTS idx_search_log_query ON search_log(query);
+
 CREATE TABLE IF NOT EXISTS document_chunks (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     doc_id          INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
@@ -1204,6 +1215,240 @@ class Database:
         for row in rows:
             result.setdefault(row["doc_id"], []).append(row["tag"])
         return result
+
+    # ── Search Activity Logging ──────────────────────────────────
+
+    async def log_search(
+        self, query: str, results_count: int, session: Optional[str] = None
+    ) -> int:
+        """Log a search query for analytics.
+
+        Args:
+            query: The search query string.
+            results_count: Number of results returned.
+            session: Optional user session identifier.
+
+        Returns:
+            The id of the inserted log row.
+        """
+        now = _now_iso()
+        async with self.connection() as conn:
+            cursor = await conn.execute(
+                """INSERT INTO search_log (query, results_count, searched_at, user_session)
+                   VALUES (?, ?, ?, ?)""",
+                (query, results_count, now, session),
+            )
+            await conn.commit()
+            return cursor.lastrowid or 0
+
+    async def get_search_stats(self, days: int = 30) -> dict[str, Any]:
+        """Return aggregate search statistics for the last *days* days.
+
+        Returns a dict with keys: total_searches, avg_results, unique_queries.
+        """
+        async with self.connection() as conn:
+            cursor = await conn.execute(
+                """SELECT COUNT(*) as total,
+                          AVG(results_count) as avg_results,
+                          COUNT(DISTINCT query) as unique_queries
+                   FROM search_log
+                   WHERE searched_at >= datetime('now', ?)""",
+                (f"-{days} days",),
+            )
+            row = await cursor.fetchone()
+
+        if row is None or row["total"] == 0:
+            return {"total_searches": 0, "avg_results": 0.0, "unique_queries": 0}
+        return {
+            "total_searches": row["total"],
+            "avg_results": round(row["avg_results"] or 0, 2),
+            "unique_queries": row["unique_queries"],
+        }
+
+    async def get_popular_queries(self, limit: int = 10) -> list[dict[str, Any]]:
+        """Return the most popular search queries by count.
+
+        Each dict has keys: query, count, avg_results.
+        """
+        async with self.connection() as conn:
+            cursor = await conn.execute(
+                """SELECT query, COUNT(*) as count, AVG(results_count) as avg_results
+                   FROM search_log
+                   GROUP BY query
+                   ORDER BY count DESC, query ASC
+                   LIMIT ?""",
+                (limit,),
+            )
+            rows = await cursor.fetchall()
+        return [
+            {
+                "query": row["query"],
+                "count": row["count"],
+                "avg_results": round(row["avg_results"] or 0, 2),
+            }
+            for row in rows
+        ]
+
+    async def get_search_trend(self, days: int = 30) -> list[dict[str, Any]]:
+        """Return daily search counts for the last *days* days.
+
+        Each dict has keys: date (YYYY-MM-DD), count.
+        """
+        async with self.connection() as conn:
+            cursor = await conn.execute(
+                """SELECT DATE(searched_at) as date, COUNT(*) as count
+                   FROM search_log
+                   WHERE searched_at >= datetime('now', ?)
+                   GROUP BY DATE(searched_at)
+                   ORDER BY date ASC""",
+                (f"-{days} days",),
+            )
+            rows = await cursor.fetchall()
+        return [{"date": row["date"], "count": row["count"]} for row in rows]
+
+    # ── Analytics ────────────────────────────────────────────────
+
+    async def get_document_growth(self, days: int = 30) -> list[dict[str, Any]]:
+        """Return daily document creation counts for the last *days* days.
+
+        Each dict has keys: date (YYYY-MM-DD), count.
+        """
+        async with self.connection() as conn:
+            cursor = await conn.execute(
+                """SELECT DATE(created_at) as date, COUNT(*) as count
+                   FROM documents
+                   WHERE created_at >= datetime('now', ?)
+                   GROUP BY DATE(created_at)
+                   ORDER BY date ASC""",
+                (f"-{days} days",),
+            )
+            rows = await cursor.fetchall()
+        return [{"date": row["date"], "count": row["count"]} for row in rows]
+
+    async def get_tag_distribution(self) -> list[dict[str, Any]]:
+        """Return tag distribution with counts, sorted by count descending.
+
+        Each dict has keys: tag, count.
+        """
+        return await self.get_all_tags()
+
+    async def get_storage_stats(self) -> dict[str, Any]:
+        """Return storage statistics.
+
+        Returns a dict with keys: total_size, by_type (dict of ext -> size),
+        avg_doc_size, doc_count.
+        """
+        async with self.connection() as conn:
+            cursor = await conn.execute(
+                """SELECT
+                       COALESCE(SUM(size), 0) as total_size,
+                       COALESCE(AVG(size), 0) as avg_doc_size,
+                       COUNT(*) as doc_count
+                   FROM documents"""
+            )
+            row = await cursor.fetchone()
+
+            type_cursor = await conn.execute(
+                """SELECT ext, SUM(size) as total_size
+                   FROM documents
+                   GROUP BY ext
+                   ORDER BY total_size DESC"""
+            )
+            type_rows = await type_cursor.fetchall()
+
+        by_type: dict[str, int] = {}
+        for tr in type_rows:
+            ext = tr["ext"] or "unknown"
+            by_type[ext] = tr["total_size"] or 0
+
+        return {
+            "total_size": row["total_size"] if row else 0,
+            "avg_doc_size": round(row["avg_doc_size"], 2) if row else 0,
+            "doc_count": row["doc_count"] if row else 0,
+            "by_type": by_type,
+        }
+
+    async def get_chat_activity(self, days: int = 30) -> list[dict[str, Any]]:
+        """Return daily chat message counts for the last *days* days.
+
+        Each dict has keys: date (YYYY-MM-DD), message_count.
+        """
+        async with self.connection() as conn:
+            cursor = await conn.execute(
+                """SELECT DATE(created_at) as date, COUNT(*) as message_count
+                   FROM chat_messages
+                   WHERE created_at >= datetime('now', ?)
+                   GROUP BY DATE(created_at)
+                   ORDER BY date ASC""",
+                (f"-{days} days",),
+            )
+            rows = await cursor.fetchall()
+        return [{"date": row["date"], "message_count": row["message_count"]} for row in rows]
+
+    async def get_job_stats(self) -> dict[str, Any]:
+        """Return job queue statistics.
+
+        Returns a dict with keys: by_state (dict of state -> count),
+        total, success_rate, avg_processing_time_seconds, recent_failures.
+        """
+        async with self.connection() as conn:
+            state_cursor = await conn.execute(
+                """SELECT state, COUNT(*) as count
+                   FROM jobs
+                   GROUP BY state"""
+            )
+            state_rows = await state_cursor.fetchall()
+
+            total_cursor = await conn.execute("SELECT COUNT(*) as c FROM jobs")
+            total_row = await total_cursor.fetchone()
+
+            # Average processing time: difference between created_at and updated_at
+            # for completed jobs.
+            avg_cursor = await conn.execute(
+                """SELECT AVG(
+                       (julianday(updated_at) - julianday(created_at)) * 86400
+                   ) as avg_seconds
+                   FROM jobs
+                   WHERE state = 'completed'"""
+            )
+            avg_row = await avg_cursor.fetchone()
+
+            fail_cursor = await conn.execute(
+                """SELECT id, document_title, error, created_at
+                   FROM jobs
+                   WHERE state = 'failed'
+                   ORDER BY created_at DESC
+                   LIMIT 5"""
+            )
+            fail_rows = await fail_cursor.fetchall()
+
+        by_state: dict[str, int] = {}
+        for sr in state_rows:
+            by_state[sr["state"]] = sr["count"]
+
+        total = total_row["c"] if total_row else 0
+        completed = by_state.get("completed", 0)
+        failed = by_state.get("failed", 0)
+        finished = completed + failed
+        success_rate = round((completed / finished * 100), 2) if finished > 0 else 0.0
+
+        recent_failures = [
+            {
+                "id": fr["id"],
+                "document_title": fr["document_title"] or "",
+                "error": (fr["error"] or "")[:200],
+                "created_at": fr["created_at"],
+            }
+            for fr in fail_rows
+        ]
+
+        return {
+            "by_state": by_state,
+            "total": total,
+            "success_rate": success_rate,
+            "avg_processing_time_seconds": round(avg_row["avg_seconds"] or 0, 2) if avg_row else 0.0,
+            "recent_failures": recent_failures,
+        }
 
     # ── Vector Embeddings ────────────────────────────────────────
 
