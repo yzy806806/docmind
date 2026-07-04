@@ -40,19 +40,19 @@ def _env_bool(key: str, default: bool = False) -> bool:
 
 @dataclass
 class DatabaseConfig:
-    """PostgreSQL connection settings."""
+    """SQLite database settings for standalone operation."""
 
-    dsn: str = field(
+    path: str = field(
         default_factory=lambda: _env(
-            "DOCMIND_DATABASE_DSN",
-            "postgresql://docmind:docmind@localhost:5432/docmind",
+            "DOCMIND_DATABASE_PATH",
+            "data/docmind.db",
         )
     )
     pool_min_size: int = field(
-        default_factory=lambda: _env_int("DOCMIND_DB_POOL_MIN", 2)
+        default_factory=lambda: _env_int("DOCMIND_DB_POOL_MIN", 1)
     )
     pool_max_size: int = field(
-        default_factory=lambda: _env_int("DOCMIND_DB_POOL_MAX", 10)
+        default_factory=lambda: _env_int("DOCMIND_DB_POOL_MAX", 5)
     )
 
 

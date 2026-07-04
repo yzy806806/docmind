@@ -27,6 +27,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+from contextlib import asynccontextmanager
+from typing import AsyncIterator
+
 from fastapi import (
     FastAPI,
     File,
@@ -41,7 +44,7 @@ from fastapi import (
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from ..core.config import config
-from ..core.db import Database
+from ..core.db_sqlite import Database
 from ..core.job_queue import JobQueue
 from ..core.models import (
     BatchDocumentItem,
@@ -84,6 +87,29 @@ def get_queue() -> JobQueue:
     return _queue
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Manage application lifecycle — startup and shutdown."""
+    global _db, _queue
+    _db = Database(
+        db_path=config.database.path,
+        min_size=config.database.pool_min_size,
+        max_size=config.database.pool_max_size,
+    )
+    await _db.connect()
+    _queue = JobQueue(_db)
+    logger.info(
+        "DocMind server started on %s:%d",
+        config.server.host,
+        config.server.port,
+    )
+    yield
+    if _db:
+        await _db.disconnect()
+        _db = None
+    logger.info("DocMind server shut down")
+
+
 # ── App factory ────────────────────────────────────────────────
 
 
@@ -94,33 +120,8 @@ def create_app() -> FastAPI:
         description="AI-powered enterprise document knowledge base",
         docs_url="/docs",
         redoc_url="/redoc",
+        lifespan=lifespan,
     )
-
-    # ── Lifespan ────────────────────────────────────────────
-
-    @app.on_event("startup")
-    async def startup() -> None:
-        global _db, _queue
-        _db = Database(
-            dsn=config.database.dsn,
-            min_size=config.database.pool_min_size,
-            max_size=config.database.pool_max_size,
-        )
-        await _db.connect()
-        _queue = JobQueue(_db)
-        logger.info(
-            "DocMind server started on %s:%d",
-            config.server.host,
-            config.server.port,
-        )
-
-    @app.on_event("shutdown")
-    async def shutdown() -> None:
-        global _db
-        if _db:
-            await _db.disconnect()
-            _db = None
-        logger.info("DocMind server shut down")
 
     # ── Error handlers ──────────────────────────────────────
 
@@ -173,39 +174,10 @@ def create_app() -> FastAPI:
         """Dashboard page with knowledge base statistics."""
         db = get_db()
         try:
-            async with db.connection() as conn:
-                total_row = await conn.fetchrow(
-                    "SELECT COUNT(*) as c FROM documents"
-                )
-                pending_row = await conn.fetchrow(
-                    "SELECT COUNT(*) as c FROM documents WHERE status = 'pending'"
-                )
-                indexed_row = await conn.fetchrow(
-                    "SELECT COUNT(*) as c FROM documents WHERE status = 'indexed'"
-                )
-                summarized_row = await conn.fetchrow(
-                    "SELECT COUNT(*) as c FROM documents WHERE status = 'summarized'"
-                )
-                job_row = await conn.fetchrow(
-                    "SELECT COUNT(*) as c FROM jobs WHERE state IN ('pending', 'processing')"
-                )
+            stats = await db.get_stats()
 
-                stats = {
-                    "total": total_row["c"] if total_row else 0,
-                    "pending": pending_row["c"] if pending_row else 0,
-                    "indexed": indexed_row["c"] if indexed_row else 0,
-                    "summarized": summarized_row["c"] if summarized_row else 0,
-                    "active_jobs": job_row["c"] if job_row else 0,
-                }
-
-                # Get recent documents
-                recent_rows = await conn.fetch(
-                    """SELECT id, title, status, ext, created_at
-                       FROM documents
-                       ORDER BY created_at DESC
-                       LIMIT 10"""
-                )
-                recent = [dict(r) for r in recent_rows]
+            # Get recent documents
+            recent = await db.list_documents(limit=10)
         except Exception:
             stats = {
                 "total": 0, "pending": 0, "indexed": 0,
@@ -230,8 +202,7 @@ def create_app() -> FastAPI:
         db = get_db()
         results: list[dict] = []
         try:
-            rows = await db.fulltext_search(validated_q, limit=20)
-            results = [dict(r) for r in rows]
+            results = await db.fulltext_search(validated_q, limit=20)
         except Exception:
             pass
 
@@ -246,27 +217,9 @@ def create_app() -> FastAPI:
         """List all indexed documents."""
         db = get_db()
         try:
-            async with db.connection() as conn:
-                if source:
-                    rows = await conn.fetch(
-                        """SELECT id, title, status, ext, mime_type,
-                                  source_name, source_type, size, created_at
-                           FROM documents
-                           WHERE source_name = $1 OR source_type = $1
-                           ORDER BY created_at DESC
-                           LIMIT $2""",
-                        source, limit,
-                    )
-                else:
-                    rows = await conn.fetch(
-                        """SELECT id, title, status, ext, mime_type,
-                                  source_name, source_type, size, created_at
-                           FROM documents
-                           ORDER BY created_at DESC
-                           LIMIT $1""",
-                        limit,
-                    )
-                documents = [dict(r) for r in rows]
+            documents = await db.list_documents(
+                source=source if source else None, limit=limit
+            )
         except Exception:
             documents = []
 

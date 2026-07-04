@@ -22,7 +22,7 @@ dependencies = [
     "webdavclient3>=3.14.0",
     "pydantic>=2.0.0",
     "aiofiles>=24.0.0",
-    "asyncpg>=0.30.0",
+    "aiosqlite>=0.20.0",
     "python-multipart>=0.0.12",
 ]
 

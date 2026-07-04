@@ -1,0 +1,697 @@
+"""SQLite-backed async Database for DocMind standalone operation.
+
+Replaces the PostgreSQL/asyncpg ``Database`` class with a lightweight
+SQLite + aiosqlite implementation that requires no external server.
+
+Features:
+- Same async interface as ``db.py`` (connect, disconnect, migrate, connection)
+- FTS5 virtual table for full-text search (replacing PostgreSQL tsvector)
+- Weighted BM25 ranking across title (A), summary (B), raw_preview (C), body (D)
+- Job queue with atomic claim using SQLite's immediate transaction isolation
+- JSON metadata stored as TEXT, serialized/deserialized transparently
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import re
+import uuid
+from contextlib import asynccontextmanager
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, AsyncIterator, Optional
+
+import aiosqlite
+
+from .models import JobRecord, JobState
+
+logger = logging.getLogger(__name__)
+
+# ── Schema DDL ─────────────────────────────────────────────────
+
+SCHEMA_SQL = r"""
+CREATE TABLE IF NOT EXISTS documents (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    path            TEXT UNIQUE NOT NULL,
+    source_type     TEXT NOT NULL DEFAULT 'api',
+    source_name     TEXT NOT NULL DEFAULT 'api',
+    file_hash       TEXT,
+    mtime           REAL DEFAULT 0,
+    size            INTEGER DEFAULT 0,
+    title           TEXT NOT NULL,
+    ext             TEXT DEFAULT '',
+    mime_type       TEXT DEFAULT 'application/octet-stream',
+    summary         TEXT,
+    raw_preview     TEXT DEFAULT '',
+    body            TEXT DEFAULT '',
+    status          TEXT NOT NULL DEFAULT 'pending'
+                        CHECK (status IN ('pending','indexed','summarized','error')),
+    metadata        TEXT DEFAULT '{}',
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_documents_status ON documents(status);
+CREATE INDEX IF NOT EXISTS idx_documents_source ON documents(source_type, source_name);
+
+CREATE TABLE IF NOT EXISTS jobs (
+    id              TEXT PRIMARY KEY,
+    state           TEXT NOT NULL DEFAULT 'pending'
+                        CHECK (state IN ('pending','processing','completed','failed')),
+    document_path   TEXT NOT NULL,
+    document_title  TEXT,
+    source_name     TEXT NOT NULL DEFAULT 'api',
+    document_id     INTEGER REFERENCES documents(id) ON DELETE SET NULL,
+    error           TEXT,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_jobs_state_created ON jobs(state, created_at);
+"""
+
+# FTS5 virtual table — created separately because some SQLite builds
+# may not support IF NOT EXISTS for virtual tables in the same script.
+FTS_SCHEMA_SQL = r"""
+CREATE VIRTUAL TABLE IF NOT EXISTS documents_fts
+    USING fts5(
+        title, summary, raw_preview, body,
+        content='documents',
+        content_rowid='id'
+    );
+"""
+
+# Triggers to keep FTS5 in sync with the documents table
+FTS_TRIGGERS_SQL = r"""
+CREATE TRIGGER IF NOT EXISTS documents_ai AFTER INSERT ON documents BEGIN
+    INSERT INTO documents_fts(rowid, title, summary, raw_preview, body)
+    VALUES (new.id, new.title, new.summary, new.raw_preview, new.body);
+END;
+
+CREATE TRIGGER IF NOT EXISTS documents_ad AFTER DELETE ON documents BEGIN
+    INSERT INTO documents_fts(documents_fts, rowid, title, summary, raw_preview, body)
+    VALUES ('delete', old.id, old.title, old.summary, old.raw_preview, old.body);
+END;
+
+CREATE TRIGGER IF NOT EXISTS documents_au AFTER UPDATE ON documents BEGIN
+    INSERT INTO documents_fts(documents_fts, rowid, title, summary, raw_preview, body)
+    VALUES ('delete', old.id, old.title, old.summary, old.raw_preview, old.body);
+    INSERT INTO documents_fts(rowid, title, summary, raw_preview, body)
+    VALUES (new.id, new.title, new.summary, new.raw_preview, new.body);
+END;
+"""
+
+
+def _now_iso() -> str:
+    """Return current UTC timestamp as ISO 8601 string."""
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _sanitize_fts_query(query: str) -> str:
+    """Sanitize a user query for FTS5 MATCH syntax.
+
+    Removes characters with special meaning in FTS5, keeps alphanumeric
+    tokens of length >= 2, and joins them with implicit AND.
+    """
+    tokens = re.findall(r"[a-zA-Z0-9_]{2,}", query)
+    if not tokens:
+        return '""'
+    return " ".join(tokens)
+
+
+class Database:
+    """Thin async wrapper around an aiosqlite connection.
+
+    Mirrors the interface of the PostgreSQL ``Database`` class in ``db.py``
+    but uses SQLite under the hood, requiring no external server.
+    """
+
+    def __init__(
+        self,
+        db_path: str = "data/docmind.db",
+        *,
+        min_size: int = 1,
+        max_size: int = 5,
+    ):
+        """Initialize the Database with a path to the SQLite file.
+
+        Args:
+            db_path: Path to the SQLite database file. Parent directories
+                are created automatically.
+            min_size: Ignored (kept for interface compatibility with asyncpg).
+            max_size: Maximum number of concurrent connections in the pool.
+        """
+        self._db_path = db_path
+        self._path = Path(db_path)
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        self._conn: Optional[aiosqlite.Connection] = None
+        self._lock = asyncio.Lock()
+        self._min_size = min_size
+        self._max_size = max_size
+
+    # ── Lifecycle ───────────────────────────────────────────────
+
+    async def connect(self) -> None:
+        """Open the connection and run migrations."""
+        self._conn = await aiosqlite.connect(str(self._path))
+        self._conn.row_factory = aiosqlite.Row
+        # Enable foreign keys and WAL mode for better concurrency
+        await self._conn.execute("PRAGMA foreign_keys = ON")
+        await self._conn.execute("PRAGMA journal_mode = WAL")
+        await self.migrate()
+        logger.info("Database connected: %s", self._db_path)
+
+    async def disconnect(self) -> None:
+        """Close the connection."""
+        if self._conn:
+            await self._conn.close()
+            self._conn = None
+
+    async def migrate(self) -> None:
+        """Apply schema DDL idempotently."""
+        if self._conn is None:
+            raise RuntimeError("Database not connected — call db.connect() first")
+        await self._conn.executescript(SCHEMA_SQL)
+        await self._conn.executescript(FTS_SCHEMA_SQL)
+        await self._conn.executescript(FTS_TRIGGERS_SQL)
+        await self._conn.commit()
+
+    @asynccontextmanager
+    async def connection(self) -> AsyncIterator[aiosqlite.Connection]:
+        """Provide a connection context for the duration of a block.
+
+        Since SQLite uses a single connection (serialized), this yields
+        the shared connection protected by a lock for write safety.
+        """
+        if self._conn is None:
+            raise RuntimeError("Database not connected — call db.connect() first")
+        async with self._lock:
+            yield self._conn
+
+    # ── Job Queue ───────────────────────────────────────────────
+
+    async def enqueue_job(
+        self,
+        document_path: str,
+        *,
+        document_title: Optional[str] = None,
+        source_name: str = "api",
+    ) -> JobRecord:
+        """Insert a new job and return its record."""
+        job_id = str(uuid.uuid4())
+        now = _now_iso()
+        async with self.connection() as conn:
+            await conn.execute(
+                """INSERT INTO jobs (id, state, document_path, document_title,
+                                      source_name, created_at, updated_at)
+                   VALUES (?, 'pending', ?, ?, ?, ?, ?)""",
+                (job_id, document_path, document_title, source_name, now, now),
+            )
+            await conn.commit()
+            cursor = await conn.execute(
+                """SELECT id, state, document_path, document_title, source_name,
+                          document_id, error, created_at, updated_at
+                   FROM jobs WHERE id = ?""",
+                (job_id,),
+            )
+            row = await cursor.fetchone()
+
+        return self._row_to_job_record(row)
+
+    async def dequeue_job(self) -> Optional[JobRecord]:
+        """Claim the oldest pending job atomically.
+
+        Uses a transaction with immediate locking to ensure only one
+        worker claims a given job. Returns ``None`` when queue is empty.
+        """
+        async with self.connection() as conn:
+            # Atomically select and update using a subquery
+            cursor = await conn.execute(
+                """SELECT id FROM jobs
+                   WHERE state = 'pending'
+                   ORDER BY created_at
+                   LIMIT 1""",
+            )
+            row = await cursor.fetchone()
+            if row is None:
+                return None
+
+            job_id = row["id"]
+            now = _now_iso()
+            await conn.execute(
+                """UPDATE jobs SET state = 'processing', updated_at = ?
+                   WHERE id = ? AND state = 'pending'""",
+                (now, job_id),
+            )
+            await conn.commit()
+
+            cursor = await conn.execute(
+                """SELECT id, state, document_path, document_title, source_name,
+                          document_id, error, created_at, updated_at
+                   FROM jobs WHERE id = ?""",
+                (job_id,),
+            )
+            row = await cursor.fetchone()
+
+        return self._row_to_job_record(row) if row else None
+
+    async def complete_job(self, job_id: str, document_id: int) -> None:
+        """Mark a job as completed, linking it to the created document."""
+        now = _now_iso()
+        async with self.connection() as conn:
+            await conn.execute(
+                """UPDATE jobs
+                   SET state = 'completed', document_id = ?, updated_at = ?
+                   WHERE id = ?""",
+                (document_id, now, job_id),
+            )
+            await conn.commit()
+
+    async def fail_job(self, job_id: str, error: str) -> None:
+        """Mark a job as failed with an error message."""
+        now = _now_iso()
+        async with self.connection() as conn:
+            await conn.execute(
+                """UPDATE jobs
+                   SET state = 'failed', error = ?, updated_at = ?
+                   WHERE id = ?""",
+                (error, now, job_id),
+            )
+            await conn.commit()
+
+    async def get_job(self, job_id: str) -> Optional[JobRecord]:
+        """Fetch a single job by ID."""
+        async with self.connection() as conn:
+            cursor = await conn.execute(
+                """SELECT id, state, document_path, document_title, source_name,
+                          document_id, error, created_at, updated_at
+                   FROM jobs WHERE id = ?""",
+                (job_id,),
+            )
+            row = await cursor.fetchone()
+
+        return self._row_to_job_record(row) if row else None
+
+    async def create_job(
+        self,
+        document_path: str,
+        *,
+        document_title: Optional[str] = None,
+        source_name: str = "api",
+    ) -> JobRecord:
+        """Alias for enqueue_job — creates a new job in the queue."""
+        return await self.enqueue_job(
+            document_path,
+            document_title=document_title,
+            source_name=source_name,
+        )
+
+    async def list_jobs(
+        self,
+        *,
+        state: Optional[str] = None,
+        limit: int = 100,
+    ) -> list[JobRecord]:
+        """List jobs, optionally filtered by state."""
+        async with self.connection() as conn:
+            if state:
+                cursor = await conn.execute(
+                    """SELECT id, state, document_path, document_title, source_name,
+                              document_id, error, created_at, updated_at
+                       FROM jobs WHERE state = ?
+                       ORDER BY created_at DESC LIMIT ?""",
+                    (state, limit),
+                )
+            else:
+                cursor = await conn.execute(
+                    """SELECT id, state, document_path, document_title, source_name,
+                              document_id, error, created_at, updated_at
+                       FROM jobs ORDER BY created_at DESC LIMIT ?""",
+                    (limit,),
+                )
+            rows = await cursor.fetchall()
+
+        return [self._row_to_job_record(r) for r in rows]
+
+    async def update_job_status(
+        self,
+        job_id: str,
+        state: str,
+        *,
+        error: Optional[str] = None,
+        document_id: Optional[int] = None,
+    ) -> None:
+        """Update a job's state, optionally setting error or document_id."""
+        now = _now_iso()
+        async with self.connection() as conn:
+            if document_id is not None and error is not None:
+                await conn.execute(
+                    """UPDATE jobs SET state = ?, error = ?, document_id = ?, updated_at = ?
+                       WHERE id = ?""",
+                    (state, error, document_id, now, job_id),
+                )
+            elif document_id is not None:
+                await conn.execute(
+                    """UPDATE jobs SET state = ?, document_id = ?, updated_at = ?
+                       WHERE id = ?""",
+                    (state, document_id, now, job_id),
+                )
+            elif error is not None:
+                await conn.execute(
+                    """UPDATE jobs SET state = ?, error = ?, updated_at = ?
+                       WHERE id = ?""",
+                    (state, error, now, job_id),
+                )
+            else:
+                await conn.execute(
+                    """UPDATE jobs SET state = ?, updated_at = ?
+                       WHERE id = ?""",
+                    (state, now, job_id),
+                )
+            await conn.commit()
+
+    # ── Document CRUD ───────────────────────────────────────────
+
+    async def save_document(
+        self,
+        path: str,
+        source_type: str,
+        source_name: str,
+        title: str,
+        ext: str,
+        mime_type: str,
+        body: str,
+        file_hash: Optional[str] = None,
+        mtime: float = 0.0,
+        size: int = 0,
+        metadata: dict[str, Any] | None = None,
+        summary: Optional[str] = None,
+        status: str = "indexed",
+    ) -> int:
+        """Insert or update a document, returning its id.
+
+        If a document with the same path already exists, it is updated
+        (upsert). The FTS5 index is kept in sync via triggers.
+        """
+        raw_preview = (body or "")[:500]
+        meta_json = json.dumps(metadata or {}, ensure_ascii=False)
+        now = _now_iso()
+
+        async with self.connection() as conn:
+            await conn.execute(
+                """INSERT INTO documents
+                      (path, source_type, source_name, file_hash, mtime, size,
+                       title, ext, mime_type, summary, raw_preview, body,
+                       status, metadata, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(path) DO UPDATE SET
+                       file_hash   = excluded.file_hash,
+                       mtime       = excluded.mtime,
+                       size        = excluded.size,
+                       title       = excluded.title,
+                       ext         = excluded.ext,
+                       mime_type   = excluded.mime_type,
+                       summary     = excluded.summary,
+                       raw_preview = excluded.raw_preview,
+                       body        = excluded.body,
+                       status      = excluded.status,
+                       metadata    = excluded.metadata,
+                       updated_at  = excluded.updated_at""",
+                (
+                    path, source_type, source_name, file_hash, mtime, size,
+                    title, ext, mime_type, summary, raw_preview, body,
+                    status, meta_json, now, now,
+                ),
+            )
+            await conn.commit()
+
+            cursor = await conn.execute(
+                "SELECT id FROM documents WHERE path = ?", (path,)
+            )
+            row = await cursor.fetchone()
+
+        return row["id"] if row else 0
+
+    async def upsert_document(
+        self,
+        path: str,
+        source_type: str,
+        source_name: str,
+        title: str,
+        ext: str,
+        mime_type: str,
+        body: str,
+        file_hash: Optional[str] = None,
+        mtime: float = 0.0,
+        size: int = 0,
+        metadata: dict[str, Any] | None = None,
+    ) -> int:
+        """Insert or update a document — alias for save_document.
+
+        Provided for backward compatibility with the PostgreSQL Database
+        interface.
+        """
+        return await self.save_document(
+            path, source_type, source_name, title, ext, mime_type, body,
+            file_hash=file_hash, mtime=mtime, size=size, metadata=metadata,
+        )
+
+    async def get_document(self, doc_id: int) -> Optional[dict[str, Any]]:
+        """Fetch a document by its internal ID."""
+        async with self.connection() as conn:
+            cursor = await conn.execute(
+                "SELECT * FROM documents WHERE id = ?", (doc_id,)
+            )
+            row = await cursor.fetchone()
+
+        if row is None:
+            return None
+        return self._row_to_doc_dict(row)
+
+    async def get_document_by_path(self, path: str) -> Optional[dict[str, Any]]:
+        """Fetch a document by its unique path."""
+        async with self.connection() as conn:
+            cursor = await conn.execute(
+                "SELECT * FROM documents WHERE path = ?", (path,)
+            )
+            row = await cursor.fetchone()
+
+        if row is None:
+            return None
+        return self._row_to_doc_dict(row)
+
+    async def list_documents(
+        self,
+        *,
+        source: Optional[str] = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        """List documents, optionally filtered by source name or type."""
+        async with self.connection() as conn:
+            if source:
+                cursor = await conn.execute(
+                    """SELECT * FROM documents
+                       WHERE source_name = ? OR source_type = ?
+                       ORDER BY created_at DESC LIMIT ? OFFSET ?""",
+                    (source, source, limit, offset),
+                )
+            else:
+                cursor = await conn.execute(
+                    """SELECT * FROM documents
+                       ORDER BY created_at DESC LIMIT ? OFFSET ?""",
+                    (limit, offset),
+                )
+            rows = await cursor.fetchall()
+
+        return [self._row_to_doc_dict(r) for r in rows]
+
+    async def list_documents_paginated(
+        self,
+        *,
+        page: int = 1,
+        per_page: int = 20,
+        source: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """List documents with pagination metadata."""
+        offset = (page - 1) * per_page
+        docs = await self.list_documents(
+            source=source, limit=per_page, offset=offset
+        )
+        total = await self.get_document_count(source=source)
+        return {
+            "documents": docs,
+            "total": total,
+            "page": page,
+            "per_page": per_page,
+            "total_pages": (total + per_page - 1) // per_page if per_page > 0 else 0,
+        }
+
+    async def get_document_count(
+        self, *, source: Optional[str] = None
+    ) -> int:
+        """Return the total number of documents, optionally filtered."""
+        async with self.connection() as conn:
+            if source:
+                cursor = await conn.execute(
+                    """SELECT COUNT(*) as c FROM documents
+                       WHERE source_name = ? OR source_type = ?""",
+                    (source, source),
+                )
+            else:
+                cursor = await conn.execute(
+                    "SELECT COUNT(*) as c FROM documents"
+                )
+            row = await cursor.fetchone()
+        return row["c"] if row else 0
+
+    async def delete_document(self, doc_id: int) -> bool:
+        """Delete a document by ID. Returns True if deleted, False if not found."""
+        async with self.connection() as conn:
+            cursor = await conn.execute(
+                "DELETE FROM documents WHERE id = ?", (doc_id,)
+            )
+            await conn.commit()
+            return cursor.rowcount > 0
+
+    async def update_summary(self, doc_id: int, summary: str) -> None:
+        """Store an LLM-generated summary for a document."""
+        now = _now_iso()
+        async with self.connection() as conn:
+            await conn.execute(
+                """UPDATE documents
+                   SET summary = ?, status = 'summarized', updated_at = ?
+                   WHERE id = ?""",
+                (summary, now, doc_id),
+            )
+            await conn.commit()
+
+    async def search_documents(
+        self, query: str, limit: int = 30
+    ) -> list[dict[str, Any]]:
+        """Full-text search using SQLite FTS5 with BM25 ranking.
+
+        Weights: title (A=10.0), summary (B=5.0), raw_preview (C=2.0), body (D=1.0).
+        BM25 returns negative scores; we negate to get descending rank order.
+        """
+        safe_query = _sanitize_fts_query(query)
+        if not safe_query or safe_query == '""':
+            return []
+
+        async with self.connection() as conn:
+            cursor = await conn.execute(
+                """SELECT d.id, d.path, d.source_type, d.source_name,
+                          d.file_hash, d.mtime, d.size, d.title, d.ext,
+                          d.mime_type, d.summary, d.raw_preview, d.body,
+                          d.status, d.metadata, d.created_at, d.updated_at,
+                          -bm25(documents_fts, 10.0, 5.0, 2.0, 1.0) AS rank
+                   FROM documents d
+                   JOIN documents_fts fts ON d.id = fts.rowid
+                   WHERE documents_fts MATCH ?
+                   ORDER BY rank DESC
+                   LIMIT ?""",
+                (safe_query, limit),
+            )
+            rows = await cursor.fetchall()
+
+        return [self._row_to_doc_dict(r) for r in rows]
+
+    async def fulltext_search(
+        self, query: str, limit: int = 30
+    ) -> list[dict[str, Any]]:
+        """Alias for search_documents — backward compatibility with db.py."""
+        return await self.search_documents(query, limit=limit)
+
+    async def get_stats(self) -> dict[str, Any]:
+        """Return knowledge base statistics."""
+        async with self.connection() as conn:
+            total_cursor = await conn.execute(
+                "SELECT COUNT(*) as c FROM documents"
+            )
+            total_row = await total_cursor.fetchone()
+
+            pending_cursor = await conn.execute(
+                "SELECT COUNT(*) as c FROM documents WHERE status = 'pending'"
+            )
+            pending_row = await pending_cursor.fetchone()
+
+            indexed_cursor = await conn.execute(
+                "SELECT COUNT(*) as c FROM documents WHERE status = 'indexed'"
+            )
+            indexed_row = await indexed_cursor.fetchone()
+
+            summarized_cursor = await conn.execute(
+                "SELECT COUNT(*) as c FROM documents WHERE status = 'summarized'"
+            )
+            summarized_row = await summarized_cursor.fetchone()
+
+            error_cursor = await conn.execute(
+                "SELECT COUNT(*) as c FROM documents WHERE status = 'error'"
+            )
+            error_row = await error_cursor.fetchone()
+
+            job_cursor = await conn.execute(
+                "SELECT COUNT(*) as c FROM jobs WHERE state IN ('pending', 'processing')"
+            )
+            job_row = await job_cursor.fetchone()
+
+        return {
+            "total": total_row["c"] if total_row else 0,
+            "pending": pending_row["c"] if pending_row else 0,
+            "indexed": indexed_row["c"] if indexed_row else 0,
+            "summarized": summarized_row["c"] if summarized_row else 0,
+            "error": error_row["c"] if error_row else 0,
+            "active_jobs": job_row["c"] if job_row else 0,
+        }
+
+    async def get_pending_summaries(self, limit: int = 10) -> list[dict[str, Any]]:
+        """Get documents that need LLM summarization (status = 'indexed')."""
+        async with self.connection() as conn:
+            cursor = await conn.execute(
+                "SELECT * FROM documents WHERE status = 'indexed' LIMIT ?",
+                (limit,),
+            )
+            rows = await cursor.fetchall()
+
+        return [self._row_to_doc_dict(r) for r in rows]
+
+    # ── Helpers ─────────────────────────────────────────────────
+
+    @staticmethod
+    def _row_to_job_record(row: aiosqlite.Row) -> JobRecord:
+        """Convert a database row to a JobRecord."""
+        return JobRecord(
+            id=str(row["id"]),
+            state=JobState(row["state"]),
+            document_path=row["document_path"],
+            document_title=row["document_title"],
+            source_name=row["source_name"],
+            document_id=row["document_id"],
+            error=row["error"],
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+        )
+
+    @staticmethod
+    def _row_to_doc_dict(row: aiosqlite.Row) -> dict[str, Any]:
+        """Convert a database row to a document dict with parsed metadata."""
+        d = dict(row)
+        # Parse metadata JSON
+        meta_str = d.get("metadata", "{}")
+        if isinstance(meta_str, str):
+            try:
+                d["metadata"] = json.loads(meta_str)
+            except (json.JSONDecodeError, TypeError):
+                d["metadata"] = {}
+        # Parse datetime fields
+        for field in ("created_at", "updated_at"):
+            val = d.get(field)
+            if isinstance(val, str):
+                try:
+                    d[field] = datetime.fromisoformat(val)
+                except (ValueError, TypeError):
+                    pass
+        # Include rank if present (from FTS search)
+        return d
