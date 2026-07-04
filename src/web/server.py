@@ -748,15 +748,19 @@ def _base_page(title: str, content: str, extra_head: str = "") -> str:
         .chat-box {{ display: flex; flex-direction: column; gap: 8px; }}
         .chat-messages {{ min-height: 300px; max-height: 500px; overflow-y: auto; border: 1px solid var(--border);
                          border-radius: 6px; padding: 12px; background: var(--code-bg); }}
-        .chat-msg {{ margin: 4px 0; }}
-        .chat-msg.user {{ color: var(--primary); }}
-        .chat-msg.bot {{ color: var(--text-muted); }}
-        .chat-msg.error {{ color: var(--badge-error-text); }}
+        .chat-msg {{ margin: 6px 0; padding: 8px 14px; border-radius: 10px; max-width: 85%; word-wrap: break-word; }}
+        .chat-msg.user {{ color: var(--header-text); background: var(--primary); margin-left: auto; text-align: right; }}
+        .chat-msg.bot {{ color: var(--text); background: var(--surface); border: 1px solid var(--border); margin-right: auto; }}
+        .chat-msg.error {{ color: var(--badge-error-text); background: var(--badge-error-bg); margin-right: auto; }}
+        .chat-msg.typing {{ color: var(--text-faint); font-style: italic; }}
+        .typing-indicator {{ display: inline-block; animation: blink 1.4s infinite; }}
+        @keyframes blink {{ 0%, 100% {{ opacity: 0.2; }} 50% {{ opacity: 1; }} }}
         .chat-input-row {{ display: flex; gap: 8px; }}
         .chat-input-row input {{ flex: 1; padding: 10px 14px; border: 2px solid var(--input-border);
                                  border-radius: 6px; font-size: 1em; background: var(--surface); color: var(--text); }}
         .chat-input-row button {{ padding: 10px 24px; background: var(--primary); color: var(--header-text);
                                   border: none; border-radius: 6px; cursor: pointer; }}
+        .chat-input-row button:disabled {{ opacity: 0.5; cursor: default; }}
         .chat-status {{ font-size: 0.85em; color: var(--text-faint); }}
         .citations-panel {{ margin-top: 12px; }}
         .citations-panel h3 {{ color: var(--primary); font-size: 1em; }}
@@ -1104,7 +1108,7 @@ def _render_chat_page() -> str:
     content = """
     <div class="card">
         <h2>Chat with Your Documents</h2>
-        <p class="pagination-info">Ask questions and get answers with citation tracking.</p>
+        <p class="pagination-info">Ask questions and get AI-powered answers with citation tracking.</p>
         <div class="chat-box">
             <div class="chat-messages" id="chat-messages">
                 <div class="chat-msg bot">Connecting...</div>
@@ -1112,7 +1116,7 @@ def _render_chat_page() -> str:
             <div class="chat-input-row">
                 <input type="text" id="chat-input" placeholder="Ask a question..."
                        onkeydown="if(event.key==='Enter')sendChat()" autofocus>
-                <button onclick="sendChat()">Send</button>
+                <button id="chat-send-btn" onclick="sendChat()">Send</button>
             </div>
             <div class="chat-status" id="chat-status">Disconnected</div>
         </div>
@@ -1124,6 +1128,10 @@ def _render_chat_page() -> str:
     <script>
         var ws = null;
         var citations = [];
+        var currentAnswer = '';
+        var isStreaming = false;
+        var sendBtn, inputField;
+
         function getWsUrl() {
             var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
             return proto + '//' + location.host + '/chat';
@@ -1148,15 +1156,34 @@ def _render_chat_page() -> str:
             };
         }
         function sendChat() {
-            var input = document.getElementById('chat-input');
-            var text = input.value.trim();
+            inputField = document.getElementById('chat-input');
+            sendBtn = document.getElementById('chat-send-btn');
+            var text = inputField.value.trim();
             if (!text || !ws || ws.readyState !== WebSocket.OPEN) return;
             addMsg('user', text);
             ws.send(JSON.stringify({type: 'question', text: text}));
-            input.value = '';
+            inputField.value = '';
+            inputField.disabled = true;
+            sendBtn.disabled = true;
             citations = [];
+            currentAnswer = '';
+            isStreaming = false;
             document.getElementById('citations-panel').style.display = 'none';
             document.getElementById('citations-list').innerHTML = '';
+            showTypingIndicator();
+        }
+        function showTypingIndicator() {
+            var box = document.getElementById('chat-messages');
+            var div = document.createElement('div');
+            div.className = 'chat-msg bot typing';
+            div.id = 'typing-indicator-msg';
+            div.innerHTML = 'Thinking<span class="typing-indicator">...</span>';
+            box.appendChild(div);
+            box.scrollTop = box.scrollHeight;
+        }
+        function removeTypingIndicator() {
+            var el = document.getElementById('typing-indicator-msg');
+            if (el) el.remove();
         }
         function handleChatMessage(msg) {
             switch(msg.type) {
@@ -1168,14 +1195,37 @@ def _render_chat_page() -> str:
                     renderCitations();
                     break;
                 case 'answer:chunk':
+                    removeTypingIndicator();
                     appendChunk(msg.text);
                     break;
                 case 'answer:done':
-                    if (msg.text) addMsg('bot', msg.text);
+                    removeTypingIndicator();
+                    if (msg.text && msg.text !== currentAnswer) {
+                        // Replace streamed content with final text if different
+                        var box = document.getElementById('chat-messages');
+                        var lastBot = box.querySelector('.chat-msg.bot:last-child');
+                        if (lastBot && lastBot.dataset.streaming === 'true') {
+                            lastBot.textContent = msg.text;
+                            currentAnswer = msg.text;
+                        } else {
+                            addMsg('bot', msg.text);
+                        }
+                    }
+                    isStreaming = false;
+                    inputField = document.getElementById('chat-input');
+                    sendBtn = document.getElementById('chat-send-btn');
+                    inputField.disabled = false;
+                    sendBtn.disabled = false;
+                    inputField.focus();
                     renderCitations();
                     break;
                 case 'error':
+                    removeTypingIndicator();
                     addMsg('error', msg.message);
+                    inputField = document.getElementById('chat-input');
+                    sendBtn = document.getElementById('chat-send-btn');
+                    inputField.disabled = false;
+                    sendBtn.disabled = false;
                     break;
                 case 'pong':
                     break;
@@ -1189,7 +1239,6 @@ def _render_chat_page() -> str:
             var box = document.getElementById('chat-messages');
             box.scrollTop = box.scrollHeight;
         }
-        var currentAnswer = '';
         function appendChunk(text) {
             currentAnswer += text;
             var box = document.getElementById('chat-messages');
