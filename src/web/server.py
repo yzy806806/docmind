@@ -279,6 +279,38 @@ def create_app() -> FastAPI:
         html = _render_document_detail(doc, tags)
         return HTMLResponse(content=html)
 
+    @app.get(
+        "/documents/{doc_id}/view",
+        response_class=HTMLResponse,
+        include_in_schema=False,
+    )
+    async def document_viewer_page(
+        doc_id: int,
+        page: int = Query(default=1, ge=1),
+        per_page: int = Query(default=5000, ge=500, le=50000),
+    ):
+        """Document viewer: full content, formatted by file type, paginated."""
+        try:
+            validate_doc_id(doc_id)
+        except ValidationError as e:
+            return HTMLResponse(
+                content=_render_error("Invalid document ID", e.message),
+                status_code=400,
+            )
+
+        db = get_db()
+        doc = await db.get_document(doc_id)
+        if doc is None:
+            return HTMLResponse(
+                content=_render_error("Not Found", f"Document {doc_id} not found"),
+                status_code=404,
+            )
+
+        from .document_viewer import render_document_viewer
+
+        html = render_document_viewer(doc, page=page, per_page=per_page)
+        return HTMLResponse(content=html)
+
     @app.post(
         "/documents/{doc_id}/tags",
         response_class=HTMLResponse,
@@ -1055,6 +1087,12 @@ def _base_page(title: str, content: str, extra_head: str = "") -> str:
         .btn-delete {{ padding: 10px 24px; background: var(--badge-error-bg); color: var(--badge-error-text);
                        border: 1px solid var(--badge-error-text); border-radius: 6px; cursor: pointer; font-size: 1em; }}
         .btn-delete:hover {{ background: var(--error-bg); }}
+        .btn-read-full {{ display: inline-block; padding: 8px 18px; background: var(--primary);
+                         color: var(--header-text); border-radius: 6px; text-decoration: none; font-size: 0.95em; }}
+        .btn-read-full:hover {{ background: var(--primary-hover); }}
+        .btn-view-link {{ text-decoration: none; color: var(--nav-link); font-size: 0.85em; }}
+        .btn-view-link:hover {{ text-decoration: underline; }}
+        .doc-excerpt {{ max-height: 240px; overflow-y: auto; }}
         .pagination {{ display: flex; justify-content: center; align-items: center; gap: 8px; margin: 20px 0; flex-wrap: wrap; }}
         .pagination a, .pagination span {{
             padding: 6px 12px; border-radius: 6px; text-decoration: none;
@@ -1326,6 +1364,7 @@ def _render_documents_list(
             <td>{doc.get('ext', '')}</td>
             <td>{_fmt_date(doc.get('created_at', ''))}</td>
             <td>{tag_badges}</td>
+            <td><a href="/documents/{doc['id']}/view" class="btn-view-link" title="View document">📖 View</a></td>
         </tr>"""
 
     source_param = f"&source={_escape(source)}" if source else ""
@@ -1372,7 +1411,7 @@ def _render_documents_list(
     <div class="card">
         <h2>Documents{filter_label}</h2>
         <div class="pagination-info">Showing {start}–{end} of {total} document(s)</div>
-        {'<table><tr><th>Document</th><th>Status</th><th>Source</th><th>Type</th><th>Date</th>' + tags_col_header + '</tr>' + rows + '</table>' if documents else '<p>No documents found.</p>'}
+        {'<table><tr><th>Document</th><th>Status</th><th>Source</th><th>Type</th><th>Date</th>' + tags_col_header + '<th>View</th></tr>' + rows + '</table>' if documents else '<p>No documents found.</p>'}
     </div>
     {tag_cloud_html}
     {pagination_html}
@@ -1383,9 +1422,11 @@ def _render_documents_list(
 def _render_document_detail(doc: dict, tags: list[str] | None = None) -> str:
     tags = tags or []
     status_class = f"badge-{doc.get('status', 'pending')}"
-    body_preview = (doc.get("body", "") or "")[:2000]
-    if len(doc.get("body", "") or "") > 2000:
-        body_preview += "\n... (truncated)"
+    # Short excerpt (first 500 chars) as a preview snippet
+    full_body = doc.get("body", "") or ""
+    excerpt = full_body[:500]
+    if len(full_body) > 500:
+        excerpt = excerpt.rstrip() + "…"
 
     # Build tag badges with remove buttons
     tag_badges_html = ""
@@ -1412,6 +1453,12 @@ def _render_document_detail(doc: dict, tags: list[str] | None = None) -> str:
         </form>
     </div>"""
 
+    # Word count + reading time for the detail page
+    from .document_viewer import word_count, reading_time_minutes
+
+    wc = word_count(full_body)
+    rt = reading_time_minutes(full_body)
+
     content = f"""
     <div class="card doc-detail">
         <h2>{doc.get('title', 'Untitled')}</h2>
@@ -1423,13 +1470,15 @@ def _render_document_detail(doc: dict, tags: list[str] | None = None) -> str:
         <div class="field"><span class="field-label">Size:</span> {_fmt_size(doc.get('size', 0))}</div>
         <div class="field"><span class="field-label">Created:</span> {_fmt_date(doc.get('created_at', ''))}</div>
         <div class="field"><span class="field-label">Updated:</span> {_fmt_date(doc.get('updated_at', ''))}</div>
+        <div class="field"><span class="field-label">Words:</span> {wc:,} · ~{rt} min read</div>
 
         {tag_section}
 
         {'<h3>Summary</h3><p>' + (doc.get('summary') or '<em>No summary available</em>') + '</p>' if doc.get('summary') else ''}
 
         <h3>Content Preview</h3>
-        <pre>{_escape(body_preview)}</pre>
+        <pre class="doc-excerpt">{_escape(excerpt)}</pre>
+        <p><a href="/documents/{doc.get('id', '?')}/view" class="btn-read-full">📖 Read Full Document</a></p>
 
         <div class="doc-actions">
             <form action="/documents/{doc.get('id', '?')}/delete" method="post"
