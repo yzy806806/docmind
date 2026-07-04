@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+
+{% block content %}
+    <div class="success">
+        <h2>🗑 Document Deleted</h2>
+        <p>Document <strong>{{ doc_id }}</strong> has been deleted from the knowledge base.</p>
+    </div>
+    <p><a href="/documents">← Back to Documents</a></p>
+{% endblock %}

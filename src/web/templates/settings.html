@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+
+{% block content %}
+    <div class="card">
+        <h2>⚙️ LLM Settings</h2>
+        <p class="pagination-info">Configure the language model used for chat answers and document summarization. Settings persist across restarts.</p>
+        {% if success %}
+        <div class="success">✅ Settings saved. The new LLM configuration is now active — chat will use it on the next request.</div>
+        {% endif %}
+        <form action="/settings" method="post" id="settings-form">
+            <div class="settings-field">
+                <label for="provider"><strong>LLM Provider</strong></label>
+                <select name="provider" id="provider" onchange="toggleBaseUrl()">
+                    <option value="" {% if not provider %}selected{% endif %}>(none — extractive fallback)</option>
+                    <option value="openai" {% if provider == 'openai' %}selected{% endif %}>OpenAI</option>
+                    <option value="openai-compat" {% if provider == 'openai-compat' %}selected{% endif %}>OpenAI-compatible (vLLM, LM Studio, etc.)</option>
+                    <option value="ollama" {% if provider == 'ollama' %}selected{% endif %}>Ollama (local)</option>
+                </select>
+            </div>
+
+            <div class="settings-field">
+                <label for="model"><strong>Model Name</strong></label>
+                <input type="text" name="model" id="model" value="{{ model }}"
+                       placeholder="e.g. gpt-4o-mini, llama3, qwen2.5">
+            </div>
+
+            <div class="settings-field">
+                <label for="api_key"><strong>API Key</strong></label>
+                <input type="password" name="api_key" id="api_key"
+                       value="{{ masked_key }}"
+                       placeholder="Leave as-is to keep current key, or type a new one">
+                <p class="settings-hint">Current key: {% if masked_key %}{{ masked_key }}{% else %}(not set){% endif %} — only the last 4 characters are shown for security.</p>
+            </div>
+
+            <div class="settings-field" id="base_url_row" style="display:{{ base_url_row_display }}">
+                <label for="base_url"><strong>Base URL</strong></label>
+                <input type="text" name="base_url" id="base_url" value="{{ base_url }}"
+                       placeholder="https://api.openai.com/v1 or http://localhost:11434">
+                <p class="settings-hint">Required for OpenAI-compatible and Ollama providers.</p>
+            </div>
+
+            <div class="settings-field">
+                <label for="max_tokens"><strong>Max Tokens</strong> <span id="max_tokens_val">{{ max_tokens }}</span></label>
+                <input type="range" name="max_tokens" id="max_tokens" min="100" max="4000" step="100"
+                       value="{{ max_tokens }}" oninput="document.getElementById('max_tokens_val').textContent=this.value">
+            </div>
+
+            <div class="settings-field">
+                <label for="temperature"><strong>Temperature</strong> <span id="temperature_val">{{ temperature }}</span></label>
+                <input type="range" name="temperature" id="temperature" min="0.0" max="1.0" step="0.05"
+                       value="{{ temperature }}" oninput="document.getElementById('temperature_val').textContent=this.value">
+            </div>
+
+            <div class="settings-field">
+                <label>
+                    <input type="checkbox" name="chat_fallback" value="1" {{ fallback_checked }}>
+                    <strong>Chat Fallback</strong> — if the LLM call fails, use an extractive answer from search snippets instead of erroring.
+                </label>
+            </div>
+
+            <div class="settings-actions">
+                <button type="submit" class="btn-save">💾 Save Settings</button>
+                <a href="/" class="btn-cancel">Cancel</a>
+            </div>
+        </form>
+    </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    function toggleBaseUrl() {
+        var p = document.getElementById('provider').value;
+        var row = document.getElementById('base_url_row');
+        row.style.display = (p === 'openai-compat' || p === 'ollama') ? 'block' : 'none';
+    }
+    // Run once on load to sync the base URL row visibility
+    toggleBaseUrl();
+</script>
+{% endblock %}

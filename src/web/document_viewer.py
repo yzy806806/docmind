@@ -29,7 +29,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from .server import _base_page, _escape, _fmt_date, _fmt_size
+from .server import _base_page, _escape, _fmt_date, _fmt_size, _render_template
 
 
 # ── Pagination ───────────────────────────────────────────────────
@@ -599,244 +599,20 @@ def render_viewer_pagination(
 # ── Main render ──────────────────────────────────────────────────
 
 
-_VIEWER_CSS = """
-<style>
-.viewer-layout { display: flex; gap: 20px; align-items: flex-start; margin: 16px 0; }
-.viewer-main { flex: 1; min-width: 0; }
-.doc-toc { width: 240px; flex-shrink: 0; background: var(--surface); border-radius: 8px;
-           box-shadow: var(--shadow); padding: 16px; position: sticky; top: 12px;
-           max-height: calc(100vh - 140px); overflow-y: auto; }
-.doc-toc h3 { margin-top: 0; color: var(--primary); font-size: 1em; }
-.toc-list { list-style: none; padding: 0; margin: 0; }
-.toc-list a { display: block; padding: 4px 6px; border-radius: 4px; text-decoration: none;
-              color: var(--text-muted); font-size: 0.88em; }
-.toc-list a:hover { background: var(--hover-bg); color: var(--text); }
-.toc-list a.active { background: var(--primary); color: var(--header-text); font-weight: 600; }
-.viewer-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px;
-                  background: var(--surface); border-radius: 8px; padding: 12px 16px;
-                  box-shadow: var(--shadow-sm); margin-bottom: 16px; }
-.viewer-toolbar .tool-group { display: flex; align-items: center; gap: 6px; }
-.viewer-toolbar label { font-size: 0.85em; color: var(--text-muted); }
-.viewer-toolbar input[type="range"] { width: 100px; }
-.viewer-toolbar .search-in-doc { display: flex; align-items: center; gap: 6px; margin-left: auto; }
-.viewer-toolbar input[type="search"] { padding: 6px 10px; border: 2px solid var(--input-border);
-                                       border-radius: 6px; background: var(--surface); color: var(--text);
-                                       font-size: 0.9em; width: 200px; }
-.search-nav-btns { display: flex; gap: 4px; }
-.search-nav-btns button { padding: 4px 8px; border-radius: 4px; border: 1px solid var(--input-border);
-                          background: var(--surface); color: var(--text); cursor: pointer; font-size: 0.85em; }
-.search-nav-btns button:disabled { opacity: 0.4; cursor: default; }
-.match-count { font-size: 0.8em; color: var(--text-faint); min-width: 60px; }
-.doc-reader { background: var(--surface); border-radius: 8px; padding: 28px 32px;
-              box-shadow: var(--shadow); line-height: var(--reader-line-height, 1.7);
-              font-size: var(--reader-font-size, 16px); }
-.doc-reader h1, .doc-reader h2, .doc-reader h3 { margin: 1.2em 0 0.5em; color: var(--primary); }
-.doc-reader h1 { font-size: 1.7em; }
-.doc-reader h2 { font-size: 1.4em; }
-.doc-reader h3 { font-size: 1.15em; }
-.doc-reader p { margin: 0.8em 0; }
-.doc-reader pre { background: var(--code-bg); padding: 14px; border-radius: 6px;
-                  overflow-x: auto; font-size: 0.9em; }
-.doc-reader code { font-family: 'SF Mono', Menlo, Consolas, monospace; }
-.doc-reader .md-inline-code { background: var(--code-bg); padding: 1px 5px; border-radius: 3px; }
-.doc-reader blockquote { border-left: 3px solid var(--primary); margin: 1em 0;
-                         padding: 0.4em 1em; color: var(--text-muted); background: var(--code-bg); }
-.doc-reader ul, .doc-reader ol { margin: 0.6em 0 0.6em 1.6em; }
-.doc-reader hr { border: none; border-top: 1px solid var(--border); margin: 1.4em 0; }
-.doc-reader table.csv-table { width: 100%; border-collapse: collapse; margin: 12px 0; }
-.doc-reader table.csv-table th, .doc-reader table.csv-table td { padding: 8px 10px;
-                  border: 1px solid var(--border); text-align: left; }
-.doc-reader table.csv-table thead th { background: var(--table-header-bg); }
-.doc-reader table.text-lines { width: 100%; border-collapse: collapse; font-family: monospace; }
-.doc-reader table.text-lines .line-no { width: 48px; padding: 2px 8px; text-align: right;
-                  color: var(--text-faint); user-select: none; border-right: 1px solid var(--border);
-                  background: var(--code-bg); }
-.doc-reader table.text-lines .line-text { padding: 2px 12px; white-space: pre-wrap; }
-.doc-reader .json-key { color: #c792ea; }
-.doc-reader .json-string { color: #c3e88d; }
-.doc-reader .json-num { color: #f78c6c; }
-.doc-reader .json-bool { color: #ff9cac; }
-.doc-reader .xml-tag { color: #82aaff; }
-.doc-reader .xml-attr { color: #c792ea; }
-.doc-reader .xml-string { color: #c3e88d; }
-.doc-reader mark.search-hit { background: #fff59d; color: #333; padding: 0 1px; border-radius: 2px; }
-.doc-reader mark.search-hit.current { background: #ffab40; color: #333; }
-.viewer-pagination { display: flex; align-items: center; justify-content: center; gap: 10px;
-                     margin: 20px 0; flex-wrap: wrap; }
-.viewer-pagination .vp-btn { padding: 6px 14px; border-radius: 6px; text-decoration: none;
-                             border: 1px solid var(--input-border); color: var(--text);
-                             background: var(--surface); }
-.viewer-pagination .vp-btn:hover:not(.disabled) { background: var(--hover-bg); }
-.viewer-pagination .vp-btn.disabled { color: var(--text-faint); opacity: 0.5; cursor: default; }
-.viewer-pagination .page-jump { width: 64px; padding: 4px 8px; border-radius: 6px;
-                                border: 1px solid var(--input-border); background: var(--surface);
-                                color: var(--text); text-align: center; }
-.viewer-meta { display: flex; gap: 18px; flex-wrap: wrap; color: var(--text-muted);
-               font-size: 0.85em; margin-bottom: 12px; }
-.viewer-meta span { display: inline-flex; align-items: center; gap: 4px; }
-.btn-viewer-back { display: inline-block; margin-bottom: 12px; text-decoration: none;
-                   color: var(--nav-link); font-size: 0.9em; }
-@media (max-width: 900px) {
-    .viewer-layout { flex-direction: column; }
-    .doc-toc { width: 100%; position: static; max-height: 240px; }
-}
-</style>
-"""
-
-_VIEWER_JS = """
-<script>
-(function() {
-    var root = document.documentElement;
-    // Reading mode controls
-    var fontSlider = document.getElementById('fontSizeSlider');
-    var lhSlider = document.getElementById('lineHeightSlider');
-    var reader = document.querySelector('.doc-reader');
-    function applyFont() {
-        if (reader && fontSlider) reader.style.setProperty('--reader-font-size', fontSlider.value + 'px');
-    }
-    function applyLineHeight() {
-        if (reader && lhSlider) reader.style.setProperty('--reader-line-height', lhSlider.value);
-    }
-    if (fontSlider) { fontSlider.addEventListener('input', applyFont); applyFont(); }
-    if (lhSlider) { lhSlider.addEventListener('input', applyLineHeight); applyLineHeight(); }
-
-    // Search-within-document
-    var searchInput = document.getElementById('docSearch');
-    var matchCount = document.getElementById('matchCount');
-    var prevBtn = document.getElementById('searchPrev');
-    var nextBtn = document.getElementById('searchNext');
-    var readerEl = document.querySelector('.doc-reader');
-    var matches = [];
-    var currentIdx = -1;
-
-    function clearHighlights() {
-        if (!readerEl) return;
-        readerEl.querySelectorAll('mark.search-hit').forEach(function(m) {
-            var parent = m.parentNode;
-            parent.replaceChild(document.createTextNode(m.textContent), m);
-            parent.normalize();
-        });
-        matches = [];
-        currentIdx = -1;
-    }
-
-    function highlightTerm(term) {
-        if (!readerEl || !term || term.length < 2) { clearHighlights(); updateCount(); return; }
-        clearHighlights();
-        var walker = document.createTreeWalker(readerEl, NodeFilter.SHOW_TEXT, null);
-        var nodes = [];
-        var n;
-        while ((n = walker.nextNode())) {
-            // Skip nodes inside our own mark elements
-            if (n.parentNode && n.parentNode.nodeName === 'MARK') continue;
-            if (n.textContent.toLowerCase().indexOf(term.toLowerCase()) !== -1) nodes.push(n);
-        }
-        var lower = term.toLowerCase();
-        var tlen = term.length;
-        nodes.forEach(function(node) {
-            var text = node.textContent;
-            var lowerText = text.toLowerCase();
-            var idx = 0;
-            var frag = document.createDocumentFragment();
-            var pos;
-            while ((pos = lowerText.indexOf(lower, idx)) !== -1) {
-                if (pos > idx) frag.appendChild(document.createTextNode(text.slice(idx, pos)));
-                var mark = document.createElement('mark');
-                mark.className = 'search-hit';
-                mark.textContent = text.slice(pos, pos + tlen);
-                frag.appendChild(mark);
-                matches.push(mark);
-                idx = pos + tlen;
-            }
-            if (idx < text.length) frag.appendChild(document.createTextNode(text.slice(idx)));
-            node.parentNode.replaceChild(frag, node);
-        });
-        if (matches.length > 0) { currentIdx = 0; scrollToMatch(0); }
-        updateCount();
-    }
-
-    function updateCount() {
-        if (!matchCount) return;
-        if (matches.length === 0) {
-            matchCount.textContent = searchInput && searchInput.value ? '0 / 0' : '';
-        } else {
-            matchCount.textContent = (currentIdx + 1) + ' / ' + matches.length;
-        }
-        if (prevBtn) prevBtn.disabled = matches.length < 2;
-        if (nextBtn) nextBtn.disabled = matches.length < 2;
-    }
-
-    function scrollToMatch(idx) {
-        if (idx < 0 || idx >= matches.length) return;
-        if (matches[currentIdx]) matches[currentIdx].classList.remove('current');
-        currentIdx = idx;
-        var m = matches[currentIdx];
-        m.classList.add('current');
-        m.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        updateCount();
-    }
-
-    var debounceTimer;
-    if (searchInput) {
-        searchInput.addEventListener('input', function() {
-            clearTimeout(debounceTimer);
-            debounceTimer = setTimeout(function() { highlightTerm(searchInput.value.trim()); }, 220);
-        });
-    }
-    if (prevBtn) prevBtn.addEventListener('click', function() {
-        if (matches.length === 0) return;
-        scrollToMatch((currentIdx - 1 + matches.length) % matches.length);
-    });
-    if (nextBtn) nextBtn.addEventListener('click', function() {
-        if (matches.length === 0) return;
-        scrollToMatch((currentIdx + 1) % matches.length);
-    });
-    if (searchInput) searchInput.addEventListener('keydown', function(e) {
-        if (e.key === 'Enter') {
-            e.preventDefault();
-            if (e.shiftKey) { if (prevBtn) prevBtn.click(); } else { if (nextBtn) nextBtn.click(); }
-        }
-    });
-
-    // TOC scroll-spy
-    var tocLinks = document.querySelectorAll('.toc-list a[data-anchor]');
-    if (tocLinks.length && 'IntersectionObserver' in window) {
-        var headings = [];
-        tocLinks.forEach(function(link) {
-            var target = document.getElementById(link.getAttribute('data-anchor'));
-            if (target) headings.push({ link: link, el: target });
-        });
-        var observer = new IntersectionObserver(function(entries) {
-            entries.forEach(function(entry) {
-                if (entry.isIntersecting) {
-                    tocLinks.forEach(function(l) { l.classList.remove('active'); });
-                    var match = headings.find(function(h) { return h.el === entry.target; });
-                    if (match) match.link.classList.add('active');
-                }
-            });
-        }, { rootMargin: '-80px 0px -70% 0px' });
-        headings.forEach(function(h) { observer.observe(h.el); });
-    }
-})();
-</script>
-"""
-
-
 def render_document_viewer(
     doc: dict,
     *,
     page: int = 1,
     per_page: int = 5000,
 ) -> str:
-    """Render the full document viewer page."""
+    """Render the full document viewer page using Jinja2 template."""
     body = doc.get("body", "") or ""
     ext = doc.get("ext", "") or ""
     doc_id = doc.get("id", 0)
 
     state = paginate_content(body, page=page, per_page=per_page)
 
-    # Build TOC from the *full* markdown source so navigation covers the
-    # whole document, not just the current page slice.
+    # Build TOC from the *full* markdown source
     toc = Toc()
     if ext.lower() == ".md":
         toc = build_toc_from_markdown(body)
@@ -849,65 +625,43 @@ def render_document_viewer(
     title = doc.get("title", "Untitled")
 
     # Toolbar
-    toolbar = f"""
+    toolbar_html = """
     <div class="viewer-toolbar">
         <div class="tool-group">
             <label for="fontSizeSlider">Aa</label>
             <input type="range" id="fontSizeSlider" min="12" max="24" value="16" step="1">
         </div>
         <div class="tool-group">
-            <label for="lineHeightSlider">↕</label>
+            <label for="lineHeightSlider">\u2195</label>
             <input type="range" id="lineHeightSlider" min="1.2" max="2.4" value="1.7" step="0.1">
         </div>
         <div class="search-in-doc">
-            <input type="search" id="docSearch" placeholder="Search in document…" aria-label="Search in document">
+            <input type="search" id="docSearch" placeholder="Search in document\u2026" aria-label="Search in document">
             <span class="match-count" id="matchCount"></span>
             <div class="search-nav-btns">
-                <button id="searchPrev" title="Previous match (Shift+Enter)" disabled>▲</button>
-                <button id="searchNext" title="Next match (Enter)" disabled>▼</button>
+                <button id="searchPrev" title="Previous match (Shift+Enter)" disabled>\u25b2</button>
+                <button id="searchNext" title="Next match (Enter)" disabled>\u25bc</button>
             </div>
         </div>
     </div>
     """
 
-    meta = f"""
+    meta_html = """
     <div class="viewer-meta">
-        <span>📄 {_escape(ext or 'unknown')}</span>
-        <span>📝 {wc:,} words</span>
-        <span>⏱ ~{rt} min read</span>
-        <span>📊 {_fmt_size(doc.get('size', 0))}</span>
-        <span>🗓 {_fmt_date(doc.get('created_at', ''))}</span>
+        <span>\U0001f4c4 """ + _escape(ext or 'unknown') + """</span>
+        <span>\U0001f4dd """ + f"{wc:,}" + """ words</span>
+        <span>\u23f1 ~""" + str(rt) + """ min read</span>
+        <span>\U0001f4ca """ + _fmt_size(doc.get('size', 0)) + """</span>
+        <span>\U0001f5d3 """ + _fmt_date(doc.get('created_at', '')) + """</span>
     </div>
     """
 
     toc_html = render_toc_sidebar(toc)
     pagination_html = render_viewer_pagination(doc_id, state, per_page)
 
-    # Layout: TOC sidebar + main reader
-    layout_open = '<div class="viewer-layout">' + (toc_html if toc_html else "")
-    layout_open += '<div class="viewer-main">'
-    layout_close = "</div></div>"
-
-    content = f"""
-    <a href="/documents/{doc_id}" class="btn-viewer-back">← Back to document details</a>
-    <div class="card doc-detail">
-        <h2>{_escape(title)}</h2>
-        {meta}
-        {toolbar}
-        {layout_open}
-        <div class="doc-reader mode-{mode}" id="docReader">
-            {content_html}
-        </div>
-        {layout_close}
-        {pagination_html}
-    </div>
-    """
-    extra_head = _VIEWER_CSS
-    page_html = _base_page(
-        f"{title} — Viewer",
-        content,
-        extra_head=extra_head,
+    return _render_template("viewer.html",
+        doc_id=doc_id, title=title, meta_html=meta_html,
+        toolbar_html=toolbar_html, toc_html=toc_html,
+        content_html=content_html, mode=mode,
+        pagination_html=pagination_html,
     )
-    # Inject viewer JS right before </body>
-    page_html = page_html.replace("</body>", _VIEWER_JS + "</body>")
-    return page_html

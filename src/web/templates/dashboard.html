@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+
+{% block extra_head %}
+<style>
+.chart-svg { width: 100%; height: auto; max-height: 250px; }
+.chart-grid { stroke: var(--border); stroke-width: 0.5; stroke-dasharray: 3,3; }
+.chart-line { stroke-linejoin: round; stroke-linecap: round; }
+.chart-point { stroke: var(--surface); stroke-width: 1.5; }
+.chart-bar { transition: opacity 0.2s; }
+.chart-bar:hover { opacity: 0.8; }
+.chart-slice { stroke: var(--surface); stroke-width: 1; transition: opacity 0.2s; }
+.chart-slice:hover { opacity: 0.85; }
+.chart-axis-label { font-size: 10px; fill: var(--text-faint); font-family: sans-serif; }
+.chart-bar-value { font-size: 10px; fill: var(--text-muted); font-family: sans-serif; }
+.chart-empty { color: var(--text-faint); text-align: center; padding: 40px; font-style: italic; }
+.analytics-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 16px 0; }
+.analytics-grid-full { grid-column: 1 / -1; }
+.pie-chart-container { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.pie-svg { max-width: 200px; flex-shrink: 0; }
+.pie-legend { flex: 1; }
+.pie-legend-item { font-size: 0.85em; margin: 4px 0; display: flex; align-items: center; gap: 6px; }
+.pie-legend-color { display: inline-block; width: 12px; height: 12px; border-radius: 3px; }
+.chart-card h3 { color: var(--primary); margin-bottom: 8px; }
+.job-failure { background: var(--badge-error-bg); color: var(--badge-error-text); padding: 8px 12px; border-radius: 6px; margin: 6px 0; font-size: 0.85em; }
+.stat-extra { font-size: 0.8em; color: var(--text-faint); margin-top: 4px; }
+.date-range-selector { display: flex; gap: 8px; align-items: center; margin: 16px 0; }
+.date-range-selector a { padding: 6px 16px; border-radius: 6px; text-decoration: none; border: 1px solid var(--input-border); color: var(--text); background: var(--surface); }
+.date-range-selector a.active { background: var(--primary); color: var(--header-text); border-color: var(--primary); }
+@media (max-width: 768px) { .analytics-grid { grid-template-columns: 1fr; } }
+</style>
+{% endblock %}
+
+{% block content %}
+    <div class="stats">
+        <div class="stat">
+            <div class="stat-value">{{ stats.total }}</div>
+            <div class="stat-label">Total Documents</div>
+        </div>
+        <div class="stat">
+            <div class="stat-value">{{ stats.indexed + stats.summarized }}</div>
+            <div class="stat-label">Processed</div>
+        </div>
+        <div class="stat">
+            <div class="stat-value">{{ stats.summarized }}</div>
+            <div class="stat-label">Summarized</div>
+        </div>
+        <div class="stat">
+            <div class="stat-value">{{ stats.active_jobs }}</div>
+            <div class="stat-label">Active Jobs</div>
+        </div>
+        <div class="stat">
+            <div class="stat-value">{{ search_stats.total_searches }}</div>
+            <div class="stat-label">Searches (30d)</div>
+        </div>
+        <div class="stat">
+            <div class="stat-value">{{ "%.0f"|format(success_rate) }}%</div>
+            <div class="stat-label">Job Success Rate</div>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>Quick Search</h2>
+        <form action="/search" method="get" class="search-box">
+            <input type="text" name="q" placeholder="Search your documents..." required>
+            <button type="submit">Search</button>
+        </form>
+    </div>
+
+    <div class="analytics-grid">
+        <div class="card chart-card">
+            <h3>📊 Document Growth (30 days)</h3>
+            {{ growth_chart }}
+        </div>
+        <div class="card chart-card">
+            <h3>🔍 Search Trend (30 days)</h3>
+            {{ search_chart }}
+        </div>
+        <div class="card chart-card">
+            <h3>💬 Chat Activity (30 days)</h3>
+            {{ chat_chart }}
+        </div>
+        <div class="card chart-card">
+            <h3>🏷️ Top Tags</h3>
+            {{ tag_chart }}
+        </div>
+    </div>
+
+    <div class="analytics-grid">
+        <div class="card chart-card">
+            <h3>📁 Document Status</h3>
+            {{ status_pie }}
+        </div>
+        <div class="card chart-card">
+            <h3>💾 Storage by Type</h3>
+            <p class="stat-extra">Total: {{ total_size }} · Avg: {{ avg_doc_size }}</p>
+            {{ storage_pie }}
+        </div>
+    </div>
+
+    <div class="analytics-grid">
+        <div class="card chart-card">
+            <h3>🔍 Popular Searches</h3>
+            {{ popular_html }}
+        </div>
+        <div class="card chart-card">
+            <h3>⚙️ Job Statistics</h3>
+            <p><strong>States:</strong> {{ job_states_html }}</p>
+            <p><strong>Success Rate:</strong> {{ "%.1f"|format(success_rate) }}%</p>
+            <p><strong>Avg Processing Time:</strong> {{ "%.1f"|format(avg_time) }}s</p>
+            <h4>Recent Failures</h4>
+            {{ failures_html }}
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>Recent Documents</h2>
+        {% if recent_rows %}
+        <table><tr><th>Document</th><th>Status</th><th>Type</th><th>Date</th></tr>{{ recent_rows }}</table>
+        {% else %}
+        <p>No documents indexed yet. <a href="/upload">Upload one</a> to get started.</p>
+        {% endif %}
+    </div>
+
+    <div class="card" style="text-align:center;">
+        <a href="/analytics" class="btn-read-full">View Full Analytics →</a>
+    </div>
+{% endblock %}
