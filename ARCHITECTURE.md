@@ -184,6 +184,96 @@ Alembic without new technical justification.
 
 ---
 
+### ADR-003: Hybrid Islands Architecture for the Web UI
+
+**Date:** 2025-07-05
+**Motion:** motion-e73dd1dcb0c3 (adopted)
+**Status:** Active
+**Supersedes:** None — extends ADR-001 with the concrete interaction pattern.
+
+**Context.** ADR-001 established Jinja2 SSR as the UI framework and
+proscribed JavaScript frameworks. Since then, the codebase has converged
+on a specific pattern: server-rendered HTML pages with small, focused
+"islands" of client-side interactivity loaded per-page via
+`{% block extra_js %}`. Five JS files (theme, upload, viewer,
+documents-list, chat) now follow this pattern. The team discussed
+formalising the approach and defining the boundary at which a full SPA
+framework would become justified.
+
+**Decision.** Adopt the **Hybrid Islands Architecture** as DocMind's
+official client-side interaction model:
+
+1. **Jinja2 SSR is the foundation.** Every page is a server-rendered
+   HTML document. No client-side routing, no virtual DOM.
+2. **`{% block extra_js %}` defines interactivity islands.** Each
+   template that needs client-side behaviour overrides the block to load
+   a dedicated JS file from `static/js/` or a small inline `<script>`.
+   The JS is scoped to that page's DOM — it does not leak globally.
+3. **`static/js/` holds shared scripts.** Reusable JS modules live in
+   `src/web/static/js/` and are served via FastAPI's StaticFiles mount
+   at `/static`. Files are loaded with `<script src="..." defer>` so
+   they execute after DOM parse, preventing FOUC.
+4. **HTMX is permitted for partial swaps.** When a page region needs to
+   update without a full page reload (e.g. live search results, inline
+   form submission, progressive list loading), HTMX attributes
+   (`hx-get`, `hx-post`, `hx-target`, `hx-swap`) are the preferred
+   tool. HTMX does not require a build step or npm dependency — it is a
+   single static file served from `static/vendor/htmx.min.js`.
+5. **Vanilla JS remains the default.** HTMX is used only when a partial
+   swap is genuinely simpler than a full page reload. For stateful,
+   long-lived interactions (WebSocket chat, drag-and-drop upload,
+   paginated viewer), vanilla JS in `static/js/` is the right tool.
+
+**Rationale.**
+- The islands pattern is already how the codebase works — 5 templates
+  use `{% block extra_js %}` to load page-specific scripts. Formalising
+  it makes the convention explicit for future contributors.
+- `{% block extra_js %}` provides a clean seam: each page owns its
+  interactivity without a global router or shared state store.
+- HTMX fills the gap between "full page reload" and "SPA" — it handles
+  partial swaps with declarative attributes, no build step, and
+  degrades gracefully (links/forms still work without JS).
+- The approach has zero npm dependencies, zero build tooling, and is
+  fully testable with the existing pytest template-assertion pattern.
+
+**The SPA Boundary — when would a full framework become justified?**
+
+A new ADR (via Agora motion) must be raised before introducing a full
+SPA framework (React, Vue, Svelte, etc.). The motion must demonstrate
+that the feature cannot be reasonably implemented with the hybrid
+islands model. The following triggers would justify the discussion:
+
+| Trigger                                              | Why islands can't handle it                          |
+|------------------------------------------------------|------------------------------------------------------|
+| **Real-time collaborative editing**                   | Requires shared state sync, operational transforms,  |
+|                                                      | and conflict resolution across multiple clients.     |
+| **Complex optimistic UI with rollback**               | Requires a client-side state store with transaction  |
+|                                                      | semantics and rollback that exceeds Fetch + DOM.     |
+| **Offline-first PWA**                                | Requires service workers, client-side routing, and   |
+|                                                      | local persistence — fundamentally a client app.      |
+| **Interactive data visualisation (dashboards)**       | Requires reactive component composition, virtual     |
+|                                                      | DOM diffing for large datasets, and widget libraries |
+|                                                      | that assume a framework ecosystem.                   |
+| **Multi-step wizard with shared cross-page state**    | Requires client-side state that survives page        |
+|                                                      | transitions — islands are per-page by design.        |
+
+If none of these triggers are met, the feature should be implemented
+with SSR + islands + HTMX. The burden of proof is on the proposal to
+show why the existing model is insufficient.
+
+**HTMX usage guidelines.**
+1. HTMX is loaded once in `base.html` via a `<script>` tag from
+   `static/vendor/htmx.min.js` (not a CDN — self-hosted).
+2. HTMX targets server endpoints that return HTML fragments, not JSON.
+   The endpoint can be a dedicated route or a `?partial=true` query
+   parameter on an existing route.
+3. HTMX is used for progressive enhancement: the page must still
+   function with a full page reload if HTMX is absent.
+4. No HTMX extensions (`htmx-ext-*`) without an ADR — keep the surface
+   minimal.
+
+---
+
 ## 5. Web UI Architecture (detail)
 
 This section expands ADR-001 with the concrete patterns that implement
@@ -220,7 +310,7 @@ Browser renders HTML + loads static JS (progressive enhancement)
 base.html
   ├── {extra_head}    ← per-page CSS injections
   ├── {% block content %}  ← page body
-  └── {% block extra_js %} ← per-page JS loading
+  └── {% block extra_js %} ← interactivity island (per-page JS)
 ```
 
 Every page extends `base.html`. The base template provides:
@@ -242,14 +332,18 @@ Every page extends `base.html`. The base template provides:
 | `chat.js`        | WebSocket Q&A with citations         | WebSocket + DOM append         |
 
 **Rules:**
-1. No JavaScript frameworks (React, Vue, Alpine, htmx runtime).
+1. No JavaScript SPA frameworks (React, Vue, Svelte, Alpine). HTMX is
+   permitted for partial swaps — see ADR-003 for guidelines.
 2. No build step (no npm, no bundler, no transpilation).
-3. No npm `package.json` — the project has zero JS dependencies.
+3. No npm `package.json` — the project has zero JS dependencies. HTMX
+   is a single self-hosted static file, not an npm package.
 4. JS files are loaded via `<script src="/static/js/...">` with `defer`.
 5. Progressive enhancement: pages must function without JS; JS only
    enhances the experience (drag-and-drop, WebSocket, pagination).
 6. New JS files go in `src/web/static/js/` and are registered in
    `base.html` or per-template `{% block extra_js %}`.
+7. Each `{% block extra_js %}` override is an **interactivity island** —
+   scoped to the page's DOM, no global state leakage (see ADR-003).
 
 ### 5.4 CSS conventions
 
@@ -307,12 +401,15 @@ When adding a new feature:
 |---------------------------|---------------------------------------------------------|
 | New UI page               | Jinja2 template extending `base.html`                   |
 | New client-side behaviour | Vanilla JS in `src/web/static/js/`, loaded via `defer`  |
+| New interactivity island  | Override `{% block extra_js %}` in the page template    |
+| Partial page update       | HTMX attributes (`hx-get`/`hx-post` + `hx-target`/`hx-swap`) |
 | New CSS                   | CSS custom properties in `base.html` or `{extra_head}`  |
 | New REST endpoint         | `/api/v1/` prefix, JSON response                        |
 | Schema change             | Add to `migrate()` with `IF NOT EXISTS` guard           |
 | New dependency            | Raise an Agora motion before adding to `pyproject.toml` |
 | New architecture decision | Document as an ADR in this file (section 4)             |
 | Reusable UI fragment      | Place in `src/web/templates/_partials/`                 |
+| SPA framework proposal    | Raise ADR via Agora motion; must meet a trigger in ADR-003 |
 
 ---
 
@@ -321,3 +418,4 @@ When adding a new feature:
 | Date       | Author    | Change                                             |
 |------------|-----------|----------------------------------------------------|
 | 2025-07-05 | architect | Created. Documented ADR-001 (Jinja2 SSR) and ADR-002 (hand-rolled migrations) per motions motion-d9138a198276 and motion-1a1689af9142. |
+| 2025-07-05 | architect | Added ADR-003 (Hybrid Islands Architecture) per motion-e73dd1dcb0c3. Updated Section 5.3 rules to permit HTMX for partial swaps. Added SPA boundary trigger table and HTMX usage guidelines. Updated conventions table with islands, HTMX, and SPA-proposal rows. |

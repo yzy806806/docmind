@@ -1,16 +1,16 @@
 # Project Context
 
 **Project:** docmind
-**Goal:** 自我进化，持续开发docmind项目
+**Goal:** 持续开发docmind
 **Status:** active
 
 ## Description
 
-接手https://github.com/yzy806806/docmind项目开发，让该项目独立运行，且拥有功能完善、美观的webui交互页面。
+持续开发https://github.com/yzy806806/docmind项目,团队共同讨论开发方向。
 
 ## Stop Condition
 
-The project should stop when: 运行稳定，对比同类产品，没有功能缺失。
+The project should stop when: 易用性与性能达到最优，对比同类项目，功能无缺失。
 If the stop condition appears to be met, the leader should raise a motion for the team to vote on whether to stop.
 
 **Heartbeat Member:** leader (woken every 30 min)
@@ -19,12 +19,13 @@ If the stop condition appears to be met, the leader should raise a motion for th
 
 | Name | Role |
 |------|------|
-| researcher | Researcher |
-| developer | Developer |
-| architect | Architect |
-| tester | Tester |
 | leader (heartbeat) | Team Leader |
+| developer | Developer |
+| writer | Writer |
+| researcher | Researcher |
+| tester | Tester |
 | reviewer | Reviewer |
+| architect | Architect |
 
 When creating follow-up tasks, assign them to the appropriate team member above.
 Use `hermes profile list` to verify member availability.
