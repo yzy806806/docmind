@@ -11,9 +11,11 @@
             </form>
         </div>
         {% if documents %}
-        <table><tr><th>Document</th><th>Status</th><th>Source</th><th>Type</th><th>Date</th>{{ tags_col_header }}<th>View</th></tr>
+        <form id="bulk-delete-form" action="/documents/bulk-delete" method="post" onsubmit="return confirmBulkDelete();">
+        <table><tr><th><input type="checkbox" id="select-all" title="Select all" onclick="toggleSelectAll(this);"></th><th>Document</th><th>Status</th><th>Source</th><th>Type</th><th>Date</th>{{ tags_col_header }}<th>View</th></tr>
         {% for doc in documents %}
         <tr>
+            <td><input type="checkbox" name="doc_ids" value="{{ doc.id }}" class="doc-checkbox" onclick="updateDeleteButton();"></td>
             <td><a href="/documents/{{ doc.id }}">[{{ doc.id }}] {{ doc.title or 'Untitled' }}</a></td>
             <td><span class="badge badge-{{ doc.status or 'pending' }}">{{ doc.status or '' }}</span></td>
             <td>{{ doc.source_name or doc.source_type or '' }}</td>
@@ -24,6 +26,47 @@
         </tr>
         {% endfor %}
         </table>
+        <div style="margin:8px 0;">
+            <button type="submit" id="delete-selected-btn" class="btn-delete" disabled style="padding:4px 12px;font-size:0.85em;cursor:not-allowed;opacity:0.5;">🗑 Delete Selected (<span id="selected-count">0</span>)</button>
+        </div>
+        </form>
+        <script>
+        function toggleSelectAll(selectAllCheckbox) {
+            var checkboxes = document.querySelectorAll('.doc-checkbox');
+            for (var i = 0; i < checkboxes.length; i++) {
+                checkboxes[i].checked = selectAllCheckbox.checked;
+            }
+            updateDeleteButton();
+        }
+
+        function updateDeleteButton() {
+            var checked = document.querySelectorAll('.doc-checkbox:checked');
+            var btn = document.getElementById('delete-selected-btn');
+            var countSpan = document.getElementById('selected-count');
+            var selectAll = document.getElementById('select-all');
+            countSpan.textContent = checked.length;
+            if (checked.length > 0) {
+                btn.disabled = false;
+                btn.style.cursor = 'pointer';
+                btn.style.opacity = '1';
+            } else {
+                btn.disabled = true;
+                btn.style.cursor = 'not-allowed';
+                btn.style.opacity = '0.5';
+            }
+            // Update select-all checkbox state
+            var allCheckboxes = document.querySelectorAll('.doc-checkbox');
+            selectAll.checked = allCheckboxes.length > 0 && checked.length === allCheckboxes.length;
+        }
+
+        function confirmBulkDelete() {
+            var count = document.querySelectorAll('.doc-checkbox:checked').length;
+            if (count === 0) {
+                return false;
+            }
+            return confirm('Are you sure you want to delete ' + count + ' document(s)? This action cannot be undone.');
+        }
+        </script>
         {% else %}
         <p>No documents found.</p>
         {% endif %}
