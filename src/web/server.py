@@ -37,6 +37,16 @@ REST:
 - DELETE /api/v1/documents/{doc_id}/collection  Remove document from collection
 - GET  /api/v1/collections/{id}/documents  List documents in a collection
 
+Bulk Operations (Phase 4b):
+- POST   /documents/bulk-tag             Add a tag to multiple documents (form)
+- POST   /api/v1/documents/bulk-tag      Add a tag to multiple documents (API)
+- POST   /documents/bulk-move-collection  Assign docs to a collection (form)
+- POST   /api/v1/documents/bulk-assign   Assign docs to a collection (API)
+- GET    /documents/bulk-export          Export docs as CSV/JSON (form)
+- GET    /api/v1/documents/bulk-export   Export docs as CSV/JSON (API)
+- DELETE /api/v1/documents/bulk          Delete multiple documents (API)
+- POST   /documents/bulk-delete          Delete multiple documents (form)
+
 WebSocket:
 - WS   /chat                     Real-time Q&A with citation tracking
 """

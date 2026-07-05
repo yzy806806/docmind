@@ -837,3 +837,80 @@ class TestDbFacetMethods:
 
         await db.disconnect()
 
+
+class TestHTMXPartialFacets:
+    """Test that the HTMX partial endpoint passes facet data and
+    includes the bulk-actions bar in the swapped fragment."""
+
+    @pytest.mark.asyncio
+    async def test_partial_includes_bulk_actions_bar(self, asgi_client) -> None:
+        """The partial endpoint returns a bulk-actions bar, not just
+        the minimal delete button. Without this, an HTMX swap would
+        strip the tag/move/export buttons from the page."""
+        from src.web import server
+
+        await _insert_test_docs(server._db, count=3)
+
+        resp = await asgi_client.get("/documents/partials/table")
+        assert resp.status_code == 200
+        html = resp.text
+
+        # The partial must include the bulk-actions bar with all buttons
+        assert 'id="bulk-actions-bar"' in html
+        assert 'id="bulk-tag-form"' in html
+        assert 'id="bulk-move-form"' in html
+        assert 'id="bulk-export-form"' in html
+        assert 'id="delete-selected-btn"' in html
+
+    @pytest.mark.asyncio
+    async def test_partial_includes_facet_collections(self, asgi_client) -> None:
+        """The partial must render collection options in the move-to
+        dropdown so the bulk-move form works after an HTMX swap."""
+        from src.web import server
+
+        await _insert_test_docs(server._db, count=2)
+        # Create a collection so it shows up in the dropdown
+        await server._db.create_collection(
+            name="Research", description="Test collection"
+        )
+
+        resp = await asgi_client.get("/documents/partials/table")
+        assert resp.status_code == 200
+        html = resp.text
+
+        # The collection should appear as an <option> in the move select
+        assert "Research" in html
+
+    @pytest.mark.asyncio
+    async def test_partial_renders_doc_table(self, asgi_client) -> None:
+        """The partial still renders the document table and pagination."""
+        from src.web import server
+
+        await _insert_test_docs(server._db, count=5)
+
+        resp = await asgi_client.get("/documents/partials/table")
+        assert resp.status_code == 200
+        html = resp.text
+
+        assert 'id="doc-table-region"' in html
+        assert "Showing" in html
+        assert "document(s)" in html
+        assert 'id="select-all"' in html
+
+    @pytest.mark.asyncio
+    async def test_partial_preserves_filter_params(self, asgi_client) -> None:
+        """The partial respects filter query params just like the full
+        page route."""
+        from src.web import server
+
+        await _insert_test_docs(server._db, count=5)
+
+        resp = await asgi_client.get(
+            "/documents/partials/table?source=api&file_type=.pdf"
+        )
+        assert resp.status_code == 200
+        html = resp.text
+
+        # Should show fewer docs (only api + pdf)
+        assert "document(s)" in html
+
