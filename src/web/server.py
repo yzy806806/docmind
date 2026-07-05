@@ -18,8 +18,18 @@ REST:
 - POST /upload                   File upload form (single or batch via files[])
 - POST /api/v1/documents/submit  Programmatic document submission
 - POST /api/v1/documents/batch   Batch document submission
+- GET  /api/v1/documents         List documents (JSON, pagination, collection_id filter)
 - GET  /api/v1/documents/{id}/status  Document processing status
 - GET  /api/v1/jobs/{id}         Background job status
+- POST /api/v1/collections       Create a collection
+- GET  /api/v1/collections       List all collections (flat)
+- GET  /api/v1/collections/tree  List collections as nested tree
+- GET  /api/v1/collections/{id}  Get a single collection
+- PUT  /api/v1/collections/{id}  Update a collection
+- DELETE /api/v1/collections/{id}  Delete a collection
+- POST /api/v1/documents/{doc_id}/collection  Assign document to collection
+- DELETE /api/v1/documents/{doc_id}/collection  Remove document from collection
+- GET  /api/v1/collections/{id}/documents  List documents in a collection
 
 WebSocket:
 - WS   /chat                     Real-time Q&A with citation tracking
@@ -247,6 +257,10 @@ def create_app() -> FastAPI:
             {
                 "name": "documents",
                 "description": "Document submission, status, and management operations.",
+            },
+            {
+                "name": "collections",
+                "description": "Collection (folder) CRUD, tree structure, and document assignment.",
             },
             {
                 "name": "jobs",
@@ -1731,6 +1745,608 @@ def create_app() -> FastAPI:
             error=job.error,
             created_at=job.created_at,
             updated_at=job.updated_at,
+        )
+
+    # ── Collections REST API ─────────────────────────────────────
+
+    @app.get(
+        "/api/v1/documents",
+        tags=["documents"],
+        summary="List documents with optional collection_id filter",
+    )
+    async def list_documents_api(
+        page: int = Query(default=1, ge=1),
+        per_page: int = Query(default=20, ge=1, le=100),
+        source: Optional[str] = Query(default=None),
+        collection_id: Optional[int] = Query(
+            default=None,
+            description="Filter by collection. Use 0 for unassigned documents.",
+        ),
+        api_key: str = Security(api_key_header),
+    ):
+        """List documents with pagination and optional source/collection filters.
+
+        When ``collection_id`` is provided, only documents in that collection
+        are returned. Use ``collection_id=0`` to list documents that are not
+        assigned to any collection.
+        """
+        db = get_db()
+        result = await db.list_documents_paginated(
+            page=page,
+            per_page=per_page,
+            source=source,
+            collection_id=collection_id,
+        )
+        return result
+
+    @app.post(
+        "/api/v1/collections",
+        status_code=status.HTTP_201_CREATED,
+        tags=["collections"],
+        summary="Create a new collection",
+    )
+    async def create_collection_api(
+        request: Request, api_key: str = Security(api_key_header)
+    ):
+        """Create a new collection.
+
+        Request body (JSON):
+            {"name": "...", "description": "...", "parent_id": <int|null>}
+
+        - ``name`` is required (non-empty).
+        - ``parent_id`` if provided must reference an existing collection.
+        """
+        try:
+            body = await request.json()
+        except Exception:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid JSON body",
+            )
+
+        if not isinstance(body, dict):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Body must be a JSON object",
+            )
+
+        name = (body.get("name") or "").strip() if isinstance(body.get("name"), str) else ""
+        if not name:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Field 'name' is required and must not be empty",
+            )
+
+        description = body.get("description") or ""
+        if not isinstance(description, str):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Field 'description' must be a string",
+            )
+
+        parent_id = body.get("parent_id")
+        db = get_db()
+
+        if parent_id is not None:
+            if not isinstance(parent_id, int) or parent_id <= 0:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Field 'parent_id' must be a positive integer or null",
+                )
+            parent = await db.get_collection(parent_id)
+            if parent is None:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Parent collection {parent_id} not found",
+                )
+
+        try:
+            col_id = await db.create_collection(
+                name=name, description=description, parent_id=parent_id,
+            )
+        except ValueError as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(e),
+            )
+
+        col = await db.get_collection(col_id)
+        return col
+
+    @app.get(
+        "/api/v1/collections",
+        tags=["collections"],
+        summary="List all collections (flat)",
+    )
+    async def list_collections_api(api_key: str = Security(api_key_header)):
+        """Return a flat list of all collections ordered by name."""
+        db = get_db()
+        collections = await db.list_collections()
+        return {"collections": collections, "count": len(collections)}
+
+    @app.get(
+        "/api/v1/collections/tree",
+        tags=["collections"],
+        summary="List collections as a nested tree",
+    )
+    async def list_collections_tree_api(api_key: str = Security(api_key_header)):
+        """Return collections as a nested tree structure for UI rendering."""
+        db = get_db()
+        tree = await db.list_collections_tree()
+        return {"tree": tree}
+
+    @app.get(
+        "/api/v1/collections/{collection_id}",
+        tags=["collections"],
+        summary="Get a single collection by id",
+    )
+    async def get_collection_api(
+        collection_id: int, api_key: str = Security(api_key_header)
+    ):
+        """Return a single collection. 404 if not found."""
+        db = get_db()
+        col = await db.get_collection(collection_id)
+        if col is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"No collection with id {collection_id}",
+            )
+        return col
+
+    @app.put(
+        "/api/v1/collections/{collection_id}",
+        tags=["collections"],
+        summary="Update a collection",
+    )
+    async def update_collection_api(
+        collection_id: int,
+        request: Request,
+        api_key: str = Security(api_key_header),
+    ):
+        """Update one or more fields of a collection.
+
+        Request body (JSON, all fields optional):
+            {"name": "...", "description": "...", "parent_id": <int|null>}
+
+        - 404 if the collection does not exist.
+        - 400 if name is empty/whitespace or parent_id is invalid.
+        - 409 if setting parent_id would create a cycle.
+        """
+        try:
+            body = await request.json()
+        except Exception:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid JSON body",
+            )
+
+        if not isinstance(body, dict):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Body must be a JSON object",
+            )
+
+        db = get_db()
+        existing = await db.get_collection(collection_id)
+        if existing is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"No collection with id {collection_id}",
+            )
+
+        name = body.get("name")
+        description = body.get("description")
+        parent_id = body.get("parent_id")
+
+        # Validate name if provided
+        if name is not None:
+            if not isinstance(name, str) or not name.strip():
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Field 'name' must not be empty",
+                )
+
+        # Validate description if provided
+        if description is not None and not isinstance(description, str):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Field 'description' must be a string",
+            )
+
+        # Validate parent_id if provided
+        if parent_id is not None:
+            if not isinstance(parent_id, int) or parent_id <= 0:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Field 'parent_id' must be a positive integer or null",
+                )
+            if parent_id == collection_id:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Cannot set parent_id to itself — this would create a cycle",
+                )
+            parent = await db.get_collection(parent_id)
+            if parent is None:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Parent collection {parent_id} not found",
+                )
+
+        try:
+            updated = await db.update_collection(
+                collection_id,
+                name=name,
+                description=description,
+                parent_id=parent_id,
+            )
+        except ValueError as e:
+            # Cycle detection raises ValueError
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=str(e),
+            )
+
+        if not updated:
+            # Should not happen since we checked existence above, but guard
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"No collection with id {collection_id}",
+            )
+
+        col = await db.get_collection(collection_id)
+        return col
+
+    @app.delete(
+        "/api/v1/collections/{collection_id}",
+        tags=["collections"],
+        summary="Delete a collection",
+    )
+    async def delete_collection_api(
+        collection_id: int, api_key: str = Security(api_key_header)
+    ):
+        """Delete a collection.
+
+        Documents in this collection (and its descendants) are moved to
+        "All Documents" (collection_id set to NULL). Child collections are
+        cascade-deleted. Returns 404 if the collection does not exist.
+        """
+        db = get_db()
+        deleted = await db.delete_collection(collection_id)
+        if not deleted:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"No collection with id {collection_id}",
+            )
+        return {"id": collection_id, "deleted": True}
+
+    @app.post(
+        "/api/v1/documents/{doc_id}/collection",
+        tags=["collections"],
+        summary="Assign a document to a collection",
+    )
+    async def assign_document_to_collection_api(
+        doc_id: int,
+        request: Request,
+        api_key: str = Security(api_key_header),
+    ):
+        """Assign a document to a collection.
+
+        Request body (JSON): ``{"collection_id": <int>}``
+
+        - 404 if the document or collection does not exist.
+        """
+        try:
+            validate_doc_id(doc_id)
+        except ValidationError as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=e.message,
+            )
+
+        try:
+            body = await request.json()
+        except Exception:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid JSON body",
+            )
+
+        if not isinstance(body, dict) or "collection_id" not in body:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail='Body must be a JSON object with a "collection_id" field',
+            )
+
+        collection_id = body["collection_id"]
+        if not isinstance(collection_id, int) or collection_id <= 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail='"collection_id" must be a positive integer',
+            )
+
+        db = get_db()
+
+        # Verify document exists
+        doc = await db.get_document(doc_id)
+        if doc is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"No document with id {doc_id}",
+            )
+
+        # Verify collection exists
+        col = await db.get_collection(collection_id)
+        if col is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"No collection with id {collection_id}",
+            )
+
+        ok = await db.assign_document_to_collection(doc_id, collection_id)
+        if not ok:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Document or collection not found",
+            )
+
+        return {"doc_id": doc_id, "collection_id": collection_id, "assigned": True}
+
+    @app.delete(
+        "/api/v1/documents/{doc_id}/collection",
+        tags=["collections"],
+        summary="Remove a document from its collection",
+    )
+    async def remove_document_from_collection_api(
+        doc_id: int, api_key: str = Security(api_key_header)
+    ):
+        """Remove a document from its collection (set collection_id to NULL).
+
+        Returns 404 if the document does not exist. If the document was
+        already unassigned, returns 200 with ``removed: False``.
+        """
+        try:
+            validate_doc_id(doc_id)
+        except ValidationError as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=e.message,
+            )
+
+        db = get_db()
+        doc = await db.get_document(doc_id)
+        if doc is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"No document with id {doc_id}",
+            )
+
+        removed = await db.remove_document_from_collection(doc_id)
+        return {"doc_id": doc_id, "removed": removed}
+
+    @app.get(
+        "/api/v1/collections/{collection_id}/documents",
+        tags=["collections"],
+        summary="List documents in a collection",
+    )
+    async def list_documents_by_collection_api(
+        collection_id: int,
+        page: int = Query(default=1, ge=1),
+        per_page: int = Query(default=20, ge=1, le=100),
+        api_key: str = Security(api_key_header),
+    ):
+        """List documents in a collection with pagination metadata.
+
+        Returns 404 if the collection does not exist.
+        """
+        db = get_db()
+        col = await db.get_collection(collection_id)
+        if col is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"No collection with id {collection_id}",
+            )
+        result = await db.list_documents_by_collection(
+            collection_id, page=page, per_page=per_page,
+        )
+        return result
+
+    # ── Collections HTML form endpoints ──────────────────────────
+
+    @app.post(
+        "/collections/create",
+        response_class=HTMLResponse,
+        include_in_schema=False,
+    )
+    async def create_collection_form(
+        name: str = Form(default=""),
+        description: str = Form(default=""),
+        parent_id: Optional[str] = Form(default=""),
+    ):
+        """Create a collection via form POST, then redirect to documents page."""
+        name = (name or "").strip()
+        if not name:
+            return HTMLResponse(
+                content=_render_error(
+                    "Validation Error",
+                    "Collection name is required.",
+                ),
+                status_code=400,
+            )
+
+        pid: Optional[int] = None
+        if parent_id and parent_id.strip():
+            try:
+                pid = int(parent_id.strip())
+            except (ValueError, TypeError):
+                return HTMLResponse(
+                    content=_render_error(
+                        "Validation Error",
+                        "Parent collection ID must be a number.",
+                    ),
+                    status_code=400,
+                )
+
+        db = get_db()
+        if pid is not None:
+            parent = await db.get_collection(pid)
+            if parent is None:
+                return HTMLResponse(
+                    content=_render_error(
+                        "Not Found",
+                        f"Parent collection {pid} not found.",
+                    ),
+                    status_code=404,
+                )
+
+        try:
+            await db.create_collection(
+                name=name, description=description, parent_id=pid,
+            )
+        except ValueError as e:
+            return HTMLResponse(
+                content=_render_error("Validation Error", str(e)),
+                status_code=400,
+            )
+
+        return RedirectResponse(url="/documents", status_code=303)
+
+    @app.post(
+        "/collections/{collection_id}/edit",
+        response_class=HTMLResponse,
+        include_in_schema=False,
+    )
+    async def edit_collection_form(
+        collection_id: int,
+        name: str = Form(default=""),
+        description: str = Form(default=""),
+        parent_id: Optional[str] = Form(default=""),
+    ):
+        """Edit a collection via form POST, then redirect to documents page."""
+        new_name = (name or "").strip()
+        if not new_name:
+            return HTMLResponse(
+                content=_render_error(
+                    "Validation Error",
+                    "Collection name is required.",
+                ),
+                status_code=400,
+            )
+
+        pid: Optional[int] = None
+        if parent_id and parent_id.strip():
+            try:
+                pid = int(parent_id.strip())
+            except (ValueError, TypeError):
+                return HTMLResponse(
+                    content=_render_error(
+                        "Validation Error",
+                        "Parent collection ID must be a number.",
+                    ),
+                    status_code=400,
+                )
+
+        db = get_db()
+        existing = await db.get_collection(collection_id)
+        if existing is None:
+            return HTMLResponse(
+                content=_render_error(
+                    "Not Found",
+                    f"Collection {collection_id} not found.",
+                ),
+                status_code=404,
+            )
+
+        try:
+            await db.update_collection(
+                collection_id,
+                name=new_name,
+                description=description,
+                parent_id=pid,
+            )
+        except ValueError as e:
+            return HTMLResponse(
+                content=_render_error("Validation Error", str(e)),
+                status_code=400,
+            )
+
+        return RedirectResponse(url="/documents", status_code=303)
+
+    @app.post(
+        "/collections/{collection_id}/delete",
+        response_class=HTMLResponse,
+        include_in_schema=False,
+    )
+    async def delete_collection_form(collection_id: int):
+        """Delete a collection via form POST, then redirect to documents page."""
+        db = get_db()
+        deleted = await db.delete_collection(collection_id)
+        if not deleted:
+            return HTMLResponse(
+                content=_render_error(
+                    "Not Found",
+                    f"Collection {collection_id} not found.",
+                ),
+                status_code=404,
+            )
+        return RedirectResponse(url="/documents", status_code=303)
+
+    @app.post(
+        "/documents/{doc_id}/assign-collection",
+        response_class=HTMLResponse,
+        include_in_schema=False,
+    )
+    async def assign_collection_form(
+        doc_id: int,
+        collection_id: Optional[str] = Form(default=""),
+    ):
+        """Assign a document to a collection via form POST."""
+        try:
+            validate_doc_id(doc_id)
+        except ValidationError as e:
+            return HTMLResponse(
+                content=_render_error("Invalid document ID", e.message),
+                status_code=400,
+            )
+
+        db = get_db()
+        doc = await db.get_document(doc_id)
+        if doc is None:
+            return HTMLResponse(
+                content=_render_error(
+                    "Not Found",
+                    f"Document {doc_id} not found.",
+                ),
+                status_code=404,
+            )
+
+        cid_str = (collection_id or "").strip()
+        if not cid_str:
+            # No collection selected — remove from current collection
+            await db.remove_document_from_collection(doc_id)
+        else:
+            try:
+                cid = int(cid_str)
+            except (ValueError, TypeError):
+                return HTMLResponse(
+                    content=_render_error(
+                        "Validation Error",
+                        "Collection ID must be a number.",
+                    ),
+                    status_code=400,
+                )
+            col = await db.get_collection(cid)
+            if col is None:
+                return HTMLResponse(
+                    content=_render_error(
+                        "Not Found",
+                        f"Collection {cid} not found.",
+                    ),
+                    status_code=404,
+                )
+            await db.assign_document_to_collection(doc_id, cid)
+
+        return RedirectResponse(
+            url=f"/documents/{doc_id}", status_code=303,
         )
 
     return app
