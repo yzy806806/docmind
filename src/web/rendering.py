@@ -600,6 +600,9 @@ def _render_documents_list(
     collection_counts: dict[int, int] | None = None,
     active_collection_id: int | None = None,
     collection_path: list[dict] | None = None,
+    date_from: str = "",
+    date_to: str = "",
+    file_type: str = "",
 ) -> str:
     tags_map = tags_map or {}
     all_tags = all_tags or []
@@ -668,6 +671,20 @@ def _render_documents_list(
             if col_name:
                 filter_label = f" — collection: {_escape(col_name)}"
 
+    # Build extra filter label for date/type filters
+    extra_filter_parts: list[str] = []
+    if date_from:
+        extra_filter_parts.append(f"from {_escape(date_from)}")
+    if date_to:
+        extra_filter_parts.append(f"to {_escape(date_to)}")
+    if file_type:
+        extra_filter_parts.append(f"type: {_escape(file_type)}")
+    if extra_filter_parts:
+        if filter_label:
+            filter_label += " (" + ", ".join(extra_filter_parts) + ")"
+        else:
+            filter_label = " — " + ", ".join(extra_filter_parts)
+
     # Build pagination
     source_param = f"&source={_escape(source)}" if source else ""
     tag_param = f"&tag={_escape(active_tag)}" if active_tag else ""
@@ -676,8 +693,15 @@ def _render_documents_list(
         if active_collection_id is not None
         else ""
     )
+    date_from_param = f"&date_from={_escape(date_from)}" if date_from else ""
+    date_to_param = f"&date_to={_escape(date_to)}" if date_to else ""
+    file_type_param = f"&file_type={_escape(file_type)}" if file_type else ""
+    all_filter_params = (
+        source_param + tag_param + col_param
+        + date_from_param + date_to_param + file_type_param
+    )
     pagination_html = _render_pagination(
-        page, per_page, total, total_pages, source_param + tag_param + col_param
+        page, per_page, total, total_pages, all_filter_params
     )
 
     start = (page - 1) * per_page + 1 if total > 0 else 0
@@ -693,11 +717,94 @@ def _render_documents_list(
         collection_tree_html=collection_tree_html,
         collection_breadcrumb_html=collection_breadcrumb_html,
         pagination_html=pagination_html,
+        date_from=date_from, date_to=date_to, file_type=file_type,
+        active_source=source, active_tag=active_tag,
     )
 
 
-def _render_document_detail(doc: dict, tags: list[str] | None = None) -> str:
+def _render_documents_table_partial(
+    documents: list[dict],
+    page: int = 1,
+    per_page: int = 20,
+    total: int = 0,
+    total_pages: int = 0,
+    *,
+    tags_map: dict[int, list[str]] | None = None,
+    active_tag: str = "",
+    source: str = "",
+    active_collection_id: int | None = None,
+    date_from: str = "",
+    date_to: str = "",
+    file_type: str = "",
+) -> str:
+    """Render ONLY the document table region as an HTML fragment.
+
+    This is the partial-swap renderer for HTMX (ADR-003). It returns
+    the inner content of the ``#doc-table-region`` div — the count info,
+    the document table, bulk-delete form, and pagination — without the
+    surrounding page chrome (header, nav, sidebars, filter panel).
+
+    The endpoint ``GET /documents/partials/table`` calls this and returns
+    the fragment. The client-side ``hx-target="#doc-table-region"`` swaps
+    the old table region with the new one.
+
+    Data preparation mirrors ``_render_documents_list`` but skips tag
+    cloud, collection tree, and breadcrumb (those sidebars don't change
+    when filters are applied — only the table does).
+    """
+    tags_map = tags_map or {}
+
+    # Build tag badges HTML for each document (same as full-page renderer)
+    for doc in documents:
+        doc_tags = tags_map.get(doc["id"], [])
+        if doc_tags:
+            tag_badges = '<div class="doc-tags">' + "".join(
+                f'<a href="/documents?tag={_escape(t)}" class="tag-pill">{_escape(t)}</a>'
+                for t in doc_tags
+            ) + "</div>"
+        else:
+            tag_badges = ""
+        doc["_tag_badges_html"] = tag_badges
+
+    # Build pagination with filter params
+    source_param = f"&source={_escape(source)}" if source else ""
+    tag_param = f"&tag={_escape(active_tag)}" if active_tag else ""
+    col_param = (
+        f"&collection_id={active_collection_id}"
+        if active_collection_id is not None
+        else ""
+    )
+    date_from_param = f"&date_from={_escape(date_from)}" if date_from else ""
+    date_to_param = f"&date_to={_escape(date_to)}" if date_to else ""
+    file_type_param = f"&file_type={_escape(file_type)}" if file_type else ""
+    all_filter_params = (
+        source_param + tag_param + col_param
+        + date_from_param + date_to_param + file_type_param
+    )
+    pagination_html = _render_pagination(
+        page, per_page, total, total_pages, all_filter_params
+    )
+
+    start = (page - 1) * per_page + 1 if total > 0 else 0
+    end = min(page * per_page, total)
+    tags_col_header = "<th>Tags</th>" if tags_map else ""
+
+    return _render_template("_partials/documents_table.html",
+        documents=documents,
+        start=start, end=end, total=total,
+        tags_col_header=tags_col_header,
+        pagination_html=pagination_html,
+    )
+
+
+def _render_document_detail(
+    doc: dict,
+    tags: list[str] | None = None,
+    current_collection: dict | None = None,
+    all_collections: list[dict] | None = None,
+) -> str:
     tags = tags or []
+    all_collections = all_collections or []
     full_body = doc.get("body", "") or ""
     excerpt = full_body[:500]
     if len(full_body) > 500:
@@ -725,6 +832,8 @@ def _render_document_detail(doc: dict, tags: list[str] | None = None) -> str:
     return _render_template("documents/detail.html",
         doc=doc, tag_badges_html=tag_badges_html,
         excerpt=excerpt, wc=wc, rt=rt,
+        current_collection=current_collection,
+        all_collections=all_collections,
     )
 
 
@@ -833,13 +942,14 @@ def _mask_api_key(key: str) -> str:
 
 
 def _render_login_page(*, error: str = "") -> str:
-    """Render the standalone login page (no base.html nav).
+    """Render the login page, extending base.html for shared theme support.
 
-    The login page is dark-mode compatible and uses its own minimal
-    styling so it renders correctly even when the user is not yet
-    authenticated.
+    The login page uses base.html's CSS variables and theme-toggle JS
+    so dark-mode behaviour is consistent with the rest of the app.
+    Login-specific styling (centered card, form layout) is injected via
+    the ``extra_head`` block.
     """
-    return _render_template("login.html", error=error)
+    return _render_template("login.html", title="Login", error=error)
 
 
 def _render_settings_page(settings: dict[str, str], *, success: bool = False) -> str:

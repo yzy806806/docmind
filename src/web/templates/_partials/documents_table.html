@@ -1,0 +1,63 @@
+{# HTMX partial: document table + pagination + count info.
+   Returned by GET /documents/partials/table — a dedicated partial-swap endpoint.
+   This is NOT a full page — it's an HTML fragment intended for hx-target swap.
+
+   Convention (ADR-003 §HTMX usage guidelines):
+   - Partial endpoints live under /<resource>/partials/<fragment>
+   - They return ONLY the swap target's inner HTML (no <html>, <head>, <body>)
+   - They accept the same query params as the full-page route (filters, pagination)
+   - The wrapping <div id="..."> in the parent template is the hx-target
+ #}
+<div id="doc-table-region">
+    <div class="pagination-info">Showing {{ start }}–{{ end }} of {{ total }} document(s)</div>
+
+    {% if documents %}
+    <form id="bulk-delete-form" action="/documents/bulk-delete" method="post"
+          onsubmit="return confirmBulkDelete();">
+        <table>
+            <tr>
+                <th><input type="checkbox" id="select-all" title="Select all"
+                           onclick="toggleSelectAll(this);"></th>
+                <th>Document</th><th>Status</th><th>Source</th><th>Type</th>
+                <th>Date</th>{{ tags_col_header }}<th>View</th>
+            </tr>
+            {% for doc in documents %}
+            <tr>
+                <td><input type="checkbox" name="doc_ids" value="{{ doc.id }}"
+                           class="doc-checkbox" onclick="updateDeleteButton();"></td>
+                <td><a href="/documents/{{ doc.id }}">[{{ doc.id }}] {{ doc.title or 'Untitled' }}</a></td>
+                <td><span class="badge badge-{{ doc.status or 'pending' }}">{{ doc.status or '' }}</span></td>
+                <td>{{ doc.source_name or doc.source_type or '' }}</td>
+                <td>{{ doc.ext or '' }}</td>
+                <td>{{ fmt_date(doc.created_at) }}</td>
+                <td>{{ doc._tag_badges_html }}</td>
+                <td><a href="/documents/{{ doc.id }}/view" class="btn-view-link"
+                       title="View document">📖 View</a></td>
+            </tr>
+            {% endfor %}
+        </table>
+        <div style="margin:8px 0;">
+            <button type="submit" id="delete-selected-btn" class="btn-delete" disabled
+                    style="padding:4px 12px;font-size:0.85em;cursor:not-allowed;opacity:0.5;">
+                🗑 Delete Selected (<span id="selected-count">0</span>)
+            </button>
+        </div>
+    </form>
+    {% else %}
+    <p>No documents found.</p>
+    {% endif %}
+
+    {{ pagination_html }}
+
+    {# Re-trigger bulk-delete button init after HTMX swap.
+       htmx:afterSwap fires on the target element; we use it to reset the
+       delete button state (0 selected, disabled) for the new table content. #}
+    <script>
+        (function() {
+            var btn = document.getElementById('delete-selected-btn');
+            var countSpan = document.getElementById('selected-count');
+            if (btn) { btn.disabled = true; btn.style.cursor = 'not-allowed'; btn.style.opacity = '0.5'; }
+            if (countSpan) { countSpan.textContent = '0'; }
+        })();
+    </script>
+</div>

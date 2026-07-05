@@ -803,11 +803,16 @@ class TestDocumentViewerRender:
 
     def test_viewer_has_javascript(self):
         from src.web.document_viewer import render_document_viewer
+        from pathlib import Path
 
         doc = {"id": 1, "title": "T", "ext": ".txt", "body": "hi", "size": 2}
         html = render_document_viewer(doc)
-        assert "<script>" in html
-        assert "docSearch" in html
+        assert "/static/js/viewer.js" in html
+        # Verify the viewer.js file contains the search logic
+        viewer_js = Path(__file__).resolve().parent.parent / "src" / "web" / "static" / "js" / "viewer.js"
+        assert viewer_js.exists(), f"viewer.js not found at {viewer_js}"
+        js_src = viewer_js.read_text()
+        assert "docSearch" in js_src
 
 
 # ── Route integration tests ─────────────────────────────────────

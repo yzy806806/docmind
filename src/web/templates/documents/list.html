@@ -4,13 +4,8 @@
     {% if collection_breadcrumb_html %}{{ collection_breadcrumb_html | safe }}{% endif %}
     <div class="card">
         <h2>Documents{{ filter_label }}</h2>
+        <div id="doc-table-region">
         <div class="pagination-info">Showing {{ start }}–{{ end }} of {{ total }} document(s)</div>
-        <div style="margin:8px 0;">
-            <form action="/api/v1/documents/summarize-all" method="post" style="display:inline;"
-                  onsubmit="return confirm('Create summary jobs for all documents missing summaries? You can track progress on the Jobs page.');">
-                <button type="submit" class="btn-regenerate" style="padding:4px 12px;font-size:0.85em;cursor:pointer;">🔄 Summarize All Missing</button>
-            </form>
-        </div>
         {% if documents %}
         <form id="bulk-delete-form" action="/documents/bulk-delete" method="post" onsubmit="return confirmBulkDelete();">
         <table><tr><th><input type="checkbox" id="select-all" title="Select all" onclick="toggleSelectAll(this);"></th><th>Document</th><th>Status</th><th>Source</th><th>Type</th><th>Date</th>{{ tags_col_header }}<th>View</th></tr>
@@ -31,48 +26,55 @@
             <button type="submit" id="delete-selected-btn" class="btn-delete" disabled style="padding:4px 12px;font-size:0.85em;cursor:not-allowed;opacity:0.5;">🗑 Delete Selected (<span id="selected-count">0</span>)</button>
         </div>
         </form>
-        <script>
-        function toggleSelectAll(selectAllCheckbox) {
-            var checkboxes = document.querySelectorAll('.doc-checkbox');
-            for (var i = 0; i < checkboxes.length; i++) {
-                checkboxes[i].checked = selectAllCheckbox.checked;
-            }
-            updateDeleteButton();
-        }
-
-        function updateDeleteButton() {
-            var checked = document.querySelectorAll('.doc-checkbox:checked');
-            var btn = document.getElementById('delete-selected-btn');
-            var countSpan = document.getElementById('selected-count');
-            var selectAll = document.getElementById('select-all');
-            countSpan.textContent = checked.length;
-            if (checked.length > 0) {
-                btn.disabled = false;
-                btn.style.cursor = 'pointer';
-                btn.style.opacity = '1';
-            } else {
-                btn.disabled = true;
-                btn.style.cursor = 'not-allowed';
-                btn.style.opacity = '0.5';
-            }
-            // Update select-all checkbox state
-            var allCheckboxes = document.querySelectorAll('.doc-checkbox');
-            selectAll.checked = allCheckboxes.length > 0 && checked.length === allCheckboxes.length;
-        }
-
-        function confirmBulkDelete() {
-            var count = document.querySelectorAll('.doc-checkbox:checked').length;
-            if (count === 0) {
-                return false;
-            }
-            return confirm('Are you sure you want to delete ' + count + ' document(s)? This action cannot be undone.');
-        }
-        </script>
         {% else %}
         <p>No documents found.</p>
         {% endif %}
+        </div>{# /#doc-table-region #}
+            {# HTMX: hx-get sends this form's values to the partial endpoint, which
+               returns just the table HTML fragment. hx-target swaps #doc-table-region.
+               hx-trigger="submit, change" fires on submit AND when any input changes
+               (e.g. typing in a filter field, changing a date). hx-swap="outerHTML"
+               replaces the entire #doc-table-region div (the endpoint returns a new one).
+               Progressive enhancement: if HTMX is absent, the normal form GET to
+               /documents still works (full page reload). #}
+            <details class="filter-panel" {{ "open" if (date_from or date_to or file_type or active_source or active_tag) }}>
+            <summary>Filters</summary>
+            <form method="get" action="/documents"
+                  hx-get="/documents/partials/table"
+                  hx-target="#doc-table-region"
+                  hx-swap="outerHTML"
+                  hx-trigger="submit, change"
+                  style="margin:8px 0;padding:8px;background:var(--bg-secondary,#f5f5f5);border-radius:6px;display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;">
+                <label style="display:flex;flex-direction:column;font-size:0.85em;">
+                    Source
+                    <input type="text" name="source" value="{{ active_source or '' }}" style="padding:4px;width:120px;" placeholder="source">
+                </label>
+                <label style="display:flex;flex-direction:column;font-size:0.85em;">
+                    Tag
+                    <input type="text" name="tag" value="{{ active_tag or '' }}" style="padding:4px;width:120px;" placeholder="tag">
+                </label>
+                <label style="display:flex;flex-direction:column;font-size:0.85em;">
+                    File Type
+                    <input type="text" name="file_type" value="{{ file_type or '' }}" style="padding:4px;width:100px;" placeholder=".pdf">
+                </label>
+                <label style="display:flex;flex-direction:column;font-size:0.85em;">
+                    Date From
+                    <input type="date" name="date_from" value="{{ date_from or '' }}" style="padding:4px;">
+                </label>
+                <label style="display:flex;flex-direction:column;font-size:0.85em;">
+                    Date To
+                    <input type="date" name="date_to" value="{{ date_to or '' }}" style="padding:4px;">
+                </label>
+                <button type="submit" style="padding:5px 14px;cursor:pointer;">Apply</button>
+                <a href="/documents" style="padding:5px 10px;text-decoration:none;">Clear</a>
+            </form>
+        </details>
     </div>
     {% if collection_tree_html %}{{ collection_tree_html | safe }}{% endif %}
     {% if tag_cloud_html %}{{ tag_cloud_html | safe }}{% endif %}
     {{ pagination_html }}
+{% endblock %}
+
+{% block extra_js %}
+    <script src="/static/js/documents-list.js"></script>
 {% endblock %}

@@ -528,41 +528,61 @@ class TestChatPageSidebar:
         assert "New" in html
 
     def test_chat_page_has_session_list_js(self):
-        """The chat page JS should include loadSessionList function."""
+        """The chat page should load chat.js which contains loadSessionList."""
         from src.web.server import _render_chat_page
+        from pathlib import Path
 
         html = _render_chat_page()
-        assert "loadSessionList" in html
-        assert "/api/v1/chat/sessions" in html
+        assert "/static/js/chat.js" in html
+        chat_js = Path(__file__).resolve().parent.parent / "src" / "web" / "static" / "js" / "chat.js"
+        js_src = chat_js.read_text()
+        assert "loadSessionList" in js_src
+        assert "/api/v1/chat/sessions" in js_src
 
     def test_chat_page_has_session_param_support(self):
-        """The chat page should support ?session= URL param."""
+        """chat.js should support ?session= URL param via getQueryParam."""
         from src.web.server import _render_chat_page
+        from pathlib import Path
 
         html = _render_chat_page()
-        assert "getQueryParam" in html
-        assert "session" in html
+        assert "/static/js/chat.js" in html
+        chat_js = Path(__file__).resolve().parent.parent / "src" / "web" / "static" / "js" / "chat.js"
+        js_src = chat_js.read_text()
+        assert "getQueryParam" in js_src
+        assert "session" in js_src
 
     def test_chat_page_has_delete_session_js(self):
-        """The chat page JS should include deleteSession function."""
+        """chat.js should include deleteSession function."""
         from src.web.server import _render_chat_page
+        from pathlib import Path
 
         html = _render_chat_page()
-        assert "deleteSession" in html
+        assert "/static/js/chat.js" in html
+        chat_js = Path(__file__).resolve().parent.parent / "src" / "web" / "static" / "js" / "chat.js"
+        js_src = chat_js.read_text()
+        assert "deleteSession" in js_src
 
     def test_chat_page_has_history_handler(self):
-        """The chat page JS should handle 'history' message type."""
+        """chat.js should handle 'history' message type."""
         from src.web.server import _render_chat_page
+        from pathlib import Path
 
         html = _render_chat_page()
-        assert "case 'history'" in html
+        assert "/static/js/chat.js" in html
+        chat_js = Path(__file__).resolve().parent.parent / "src" / "web" / "static" / "js" / "chat.js"
+        js_src = chat_js.read_text()
+        assert "case 'history'" in js_src
 
     def test_chat_page_connected_includes_session_id(self):
-        """The connected handler should process session_id."""
+        """The connected handler in chat.js should process session_id."""
         from src.web.server import _render_chat_page
+        from pathlib import Path
 
         html = _render_chat_page()
-        assert "msg.session_id" in html
+        assert "/static/js/chat.js" in html
+        chat_js = Path(__file__).resolve().parent.parent / "src" / "web" / "static" / "js" / "chat.js"
+        js_src = chat_js.read_text()
+        assert "msg.session_id" in js_src
 
     def test_chat_page_sidebar_css(self):
         """The base page CSS should include sidebar styling."""

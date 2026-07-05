@@ -72,6 +72,7 @@ from fastapi.responses import (
     Response,
 )
 from fastapi.security import APIKeyHeader
+from fastapi.staticfiles import StaticFiles
 
 from ..core.config import config
 from ..core.db_sqlite import Database
@@ -108,6 +109,7 @@ from .rendering import (
     _render_search_form,
     _render_search_results,
     _render_documents_list,
+    _render_documents_table_partial,
     _render_document_detail,
     _render_upload_form,
     _render_upload_success,
@@ -328,6 +330,14 @@ def create_app() -> FastAPI:
             ).model_dump(),
         )
 
+    # ── Static files (JS, CSS, images) ──────────────────────────
+    # Serves shared vanilla-JS modules from src/web/static/ under the
+    # /static URL prefix. Templates reference them as <script src="/static/js/...">
+    # This is the "islands" convention: small self-contained JS files
+    # that pages pull in via <script src> rather than inline <script> blocks.
+    _static_dir = Path(__file__).parent / "static"
+    app.mount("/static", StaticFiles(directory=str(_static_dir)), name="static")
+
     # ── Web UI Routes ───────────────────────────────────────
 
     @app.get("/", response_class=HTMLResponse, include_in_schema=False)
@@ -476,34 +486,31 @@ def create_app() -> FastAPI:
         source: str = Query(default=""),
         tag: str = Query(default=""),
         collection_id: Optional[int] = Query(default=None),
+        date_from: str = Query(default="", description="ISO date (inclusive)"),
+        date_to: str = Query(default="", description="ISO date (inclusive)"),
+        file_type: str = Query(default="", description="File extension filter"),
         page: int = Query(default=1, ge=1),
         per_page: int = Query(default=20, ge=1, le=100),
     ):
-        """List documents with pagination, optional tag/source/collection filtering."""
+        """List documents with pagination, optional multi-filter support.
+
+        Filters combine with AND logic: source, tag, collection_id,
+        date_from, date_to, and file_type.
+        """
         db = get_db()
         try:
-            if tag:
-                # Filter by tag — get all docs with this tag, then paginate manually
-                tag_docs = await db.get_documents_by_tag(tag)
-                total = len(tag_docs)
-                total_pages = (total + per_page - 1) // per_page if per_page > 0 else 0
-                offset = (page - 1) * per_page
-                documents = tag_docs[offset : offset + per_page]
-            elif collection_id is not None:
-                # Filter by collection (0 = unassigned)
-                result = await db.list_documents_paginated(
-                    page=page, per_page=per_page, collection_id=collection_id,
-                )
-                documents = result["documents"]
-                total = result["total"]
-                total_pages = result["total_pages"]
-            else:
-                result = await db.list_documents_paginated(
-                    page=page, per_page=per_page, source=source if source else None
-                )
-                documents = result["documents"]
-                total = result["total"]
-                total_pages = result["total_pages"]
+            result = await db.list_documents_paginated(
+                page=page, per_page=per_page,
+                source=source if source else None,
+                collection_id=collection_id,
+                date_from=date_from if date_from else None,
+                date_to=date_to if date_to else None,
+                file_type=file_type if file_type else None,
+                tag=tag if tag else None,
+            )
+            documents = result["documents"]
+            total = result["total"]
+            total_pages = result["total_pages"]
         except Exception:
             documents = []
             total = 0
@@ -533,6 +540,63 @@ def create_app() -> FastAPI:
             collection_counts=collection_counts,
             active_collection_id=collection_id,
             collection_path=collection_path,
+            date_from=date_from, date_to=date_to, file_type=file_type,
+        )
+        return HTMLResponse(content=html)
+
+    # ── HTMX Partial-Swap Endpoint (ADR-003) ──────────────────────
+    # Returns an HTML fragment (not a full page) for HTMX hx-get swaps.
+    # The client-side hx-target="#doc-table-region" replaces the document
+    # table + pagination without a full page reload. Progressive enhancement:
+    # if HTMX is absent, the filter form's normal GET /documents still works.
+    @app.get(
+        "/documents/partials/table",
+        response_class=HTMLResponse,
+        include_in_schema=False,
+    )
+    async def documents_table_partial(
+        source: str = Query(default=""),
+        tag: str = Query(default=""),
+        collection_id: Optional[int] = Query(default=None),
+        date_from: str = Query(default=""),
+        date_to: str = Query(default=""),
+        file_type: str = Query(default=""),
+        page: int = Query(default=1, ge=1),
+        per_page: int = Query(default=20, ge=1, le=100),
+    ):
+        """Return the document table region as an HTML fragment for HTMX.
+
+        Accepts the same filter/pagination params as GET /documents.
+        Returns only the #doc-table-region content (table + pagination),
+        without page chrome. See ADR-003 HTMX usage guidelines.
+        """
+        db = get_db()
+        try:
+            result = await db.list_documents_paginated(
+                page=page, per_page=per_page,
+                source=source if source else None,
+                collection_id=collection_id,
+                date_from=date_from if date_from else None,
+                date_to=date_to if date_to else None,
+                file_type=file_type if file_type else None,
+                tag=tag if tag else None,
+            )
+            documents = result["documents"]
+            total = result["total"]
+            total_pages = result["total_pages"]
+        except Exception:
+            documents = []
+            total = 0
+            total_pages = 0
+
+        doc_ids = [d["id"] for d in documents]
+        tags_map = await db.get_tags_for_documents(doc_ids) if doc_ids else {}
+
+        html = _render_documents_table_partial(
+            documents, page, per_page, total, total_pages,
+            tags_map=tags_map, active_tag=tag, source=source,
+            active_collection_id=collection_id,
+            date_from=date_from, date_to=date_to, file_type=file_type,
         )
         return HTMLResponse(content=html)
 
@@ -556,7 +620,13 @@ def create_app() -> FastAPI:
             )
 
         tags = await db.get_tags(doc_id)
-        html = _render_document_detail(doc, tags)
+        current_collection = await db.get_document_collection(doc_id)
+        all_collections = await db.list_collections()
+        html = _render_document_detail(
+            doc, tags,
+            current_collection=current_collection,
+            all_collections=all_collections,
+        )
         return HTMLResponse(content=html)
 
     @app.get(
@@ -1785,9 +1855,28 @@ def create_app() -> FastAPI:
             default=None,
             description="Filter by collection. Use 0 for unassigned documents.",
         ),
+        date_from: Optional[str] = Query(
+            default=None,
+            description="ISO date string (inclusive). Filter by created_at.",
+        ),
+        date_to: Optional[str] = Query(
+            default=None,
+            description="ISO date string (inclusive). Filter by created_at.",
+        ),
+        file_type: Optional[str] = Query(
+            default=None,
+            description="File extension filter (e.g. '.pdf', 'pdf').",
+        ),
+        tag: Optional[str] = Query(
+            default=None,
+            description="Tag name filter.",
+        ),
         api_key: str = Security(api_key_header),
     ):
-        """List documents with pagination and optional source/collection filters.
+        """List documents with pagination and optional multi-filter support.
+
+        All filters combine with AND logic: source, collection_id,
+        date_from, date_to, file_type, and tag.
 
         When ``collection_id`` is provided, only documents in that collection
         are returned. Use ``collection_id=0`` to list documents that are not
@@ -1799,6 +1888,10 @@ def create_app() -> FastAPI:
             per_page=per_page,
             source=source,
             collection_id=collection_id,
+            date_from=date_from,
+            date_to=date_to,
+            file_type=file_type,
+            tag=tag,
         )
         return result
 

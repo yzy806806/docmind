@@ -1,137 +1,81 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login — DocMind</title>
-    <style>
-        :root {
-            --bg: #f5f5f5;
-            --surface: #ffffff;
-            --text: #333333;
-            --text-muted: #666666;
-            --text-faint: #888888;
-            --header-bg: #1a1a2e;
-            --header-text: #ffffff;
-            --nav-link: #a8dadc;
-            --border: #eeeeee;
-            --primary: #1a1a2e;
-            --primary-hover: #2d2d4e;
-            --input-border: #dddddd;
-            --error-bg: #ffebee;
-            --error-text: #c62828;
-            --shadow: 0 2px 8px rgba(0,0,0,0.12);
-        }
-        [data-theme="dark"] {
-            --bg: #1a1a2e;
-            --surface: #16213e;
-            --text: #e0e0e0;
-            --text-muted: #b0b0b0;
-            --text-faint: #888888;
-            --header-bg: #0f0f23;
-            --header-text: #e0e0e0;
-            --nav-link: #a8dadc;
-            --border: #2a2a4a;
-            --primary: #4a4a6a;
-            --primary-hover: #5a5a7a;
-            --input-border: #2a2a4a;
-            --error-bg: #3a1a1a;
-            --error-text: #ef5350;
-            --shadow: 0 2px 8px rgba(0,0,0,0.4);
-        }
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: var(--bg);
-            color: var(--text);
-            line-height: 1.6;
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: background 0.2s, color 0.2s;
-        }
-        .login-card {
-            background: var(--surface);
-            border-radius: 10px;
-            padding: 36px 32px;
-            box-shadow: var(--shadow);
-            width: 100%;
-            max-width: 380px;
-            margin: 20px;
-        }
-        .login-card h1 {
-            color: var(--primary);
-            font-size: 1.6em;
-            margin-bottom: 4px;
-            text-align: center;
-        }
-        .login-card .subtitle {
-            color: var(--text-muted);
-            font-size: 0.9em;
-            text-align: center;
-            margin-bottom: 24px;
-        }
-        .login-field { margin: 16px 0; }
-        .login-field label {
-            display: block;
-            margin-bottom: 6px;
-            font-weight: 600;
-            color: var(--text-muted);
-        }
-        .login-field input[type="password"] {
-            width: 100%;
-            padding: 10px 14px;
-            border: 2px solid var(--input-border);
-            border-radius: 6px;
-            font-size: 1em;
-            background: var(--surface);
-            color: var(--text);
-        }
-        .login-field input[type="password"]:focus {
-            outline: none;
-            border-color: var(--nav-link);
-        }
-        .login-actions { margin-top: 24px; }
-        .btn-login {
-            width: 100%;
-            padding: 12px;
-            background: var(--primary);
-            color: var(--header-text);
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 1em;
-            font-weight: 600;
-        }
-        .btn-login:hover { background: var(--primary-hover); }
-        .error-msg {
-            background: var(--error-bg);
-            color: var(--error-text);
-            padding: 10px 14px;
-            border-radius: 6px;
-            margin: 12px 0;
-            font-size: 0.9em;
-            text-align: center;
-        }
-        .theme-toggle {
-            position: absolute;
-            top: 16px;
-            right: 16px;
-            background: var(--surface);
-            border: 1px solid var(--input-border);
-            border-radius: 6px;
-            color: var(--text);
-            padding: 6px 12px;
-            cursor: pointer;
-            font-size: 1.1em;
-            line-height: 1;
-        }
-        .theme-toggle:hover { background: var(--primary); color: var(--header-text); }
-    </style>
-</head>
-<body>
-    <button class="theme-toggle" onclick="toggleTheme()" title="Toggle dark mode">🌙</button>
+{% extends "base.html" %}
+
+{% block extra_head %}
+        <style>
+            /* Login page: center the card vertically within the viewport */
+            .container {
+                min-height: calc(100vh - 200px);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+            .login-card {
+                background: var(--surface);
+                border-radius: 10px;
+                padding: 36px 32px;
+                box-shadow: var(--shadow);
+                width: 100%;
+                max-width: 380px;
+                margin: 20px;
+            }
+            .login-card h1 {
+                color: var(--primary);
+                font-size: 1.6em;
+                margin-bottom: 4px;
+                text-align: center;
+            }
+            .login-card .subtitle {
+                color: var(--text-muted);
+                font-size: 0.9em;
+                text-align: center;
+                margin-bottom: 24px;
+            }
+            .login-field { margin: 16px 0; }
+            .login-field label {
+                display: block;
+                margin-bottom: 6px;
+                font-weight: 600;
+                color: var(--text-muted);
+            }
+            .login-field input[type="password"] {
+                width: 100%;
+                padding: 10px 14px;
+                border: 2px solid var(--input-border);
+                border-radius: 6px;
+                font-size: 1em;
+                background: var(--surface);
+                color: var(--text);
+            }
+            .login-field input[type="password"]:focus {
+                outline: none;
+                border-color: var(--nav-link);
+            }
+            .login-actions { margin-top: 24px; }
+            .btn-login {
+                width: 100%;
+                padding: 12px;
+                background: var(--primary);
+                color: var(--header-text);
+                border: none;
+                border-radius: 6px;
+                cursor: pointer;
+                font-size: 1em;
+                font-weight: 600;
+            }
+            .btn-login:hover { background: var(--primary-hover); }
+            .error-msg {
+                background: var(--error-bg);
+                color: var(--error-text);
+                padding: 10px 14px;
+                border-radius: 6px;
+                margin: 12px 0;
+                font-size: 0.9em;
+                text-align: center;
+            }
+        </style>
+{% endblock %}
+
+{% block content %}
     <div class="login-card">
         <h1>📚 DocMind</h1>
         <p class="subtitle">Authentication required — please sign in.</p>
@@ -150,23 +94,4 @@
             </div>
         </form>
     </div>
-    <script>
-        (function() {
-            var t = localStorage.getItem('docmind-theme') || 'light';
-            document.documentElement.setAttribute('data-theme', t);
-            updateToggleIcon(t);
-        })();
-        function toggleTheme() {
-            var cur = document.documentElement.getAttribute('data-theme') || 'light';
-            var next = cur === 'dark' ? 'light' : 'dark';
-            document.documentElement.setAttribute('data-theme', next);
-            localStorage.setItem('docmind-theme', next);
-            updateToggleIcon(next);
-        }
-        function updateToggleIcon(theme) {
-            var btn = document.querySelector('.theme-toggle');
-            if (btn) btn.textContent = theme === 'dark' ? '☀️' : '🌙';
-        }
-    </script>
-</body>
-</html>
+{% endblock %}

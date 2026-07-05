@@ -709,68 +709,115 @@ class Database:
             return None
         return self._row_to_doc_dict(row)
 
+    def _build_filter_clause(
+        self,
+        *,
+        source: Optional[str] = None,
+        collection_id: Optional[int] = None,
+        date_from: Optional[str] = None,
+        date_to: Optional[str] = None,
+        file_type: Optional[str] = None,
+        tag: Optional[str] = None,
+    ) -> tuple[str, list[Any]]:
+        """Build a WHERE clause + params for document filtering.
+
+        This centralises the optional-parameter branching so that
+        ``list_documents``, ``get_document_count``, and future methods
+        (e.g. with ``user_id`` scoping) share the same logic.
+
+        Args:
+            source: Filter by source_name OR source_type.
+            collection_id: Restrict to a collection. 0 = unassigned (IS NULL).
+            date_from: ISO date string (inclusive). Compared against created_at.
+            date_to: ISO date string (inclusive). Compared against created_at.
+            file_type: Filter by file extension (e.g. '.pdf', 'pdf').
+            tag: Filter by tag name (requires JOIN on document_tags).
+
+        Returns:
+            (where_clause, params) — the clause starts with ``WHERE`` or
+            is empty string when no filters are active.  When ``tag`` is
+            set, a ``JOIN document_tags`` clause is also included; callers
+            that already JOIN should use ``_build_filter_clause`` without
+            ``tag`` and add the tag join separately.
+        """
+        conditions: list[str] = []
+        params: list[Any] = []
+
+        if source:
+            conditions.append("(source_name = ? OR source_type = ?)")
+            params.extend([source, source])
+
+        if collection_id is not None:
+            if collection_id == 0:
+                conditions.append("collection_id IS NULL")
+            else:
+                conditions.append("collection_id = ?")
+                params.append(collection_id)
+
+        if date_from:
+            conditions.append("created_at >= ?")
+            params.append(date_from)
+
+        if date_to:
+            # Ensure date_to covers the full day by appending time if
+            # the user only provided a date (no time component).
+            if "T" not in date_to and " " not in date_to and len(date_to) == 10:
+                date_to = date_to + " 23:59:59"
+            conditions.append("created_at <= ?")
+            params.append(date_to)
+
+        if file_type:
+            # Normalise: ensure leading dot for ext column match
+            ft = file_type.strip()
+            if not ft.startswith("."):
+                ft = "." + ft
+            conditions.append("ext = ?")
+            params.append(ft)
+
+        if tag:
+            conditions.append("id IN (SELECT doc_id FROM document_tags WHERE tag = ?)")
+            params.append(tag)
+
+        if not conditions:
+            return ("", [])
+
+        where = "WHERE " + " AND ".join(conditions)
+        return (where, params)
+
     async def list_documents(
         self,
         *,
         source: Optional[str] = None,
         collection_id: Optional[int] = None,
+        date_from: Optional[str] = None,
+        date_to: Optional[str] = None,
+        file_type: Optional[str] = None,
+        tag: Optional[str] = None,
         limit: int = 100,
         offset: int = 0,
     ) -> list[dict[str, Any]]:
-        """List documents, optionally filtered by source name/type or collection.
+        """List documents with optional multi-filter support.
 
-        When ``collection_id`` is provided, only documents belonging to that
-        collection are returned. Use ``collection_id=0`` to list unassigned
-        documents (collection_id IS NULL).
+        All filter parameters are optional and combine with AND logic:
+        ``source``, ``collection_id``, ``date_from``, ``date_to``,
+        ``file_type``, and ``tag``.
+
+        When ``collection_id`` is ``0``, lists unassigned documents
+        (collection_id IS NULL).
         """
+        where, params = self._build_filter_clause(
+            source=source, collection_id=collection_id,
+            date_from=date_from, date_to=date_to,
+            file_type=file_type, tag=tag,
+        )
+        sql = (
+            f"SELECT * FROM documents {where} "
+            f"ORDER BY created_at DESC LIMIT ? OFFSET ?"
+        )
+        params.extend([limit, offset])
         async with self.connection() as conn:
-            if source and collection_id is not None:
-                if collection_id == 0:
-                    cursor = await conn.execute(
-                        """SELECT * FROM documents
-                           WHERE (source_name = ? OR source_type = ?)
-                             AND collection_id IS NULL
-                           ORDER BY created_at DESC LIMIT ? OFFSET ?""",
-                        (source, source, limit, offset),
-                    )
-                else:
-                    cursor = await conn.execute(
-                        """SELECT * FROM documents
-                           WHERE (source_name = ? OR source_type = ?)
-                             AND collection_id = ?
-                           ORDER BY created_at DESC LIMIT ? OFFSET ?""",
-                        (source, source, collection_id, limit, offset),
-                    )
-            elif collection_id is not None:
-                if collection_id == 0:
-                    cursor = await conn.execute(
-                        """SELECT * FROM documents
-                           WHERE collection_id IS NULL
-                           ORDER BY created_at DESC LIMIT ? OFFSET ?""",
-                        (limit, offset),
-                    )
-                else:
-                    cursor = await conn.execute(
-                        """SELECT * FROM documents
-                           WHERE collection_id = ?
-                           ORDER BY created_at DESC LIMIT ? OFFSET ?""",
-                        (collection_id, limit, offset),
-                    )
-            elif source:
-                cursor = await conn.execute(
-                    """SELECT * FROM documents
-                       WHERE source_name = ? OR source_type = ?
-                       ORDER BY created_at DESC LIMIT ? OFFSET ?""",
-                    (source, source, limit, offset),
-                )
-            else:
-                cursor = await conn.execute(
-                    """SELECT * FROM documents
-                       ORDER BY created_at DESC LIMIT ? OFFSET ?""",
-                    (limit, offset),
-                )
+            cursor = await conn.execute(sql, params)
             rows = await cursor.fetchall()
-
         return [self._row_to_doc_dict(r) for r in rows]
 
     async def list_documents_paginated(
@@ -780,8 +827,12 @@ class Database:
         per_page: int = 20,
         source: Optional[str] = None,
         collection_id: Optional[int] = None,
+        date_from: Optional[str] = None,
+        date_to: Optional[str] = None,
+        file_type: Optional[str] = None,
+        tag: Optional[str] = None,
     ) -> dict[str, Any]:
-        """List documents with pagination metadata.
+        """List documents with pagination metadata and multi-filter support.
 
         Args:
             page: Page number (1-indexed).
@@ -789,14 +840,22 @@ class Database:
             source: Optional source name/type filter.
             collection_id: If provided, restrict to documents in that collection.
                 Use ``0`` to list unassigned documents (collection_id IS NULL).
+            date_from: Optional ISO date string (inclusive) — filter by created_at.
+            date_to: Optional ISO date string (inclusive) — filter by created_at.
+            file_type: Optional file extension filter (e.g. '.pdf', 'pdf').
+            tag: Optional tag name filter.
         """
         offset = (page - 1) * per_page
         docs = await self.list_documents(
             source=source, collection_id=collection_id,
+            date_from=date_from, date_to=date_to,
+            file_type=file_type, tag=tag,
             limit=per_page, offset=offset,
         )
         total = await self.get_document_count(
             source=source, collection_id=collection_id,
+            date_from=date_from, date_to=date_to,
+            file_type=file_type, tag=tag,
         )
         return {
             "documents": docs,
@@ -809,6 +868,10 @@ class Database:
     async def get_document_count(
         self, *, source: Optional[str] = None,
         collection_id: Optional[int] = None,
+        date_from: Optional[str] = None,
+        date_to: Optional[str] = None,
+        file_type: Optional[str] = None,
+        tag: Optional[str] = None,
     ) -> int:
         """Return the total number of documents, optionally filtered.
 
@@ -816,43 +879,19 @@ class Database:
             source: Optional source name/type filter.
             collection_id: If provided, count documents in that collection.
                 Use ``0`` to count unassigned documents (collection_id IS NULL).
+            date_from: Optional ISO date string (inclusive) — filter by created_at.
+            date_to: Optional ISO date string (inclusive) — filter by created_at.
+            file_type: Optional file extension filter (e.g. '.pdf', 'pdf').
+            tag: Optional tag name filter.
         """
+        where, params = self._build_filter_clause(
+            source=source, collection_id=collection_id,
+            date_from=date_from, date_to=date_to,
+            file_type=file_type, tag=tag,
+        )
+        sql = f"SELECT COUNT(*) as c FROM documents {where}"
         async with self.connection() as conn:
-            if source and collection_id is not None:
-                if collection_id == 0:
-                    cursor = await conn.execute(
-                        """SELECT COUNT(*) as c FROM documents
-                           WHERE (source_name = ? OR source_type = ?)
-                             AND collection_id IS NULL""",
-                        (source, source),
-                    )
-                else:
-                    cursor = await conn.execute(
-                        """SELECT COUNT(*) as c FROM documents
-                           WHERE (source_name = ? OR source_type = ?)
-                             AND collection_id = ?""",
-                        (source, source, collection_id),
-                    )
-            elif collection_id is not None:
-                if collection_id == 0:
-                    cursor = await conn.execute(
-                        "SELECT COUNT(*) as c FROM documents WHERE collection_id IS NULL"
-                    )
-                else:
-                    cursor = await conn.execute(
-                        "SELECT COUNT(*) as c FROM documents WHERE collection_id = ?",
-                        (collection_id,),
-                    )
-            elif source:
-                cursor = await conn.execute(
-                    """SELECT COUNT(*) as c FROM documents
-                       WHERE source_name = ? OR source_type = ?""",
-                    (source, source),
-                )
-            else:
-                cursor = await conn.execute(
-                    "SELECT COUNT(*) as c FROM documents"
-                )
+            cursor = await conn.execute(sql, params)
             row = await cursor.fetchone()
         return row["c"] if row else 0
 
@@ -889,6 +928,10 @@ class Database:
     async def search_documents(
         self, query: str, limit: int = 30,
         collection_id: Optional[int] = None,
+        date_from: Optional[str] = None,
+        date_to: Optional[str] = None,
+        file_type: Optional[str] = None,
+        tag: Optional[str] = None,
     ) -> list[dict[str, Any]]:
         """Full-text search using SQLite FTS5 with BM25 ranking.
 
@@ -900,51 +943,85 @@ class Database:
             limit: Maximum number of results.
             collection_id: If provided, restrict results to documents in the
                 given collection. Use ``None`` (default) to search all documents.
+            date_from: Optional ISO date string (inclusive). Filter by created_at.
+            date_to: Optional ISO date string (inclusive). Filter by created_at.
+            file_type: Optional file extension filter (e.g. '.pdf', 'pdf').
+            tag: Optional tag name filter.
         """
         safe_query = _sanitize_fts_query(query)
         if not safe_query or safe_query == '""':
             return []
 
+        # Build extra filter conditions for the FTS query
+        extra_conditions: list[str] = []
+        extra_params: list[Any] = []
+
+        if collection_id is not None:
+            extra_conditions.append("d.collection_id = ?")
+            extra_params.append(collection_id)
+
+        if date_from:
+            extra_conditions.append("d.created_at >= ?")
+            extra_params.append(date_from)
+
+        if date_to:
+            dt_to = date_to
+            if "T" not in dt_to and " " not in dt_to and len(dt_to) == 10:
+                dt_to = dt_to + " 23:59:59"
+            extra_conditions.append("d.created_at <= ?")
+            extra_params.append(dt_to)
+
+        if file_type:
+            ft = file_type.strip()
+            if not ft.startswith("."):
+                ft = "." + ft
+            extra_conditions.append("d.ext = ?")
+            extra_params.append(ft)
+
+        if tag:
+            extra_conditions.append(
+                "d.id IN (SELECT doc_id FROM document_tags WHERE tag = ?)"
+            )
+            extra_params.append(tag)
+
+        extra_clause = ""
+        if extra_conditions:
+            extra_clause = " AND " + " AND ".join(extra_conditions)
+
         async with self.connection() as conn:
-            if collection_id is not None:
-                cursor = await conn.execute(
-                    """SELECT d.id, d.path, d.source_type, d.source_name,
-                              d.file_hash, d.mtime, d.size, d.title, d.ext,
-                              d.mime_type, d.summary, d.raw_preview, d.body,
-                              d.status, d.metadata, d.created_at, d.updated_at,
-                              d.collection_id,
-                              -bm25(documents_fts, 10.0, 5.0, 2.0, 1.0) AS rank
-                       FROM documents d
-                       JOIN documents_fts fts ON d.id = fts.rowid
-                       WHERE documents_fts MATCH ? AND d.collection_id = ?
-                       ORDER BY rank DESC
-                       LIMIT ?""",
-                    (safe_query, collection_id, limit),
-                )
-            else:
-                cursor = await conn.execute(
-                    """SELECT d.id, d.path, d.source_type, d.source_name,
-                              d.file_hash, d.mtime, d.size, d.title, d.ext,
-                              d.mime_type, d.summary, d.raw_preview, d.body,
-                              d.status, d.metadata, d.created_at, d.updated_at,
-                              d.collection_id,
-                              -bm25(documents_fts, 10.0, 5.0, 2.0, 1.0) AS rank
-                       FROM documents d
-                       JOIN documents_fts fts ON d.id = fts.rowid
-                       WHERE documents_fts MATCH ?
-                       ORDER BY rank DESC
-                       LIMIT ?""",
-                    (safe_query, limit),
-                )
+            cursor = await conn.execute(
+                f"""SELECT d.id, d.path, d.source_type, d.source_name,
+                           d.file_hash, d.mtime, d.size, d.title, d.ext,
+                           d.mime_type, d.summary, d.raw_preview, d.body,
+                           d.status, d.metadata, d.created_at, d.updated_at,
+                           d.collection_id,
+                           -bm25(documents_fts, 10.0, 5.0, 2.0, 1.0) AS rank
+                    FROM documents d
+                    JOIN documents_fts fts ON d.id = fts.rowid
+                    WHERE documents_fts MATCH ?{extra_clause}
+                    ORDER BY rank DESC
+                    LIMIT ?""",
+                [safe_query] + extra_params + [limit],
+            )
             rows = await cursor.fetchall()
 
         return [self._row_to_doc_dict(r) for r in rows]
 
     async def fulltext_search(
-        self, query: str, limit: int = 30
+        self, query: str, limit: int = 30,
+        collection_id: Optional[int] = None,
+        date_from: Optional[str] = None,
+        date_to: Optional[str] = None,
+        file_type: Optional[str] = None,
+        tag: Optional[str] = None,
     ) -> list[dict[str, Any]]:
-        """Alias for search_documents — backward compatibility with db.py."""
-        return await self.search_documents(query, limit=limit)
+        """Alias for search_documents -- backward compatibility with db.py."""
+        return await self.search_documents(
+            query, limit=limit,
+            collection_id=collection_id,
+            date_from=date_from, date_to=date_to,
+            file_type=file_type, tag=tag,
+        )
 
     async def get_stats(self) -> dict[str, Any]:
         """Return knowledge base statistics."""

@@ -545,8 +545,9 @@ class TestLoginPageRendering:
         from src.web.rendering import _render_login_page
         html = _render_login_page()
         assert "data-theme" in html
-        assert "dark" in html
-        assert "light" in html  # both themes present
+        assert "dark" in html  # dark theme CSS selector present
+        # Theme logic is in the shared external module, not inline
+        assert "/static/js/theme.js" in html
 
     def test_render_error_message(self):
         from src.web.rendering import _render_login_page
@@ -562,5 +563,8 @@ class TestLoginPageRendering:
     def test_render_has_theme_toggle(self):
         from src.web.rendering import _render_login_page
         html = _render_login_page()
-        assert "toggleTheme" in html
-        assert "docmind-theme" in html  # localStorage key
+        # login.html extends base.html which includes the theme toggle button
+        assert "theme-toggle" in html
+        assert "toggleTheme" in html  # onclick handler
+        # The shared theme.js module is loaded via <script src>
+        assert "/static/js/theme.js" in html

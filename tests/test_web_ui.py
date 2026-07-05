@@ -105,15 +105,27 @@ class TestDarkModeCSS:
 
         html = _base_page("Test", "<p>content</p>")
         assert "theme-toggle" in html
-        assert "toggleTheme" in html
+        assert "toggleTheme" in html  # onclick handler still references the function
 
-    def test_base_page_has_localstorage_script(self):
-        """_base_page should persist theme preference via localStorage."""
+    def test_base_page_includes_theme_js(self):
+        """_base_page should load the shared theme.js module via <script src>."""
         from src.web.server import _base_page
 
         html = _base_page("Test", "<p>content</p>")
-        assert "localStorage" in html
-        assert "docmind-theme" in html
+        assert '/static/js/theme.js' in html
+        assert '<script src="/static/js/theme.js"' in html
+
+    def test_theme_js_file_exists_and_contains_logic(self):
+        """The extracted theme.js file should contain the localStorage and toggle logic."""
+        from pathlib import Path
+
+        theme_js = Path(__file__).resolve().parent.parent / "src" / "web" / "static" / "js" / "theme.js"
+        assert theme_js.exists(), f"theme.js not found at {theme_js}"
+        js_src = theme_js.read_text()
+        assert "docmind-theme" in js_src  # localStorage key
+        assert "localStorage" in js_src
+        assert "toggleTheme" in js_src
+        assert "updateToggleIcon" in js_src
 
     def test_dashboard_page_has_dark_mode_css(self):
         """Dashboard render output should inherit dark mode from _base_page."""
@@ -368,10 +380,16 @@ class TestChatPage:
 
     @pytest.mark.asyncio
     async def test_chat_page_has_websocket_client(self, asgi_client):
-        """Chat page should include WebSocket client JavaScript."""
+        """Chat page should load the WebSocket client JavaScript from static/js/chat.js."""
         resp = await asgi_client.get("/chat")
-        assert "WebSocket" in resp.text
-        assert "'ws:'" in resp.text or "'wss:'" in resp.text
+        assert "/static/js/chat.js" in resp.text
+        # Verify the chat.js file contains WebSocket logic
+        from pathlib import Path
+        chat_js = Path(__file__).resolve().parent.parent / "src" / "web" / "static" / "js" / "chat.js"
+        assert chat_js.exists(), f"chat.js not found at {chat_js}"
+        js_src = chat_js.read_text()
+        assert "WebSocket" in js_src
+        assert "ws:" in js_src or "wss:" in js_src
 
     @pytest.mark.asyncio
     async def test_chat_page_has_input_and_send_button(self, asgi_client):
@@ -639,15 +657,30 @@ class TestBulkDeleteListUI:
         assert "Delete Selected" in html
 
     def test_list_template_has_confirmation_js(self):
-        """Documents list should have JavaScript confirmation for bulk delete."""
+        """Documents list should have JavaScript confirmation for bulk delete.
+
+        Per ADR-003 (Hybrid Islands), the confirmBulkDelete/toggleSelectAll/
+        updateDeleteButton functions were moved out of the template into the
+        external ``documents-list.js`` file. The template references
+        ``confirmBulkDelete`` via the ``onsubmit`` attribute; the actual
+        ``confirm()`` call lives in the external JS (see
+        src/web/static/js/documents-list.js). We assert the template wires
+        up the handler and that the external JS contains the confirm call.
+        """
         from src.web.server import _render_documents_list
 
         docs = [{"id": 1, "title": "A", "status": "indexed", "source_name": "s",
                  "ext": ".txt", "created_at": "2025-01-01"}]
         html = _render_documents_list(docs, "", 1, 20, 1, 1,
                                        tags_map={1: []})
+        # Template references the confirm handler via onsubmit
         assert "confirmBulkDelete" in html
-        assert "confirm(" in html
+        # External JS file contains the actual confirm() call (ADR-003)
+        from pathlib import Path
+        js_path = Path(__file__).resolve().parent.parent / "src" / "web" / "static" / "js" / "documents-list.js"
+        assert js_path.exists(), f"Expected external JS at {js_path}"
+        js_src = js_path.read_text()
+        assert "confirm(" in js_src
 
     def test_list_template_has_bulk_delete_form(self):
         """Documents list should wrap table in a form posting to /documents/bulk-delete."""

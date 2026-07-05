@@ -96,23 +96,31 @@ class TestUploadFormTemplate:
         assert 'name="files"' in html
 
     def test_form_has_progress_js(self):
-        """The form must include JS for per-file progress tracking."""
+        """The form must load upload.js with per-file progress tracking."""
         from src.web.rendering import _render_upload_form
+        from pathlib import Path
 
         html = _render_upload_form()
-        assert "<script" in html
-        assert "XMLHttpRequest" in html or "fetch(" in html or "xhr" in html
-        assert "progress" in html.lower()
+        assert "/static/js/upload.js" in html
+        upload_js = Path(__file__).resolve().parent.parent / "src" / "web" / "static" / "js" / "upload.js"
+        assert upload_js.exists(), f"upload.js not found at {upload_js}"
+        js_src = upload_js.read_text()
+        assert "XMLHttpRequest" in js_src or "fetch(" in js_src or "xhr" in js_src
+        assert "progress" in js_src.lower()
 
     def test_form_has_drag_drop_event_handlers(self):
-        """JS must wire dragenter / dragover / dragleave / drop events."""
+        """upload.js must wire dragenter / dragover / dragleave / drop events."""
         from src.web.rendering import _render_upload_form
+        from pathlib import Path
 
         html = _render_upload_form()
-        assert "dragenter" in html
-        assert "dragover" in html
-        assert "dragleave" in html
-        assert "drop" in html
+        assert "/static/js/upload.js" in html
+        upload_js = Path(__file__).resolve().parent.parent / "src" / "web" / "static" / "js" / "upload.js"
+        js_src = upload_js.read_text()
+        assert "dragenter" in js_src
+        assert "dragover" in js_src
+        assert "dragleave" in js_src
+        assert "drop" in js_src
 
     def test_form_has_fallback_no_js(self):
         """A <noscript> or fallback form must exist for no-JS users."""
