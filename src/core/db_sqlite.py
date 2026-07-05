@@ -336,7 +336,9 @@ class Database:
         if doc_id is not None:
             await self._cache.delete(make_key("docmind", "doc", "get", doc_id))
             await self._cache.delete(make_key("docmind", "tag", "get", doc_id))
-            await self._cache.delete(make_key("docmind", "doc", "by_path", doc_id))
+            # Path-based cache uses hash_params(path=path), not doc_id.
+            # Use wildcard to invalidate all by_path entries (path may change on save).
+            await self._cache.delete_pattern("docmind:doc:by_path:*")
 
     async def _invalidate_tag_mutations(self, doc_id: Optional[int] = None) -> None:
         """Invalidate cache keys affected by tag add/remove."""
@@ -367,7 +369,7 @@ class Database:
     async def _invalidate_chat_mutations(self, session_id: Optional[str] = None) -> None:
         """Invalidate cache keys affected by chat mutations."""
         await self._cache.delete_pattern("docmind:chat:sessions:*")
-        await self._cache.delete("docmind:analytics:chat_activity")
+        await self._cache.delete_pattern("docmind:analytics:chat_activity:*")
         if session_id is not None:
             await self._cache.delete_pattern(
                 make_key("docmind", "chat", "messages", session_id, "*")
@@ -1765,7 +1767,12 @@ class Database:
                 (query, results_count, now, session),
             )
             await conn.commit()
-            return cursor.lastrowid or 0
+            row_id = cursor.lastrowid or 0
+        # Invalidate search analytics caches since search_log changed.
+        await self._cache.delete_pattern("docmind:analytics:search_stats:*")
+        await self._cache.delete_pattern("docmind:analytics:popular:*")
+        await self._cache.delete_pattern("docmind:analytics:search_trend:*")
+        return row_id
 
     async def get_search_stats(self, days: int = 30) -> dict[str, Any]:
         """Return aggregate search statistics for the last *days* days.
