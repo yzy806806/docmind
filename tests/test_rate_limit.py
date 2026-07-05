@@ -301,6 +301,26 @@ class TestRateLimiter:
         # Only the new entry should remain.
         assert len(rl._buckets[key]) == 1
 
+    def test_retry_after_safety_floor(self):
+        """When the oldest entry is very close to expiry, retry_after
+        should be floored to 1 to avoid returning 0 or negative values."""
+        from src.web.rate_limit import RateLimiter
+
+        rl = RateLimiter(max_requests=1, window_seconds=1)
+        req = self._make_request()
+
+        # Exhaust the single request slot.
+        rl.check(req)
+
+        # Force the oldest timestamp to be nearly expired (within 0.01s of boundary).
+        key = "1.2.3.4"
+        rl._buckets[key] = [time.monotonic() - rl.window_seconds + 0.01]
+
+        # The check should block and return retry_after >= 1.
+        allowed, retry_after = rl.check(req)
+        assert allowed is False
+        assert retry_after >= 1
+
 
 # ── get_rate_limiter / _reinit_rate_limiter ──────────────────────
 
@@ -323,6 +343,24 @@ class TestRateLimiterSingleton:
         _reinit_rate_limiter()
         rl2 = get_rate_limiter()
         assert rl1 is not rl2
+
+    def test_reinit_picks_up_config_changes(self):
+        """After changing config.rate_limit.requests_per_minute and calling
+        _reinit, the new RateLimiter should use the updated value."""
+        from src.core.config import config
+        from src.web.rate_limit import get_rate_limiter, _reinit_rate_limiter
+
+        # Force a reinit to pick up a known value.
+        config.rate_limit.requests_per_minute = 99
+        _reinit_rate_limiter()
+        rl = get_rate_limiter()
+        assert rl.max_requests == 99
+
+        # Change and reinit again.
+        config.rate_limit.requests_per_minute = 10
+        _reinit_rate_limiter()
+        rl = get_rate_limiter()
+        assert rl.max_requests == 10
 
 
 # ── _is_exempt ───────────────────────────────────────────────────
@@ -387,6 +425,33 @@ class TestRateLimitMiddlewareDisabled:
         for _ in range(20):
             resp = await asgi_client_rate_disabled.get("/")
             assert resp.status_code != 429
+
+    @pytest.mark.asyncio
+    async def test_toggle_enabled_to_disabled_stops_throttling(
+        self, asgi_client_rate_limited
+    ):
+        """When config.rate_limit.enabled is toggled from True to False,
+        subsequent requests should no longer be rate limited."""
+        from src.core.config import config
+        from src.web.rate_limit import _reinit_rate_limiter
+
+        # Exhaust the limit first (enabled mode).
+        for _ in range(3):
+            resp = await asgi_client_rate_limited.get("/")
+            assert resp.status_code == 200
+
+        # Verify we're blocked.
+        resp = await asgi_client_rate_limited.get("/")
+        assert resp.status_code == 429
+
+        # Disable rate limiting and reinit.
+        config.rate_limit.enabled = False
+        _reinit_rate_limiter()
+
+        # Now requests should pass through freely.
+        for _ in range(10):
+            resp = await asgi_client_rate_limited.get("/")
+            assert resp.status_code == 200
 
 
 class TestRateLimitMiddlewareEnabled:
@@ -465,3 +530,57 @@ class TestRateLimitMiddlewareEnabled:
         for _ in range(3):
             resp = await asgi_client_rate_limited.get("/")
             assert resp.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_429_body_retry_after_matches_header(
+        self, asgi_client_rate_limited
+    ):
+        """The retry_after in the JSON body must match the Retry-After header."""
+        for _ in range(3):
+            await asgi_client_rate_limited.get("/")
+
+        resp = await asgi_client_rate_limited.get("/")
+        assert resp.status_code == 429
+        body = resp.json()
+        header_retry = int(resp.headers["retry-after"])
+        assert body["retry_after"] == header_retry
+
+    @pytest.mark.asyncio
+    async def test_api_v1_path_not_exempt(self, asgi_client_rate_limited):
+        """API v1 paths like /api/v1/documents are NOT exempt from rate limiting."""
+        for _ in range(3):
+            resp = await asgi_client_rate_limited.get("/api/v1/documents")
+            assert resp.status_code == 200
+
+        resp = await asgi_client_rate_limited.get("/api/v1/documents")
+        assert resp.status_code == 429
+
+    @pytest.mark.asyncio
+    async def test_search_path_not_exempt(self, asgi_client_rate_limited):
+        """The /search path is NOT exempt and should be rate limited."""
+        for _ in range(3):
+            resp = await asgi_client_rate_limited.get("/search?q=test")
+            assert resp.status_code == 200
+
+        resp = await asgi_client_rate_limited.get("/search?q=test")
+        assert resp.status_code == 429
+
+    @pytest.mark.asyncio
+    async def test_upload_path_not_exempt(self, asgi_client_rate_limited):
+        """The /upload path is NOT exempt and should be rate limited."""
+        for _ in range(3):
+            resp = await asgi_client_rate_limited.get("/upload")
+            assert resp.status_code == 200
+
+        resp = await asgi_client_rate_limited.get("/upload")
+        assert resp.status_code == 429
+
+    @pytest.mark.asyncio
+    async def test_jobs_path_not_exempt(self, asgi_client_rate_limited):
+        """The /jobs path is NOT exempt and should be rate limited."""
+        for _ in range(3):
+            resp = await asgi_client_rate_limited.get("/jobs")
+            assert resp.status_code == 200
+
+        resp = await asgi_client_rate_limited.get("/jobs")
+        assert resp.status_code == 429
