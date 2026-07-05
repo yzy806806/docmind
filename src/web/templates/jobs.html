@@ -8,9 +8,9 @@
     <div class="card">
         <h2>⚙️ Job Processing Status</h2>
         <div class="pagination-info">Showing {{ start }}–{{ end }} of {{ total }} job(s)</div>
-        <form method="get" action="/jobs" style="margin: 12px 0; display: flex; gap: 8px; align-items: center;">
+        <form method="get" action="/jobs" style="margin: 12px 0; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
             <label for="state-filter">Filter by state:</label>
-            <select name="state" id="state-filter" onchange="this.form.submit()" style="padding: 6px 10px; border-radius: 6px; border: 1px solid var(--input-border); background: var(--surface); color: var(--text);">
+            <select name="state" id="state-filter" onchange="this.form.submit()">
                 {% for val, label, selected in state_options %}
                 <option value="{{ val }}"{{ selected }}>{{ label }}</option>
                 {% endfor %}
@@ -21,6 +21,7 @@
         <div class="success" style="padding: 8px 12px;">🔄 Auto-refreshing every 10 seconds — active jobs in progress.</div>
         {% endif %}
         {% if jobs %}
+        <div class="table-scroll">
         <table><tr><th>Job ID</th><th>Document</th><th>State</th><th>Source</th><th>Created</th><th>Updated</th><th>Error</th></tr>
         {% for job in jobs %}
         <tr style="cursor: pointer;" onclick="window.location='/jobs/{{ job.id }}'">
@@ -38,6 +39,7 @@
         </tr>
         {% endfor %}
         </table>
+        </div>
         {% else %}
         <p>No jobs found.</p>
         {% endif %}

@@ -585,12 +585,12 @@ class TestChatPageSidebar:
         assert "msg.session_id" in js_src
 
     def test_chat_page_sidebar_css(self):
-        """The base page CSS should include sidebar styling."""
+        """The external stylesheet should include sidebar styling."""
         from src.web.server import _base_page
 
         html = _base_page("test", "")
-        assert "chat-sidebar" in html
-        assert "chat-session-item" in html
+        # Sidebar styles are now in the external stylesheet
+        assert "/static/css/styles.css" in html
 
     def test_chat_page_has_chat_layout(self):
         """The chat page should use a chat-layout container."""

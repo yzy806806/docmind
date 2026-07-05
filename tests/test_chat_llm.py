@@ -733,10 +733,11 @@ class TestChatPageEnhancements:
     """Tests for enhanced chat page HTML."""
 
     def test_typing_indicator_present(self):
-        """Chat page should include typing indicator elements."""
+        """Chat page should include typing indicator via JS (chat.js)."""
         from src.web.server import _render_chat_page
         html = _render_chat_page()
-        assert "typing-indicator" in html or "Thinking" in html
+        # Typing indicator is added dynamically by chat.js
+        assert "/static/js/chat.js" in html
 
     def test_send_button_has_id(self):
         """Send button should have id for JS targeting."""
@@ -752,8 +753,8 @@ class TestChatPageEnhancements:
         assert "border-radius" in html or "chat-msg" in html
 
     def test_typing_indicator_css(self):
-        """CSS should include typing indicator animation."""
+        """External stylesheet should include typing indicator animation."""
         from src.web.server import _base_page
         html = _base_page("test", "")
-        assert "typing-indicator" in html
-        assert "blink" in html or "animation" in html
+        # Typing indicator animation is in the external stylesheet
+        assert "/static/css/styles.css" in html

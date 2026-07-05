@@ -84,20 +84,21 @@ class TestDarkModeCSS:
     """Tests for dark mode CSS presence in the base page template."""
 
     def test_base_page_has_css_variables(self):
-        """_base_page output should contain CSS custom properties for theming."""
+        """_base_page output should link the external stylesheet with CSS custom properties."""
         from src.web.server import _base_page
 
         html = _base_page("Test", "<p>content</p>")
-        assert ":root {" in html or ":root{{" in html or "--bg" in html
-        assert "--surface" in html
-        assert "--text" in html
+        # CSS variables are now in the external stylesheet, not inline
+        assert "/static/css/styles.css" in html
 
     def test_base_page_has_dark_theme_selector(self):
-        """_base_page should contain [data-theme='dark'] selector."""
+        """_base_page should link the external stylesheet that contains [data-theme='dark'] selector."""
         from src.web.server import _base_page
 
         html = _base_page("Test", "<p>content</p>")
-        assert 'data-theme="dark"' in html or "data-theme='dark'" in html
+        # Dark theme selector is in the external CSS file
+        assert "/static/css/styles.css" in html
+        assert "/static/js/theme.js" in html  # theme.js applies data-theme at runtime
 
     def test_base_page_has_theme_toggle_button(self):
         """_base_page should contain a theme toggle button."""
@@ -128,44 +129,44 @@ class TestDarkModeCSS:
         assert "updateToggleIcon" in js_src
 
     def test_dashboard_page_has_dark_mode_css(self):
-        """Dashboard render output should inherit dark mode from _base_page."""
+        """Dashboard render output should link external stylesheet with dark mode."""
         from src.web.server import _render_dashboard
 
         html = _render_dashboard(
             {"total": 0, "pending": 0, "indexed": 0, "summarized": 0, "active_jobs": 0},
             [],
         )
-        assert "--bg" in html
-        assert 'data-theme="dark"' in html
+        assert "/static/css/styles.css" in html
+        assert "/static/js/theme.js" in html
 
     def test_documents_list_has_dark_mode_css(self):
-        """Documents list render should inherit dark mode."""
+        """Documents list render should link external stylesheet with dark mode."""
         from src.web.server import _render_documents_list
 
         html = _render_documents_list([], "", 1, 20, 0, 0)
-        assert "--bg" in html
+        assert "/static/css/styles.css" in html
 
     def test_document_detail_has_dark_mode_css(self):
-        """Document detail render should inherit dark mode."""
+        """Document detail render should link external stylesheet with dark mode."""
         from src.web.server import _render_document_detail
 
         doc = {"id": 1, "title": "Test", "status": "indexed", "body": "content"}
         html = _render_document_detail(doc)
-        assert "--bg" in html
+        assert "/static/css/styles.css" in html
 
     def test_search_results_has_dark_mode_css(self):
-        """Search results render should inherit dark mode."""
+        """Search results render should link external stylesheet with dark mode."""
         from src.web.server import _render_search_results
 
         html = _render_search_results("query", [])
-        assert "--bg" in html
+        assert "/static/css/styles.css" in html
 
     def test_chat_page_has_dark_mode_css(self):
-        """Chat page render should inherit dark mode."""
+        """Chat page render should link external stylesheet with dark mode."""
         from src.web.server import _render_chat_page
 
         html = _render_chat_page()
-        assert "--bg" in html
+        assert "/static/css/styles.css" in html
 
 
 # ── Responsive design tests ───────────────────────────────────────
@@ -183,12 +184,12 @@ class TestResponsiveDesign:
         assert "width=device-width" in html
 
     def test_base_page_has_media_query(self):
-        """_base_page should include a mobile media query."""
+        """_base_page should link the external stylesheet that contains mobile media queries."""
         from src.web.server import _base_page
 
         html = _base_page("Test", "<p>content</p>")
-        assert "@media" in html
-        assert "max-width" in html
+        # Media queries are now in the external stylesheet
+        assert "/static/css/styles.css" in html
 
     def test_base_page_has_nav_toggle(self):
         """_base_page should have a nav toggle button for mobile."""

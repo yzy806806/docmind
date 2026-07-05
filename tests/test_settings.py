@@ -382,12 +382,12 @@ class TestSettingsPageRendering:
         assert 'href="/settings"' in html
 
     def test_render_has_dark_mode_css(self):
-        """Settings page should inherit dark mode from _base_page."""
+        """Settings page should link external stylesheet with dark mode."""
         from src.web.server import _render_settings_page
 
         html = _render_settings_page({})
-        assert "--bg" in html
-        assert 'data-theme="dark"' in html
+        assert "/static/css/styles.css" in html
+        assert "/static/js/theme.js" in html
 
     def test_render_base_url_hidden_for_openai(self):
         """Base URL row should be hidden (display:none) when provider is openai."""

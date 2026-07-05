@@ -8,6 +8,7 @@
         <div class="pagination-info">Showing {{ start }}–{{ end }} of {{ total }} document(s)</div>
         {% if documents %}
         <form id="bulk-delete-form" action="/documents/bulk-delete" method="post" onsubmit="return confirmBulkDelete();">
+        <div class="table-scroll">
         <table><tr><th><input type="checkbox" id="select-all" title="Select all" onclick="toggleSelectAll(this);"></th><th>Document</th><th>Status</th><th>Source</th><th>Type</th><th>Date</th>{{ tags_col_header }}<th>View</th></tr>
         {% for doc in documents %}
         <tr>
@@ -22,9 +23,10 @@
         </tr>
         {% endfor %}
         </table>
+        </div>
         </form>
-        <div class="bulk-actions" id="bulk-actions-bar" style="margin:8px 0;padding:8px;background:var(--bg-secondary,#f5f5f5);border-radius:6px;display:flex;flex-wrap:wrap;gap:12px;align-items:center;">
-            <span class="bulk-actions-label" style="font-size:0.85em;font-weight:bold;">Bulk Actions:</span>
+        <div class="bulk-actions" id="bulk-actions-bar">
+            <span class="bulk-actions-label">Bulk Actions:</span>
             <span id="selected-count-label" style="font-size:0.85em;">Selected: <span id="selected-count">0</span></span>
             <button type="submit" form="bulk-delete-form" id="delete-selected-btn" class="btn-delete" disabled style="padding:4px 12px;font-size:0.85em;cursor:not-allowed;opacity:0.5;">🗑 Delete Selected</button>
             <form id="bulk-tag-form" action="/documents/bulk-tag" method="post" style="display:flex;gap:4px;align-items:center;">
@@ -68,45 +70,44 @@
                   hx-get="/documents/partials/table"
                   hx-target="#doc-table-region"
                   hx-swap="outerHTML"
-                  hx-trigger="submit, change"
-                  style="margin:8px 0;padding:12px;background:var(--bg-secondary,#f5f5f5);border-radius:6px;display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;">
-                <label style="display:flex;flex-direction:column;font-size:0.85em;">
+                  hx-trigger="submit, change">
+                <label>
                     Source Type
-                    <select name="source" class="facet-select" style="padding:4px;width:140px;">
+                    <select name="source" class="facet-select">
                         <option value="">All sources</option>
                         {% for facet in source_facets %}
                         <option value="{{ facet.source_type }}" {{ "selected" if active_source == facet.source_type }}>{{ facet.source_type }} ({{ facet.count }})</option>
                         {% endfor %}
                     </select>
                 </label>
-                <label style="display:flex;flex-direction:column;font-size:0.85em;">
+                <label>
                     File Type
-                    <select name="file_type" class="facet-select" style="padding:4px;width:130px;">
+                    <select name="file_type" class="facet-select">
                         <option value="">All types</option>
                         {% for facet in file_type_facets %}
                         <option value="{{ facet.ext }}" {{ "selected" if file_type == facet.ext }}>{{ facet.ext or '(none)' }} ({{ facet.count }})</option>
                         {% endfor %}
                     </select>
                 </label>
-                <label style="display:flex;flex-direction:column;font-size:0.85em;">
+                <label>
                     Tag
-                    <input type="text" name="tag" value="{{ active_tag or '' }}" style="padding:4px;width:120px;" placeholder="tag">
+                    <input type="text" name="tag" value="{{ active_tag or '' }}" class="facet-select" placeholder="tag">
                 </label>
-                <label style="display:flex;flex-direction:column;font-size:0.85em;">
+                <label>
                     Date From
-                    <input type="date" name="date_from" value="{{ date_from or '' }}" style="padding:4px;" class="facet-date">
+                    <input type="date" name="date_from" value="{{ date_from or '' }}" class="facet-date">
                 </label>
-                <label style="display:flex;flex-direction:column;font-size:0.85em;">
+                <label>
                     Date To
-                    <input type="date" name="date_to" value="{{ date_to or '' }}" style="padding:4px;" class="facet-date">
+                    <input type="date" name="date_to" value="{{ date_to or '' }}" class="facet-date">
                 </label>
                 <div style="display:flex;flex-direction:column;font-size:0.85em;gap:4px;">
                     Quick Range
                     <div style="display:flex;gap:4px;">
-                        <button type="button" class="date-preset-btn" data-days="7" style="padding:4px 8px;font-size:0.8em;cursor:pointer;border:1px solid var(--border-color,#ccc);border-radius:4px;background:var(--bg-primary,#fff);">7d</button>
-                        <button type="button" class="date-preset-btn" data-days="30" style="padding:4px 8px;font-size:0.8em;cursor:pointer;border:1px solid var(--border-color,#ccc);border-radius:4px;background:var(--bg-primary,#fff);">30d</button>
-                        <button type="button" class="date-preset-btn" data-days="90" style="padding:4px 8px;font-size:0.8em;cursor:pointer;border:1px solid var(--border-color,#ccc);border-radius:4px;background:var(--bg-primary,#fff);">90d</button>
-                        <button type="button" class="date-preset-btn" data-days="365" style="padding:4px 8px;font-size:0.8em;cursor:pointer;border:1px solid var(--border-color,#ccc);border-radius:4px;background:var(--bg-primary,#fff);">1y</button>
+                        <button type="button" class="date-preset-btn" data-days="7">7d</button>
+                        <button type="button" class="date-preset-btn" data-days="30">30d</button>
+                        <button type="button" class="date-preset-btn" data-days="90">90d</button>
+                        <button type="button" class="date-preset-btn" data-days="365">1y</button>
                     </div>
                 </div>
                 <button type="submit" style="padding:5px 14px;cursor:pointer;">Apply</button>

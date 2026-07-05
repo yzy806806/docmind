@@ -451,11 +451,12 @@ class TestDashboardRendering:
         assert "Analytics" in html
 
     async def test_dashboard_dark_mode_compatible(self, asgi_client):
-        """Dashboard CSS should use CSS variables for dark mode."""
+        """Dashboard should link external stylesheet with CSS variables for dark mode."""
         resp = await asgi_client.get("/")
         html = resp.text
-        assert "data-theme" in html
-        assert "var(--" in html
+        assert "/static/css/styles.css" in html
+        assert "/static/js/theme.js" in html
+        assert "var(--" not in html  # CSS vars are in external file, not inline
 
 
 class TestAnalyticsPageRendering:

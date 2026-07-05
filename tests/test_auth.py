@@ -339,8 +339,10 @@ class TestLoginFlow:
     async def test_login_page_has_dark_mode(self, asgi_client_enabled):
         resp = await asgi_client_enabled.get("/login")
         assert resp.status_code == 200
-        assert "data-theme" in resp.text
-        assert "dark" in resp.text
+        # Dark mode is via external CSS + theme.js (not inline)
+        assert "/static/css/styles.css" in resp.text
+        assert "/static/js/theme.js" in resp.text
+        assert "dark" in resp.text  # theme.js contains dark mode logic
 
     @pytest.mark.asyncio
     async def test_session_cookie_grants_access(self, asgi_client_enabled):
@@ -544,10 +546,10 @@ class TestLoginPageRendering:
     def test_render_has_dark_mode(self):
         from src.web.rendering import _render_login_page
         html = _render_login_page()
-        assert "data-theme" in html
-        assert "dark" in html  # dark theme CSS selector present
-        # Theme logic is in the shared external module, not inline
+        # Dark mode is via external CSS + theme.js (not inline)
+        assert "/static/css/styles.css" in html
         assert "/static/js/theme.js" in html
+        assert "dark" in html  # theme.js contains dark mode logic
 
     def test_render_error_message(self):
         from src.web.rendering import _render_login_page

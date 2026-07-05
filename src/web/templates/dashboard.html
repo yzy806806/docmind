@@ -1,35 +1,5 @@
 {% extends "base.html" %}
 
-{% block extra_head %}
-<style>
-.chart-svg { width: 100%; height: auto; max-height: 250px; }
-.chart-grid { stroke: var(--border); stroke-width: 0.5; stroke-dasharray: 3,3; }
-.chart-line { stroke-linejoin: round; stroke-linecap: round; }
-.chart-point { stroke: var(--surface); stroke-width: 1.5; }
-.chart-bar { transition: opacity 0.2s; }
-.chart-bar:hover { opacity: 0.8; }
-.chart-slice { stroke: var(--surface); stroke-width: 1; transition: opacity 0.2s; }
-.chart-slice:hover { opacity: 0.85; }
-.chart-axis-label { font-size: 10px; fill: var(--text-faint); font-family: sans-serif; }
-.chart-bar-value { font-size: 10px; fill: var(--text-muted); font-family: sans-serif; }
-.chart-empty { color: var(--text-faint); text-align: center; padding: 40px; font-style: italic; }
-.analytics-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 16px 0; }
-.analytics-grid-full { grid-column: 1 / -1; }
-.pie-chart-container { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
-.pie-svg { max-width: 200px; flex-shrink: 0; }
-.pie-legend { flex: 1; }
-.pie-legend-item { font-size: 0.85em; margin: 4px 0; display: flex; align-items: center; gap: 6px; }
-.pie-legend-color { display: inline-block; width: 12px; height: 12px; border-radius: 3px; }
-.chart-card h3 { color: var(--primary); margin-bottom: 8px; }
-.job-failure { background: var(--badge-error-bg); color: var(--badge-error-text); padding: 8px 12px; border-radius: 6px; margin: 6px 0; font-size: 0.85em; }
-.stat-extra { font-size: 0.8em; color: var(--text-faint); margin-top: 4px; }
-.date-range-selector { display: flex; gap: 8px; align-items: center; margin: 16px 0; }
-.date-range-selector a { padding: 6px 16px; border-radius: 6px; text-decoration: none; border: 1px solid var(--input-border); color: var(--text); background: var(--surface); }
-.date-range-selector a.active { background: var(--primary); color: var(--header-text); border-color: var(--primary); }
-@media (max-width: 768px) { .analytics-grid { grid-template-columns: 1fr; } }
-</style>
-{% endblock %}
-
 {% block content %}
     <div class="stats">
         <div class="stat">
@@ -115,7 +85,9 @@
     <div class="card">
         <h2>Recent Documents</h2>
         {% if recent_rows %}
+        <div class="table-scroll">
         <table><tr><th>Document</th><th>Status</th><th>Type</th><th>Date</th></tr>{{ recent_rows }}</table>
+        </div>
         {% else %}
         <p>No documents indexed yet. <a href="/upload">Upload one</a> to get started.</p>
         {% endif %}
