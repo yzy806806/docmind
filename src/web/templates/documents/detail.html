@@ -13,6 +13,30 @@
         <div class="field"><span class="field-label">Updated:</span> {{ fmt_date(doc.updated_at) }}</div>
         <div class="field"><span class="field-label">Words:</span> {{ "{:,}".format(wc) }} · ~{{ rt }} min read</div>
 
+        <div class="doc-collection-section">
+            <div class="field"><span class="field-label">Collection:</span>
+                {% if current_collection %}
+                    <a href="/documents?collection_id={{ current_collection.id }}"
+                       class="collection-breadcrumb">{{ current_collection.name }}</a>
+                {% else %}
+                    <em>Unassigned</em>
+                {% endif %}
+            </div>
+            <form action="/documents/{{ doc.id or '?' }}/assign-collection" method="post"
+                  class="collection-assign-row">
+                <select name="collection_id">
+                    <option value="">— Unassigned —</option>
+                    {% for col in all_collections %}
+                        <option value="{{ col.id }}"
+                            {% if current_collection and current_collection.id == col.id %}selected{% endif %}>
+                            {{ col.name }}
+                        </option>
+                    {% endfor %}
+                </select>
+                <button type="submit">Assign</button>
+            </form>
+        </div>
+
         <div class="doc-tags-section">
             <div class="field"><span class="field-label">Tags:</span>
                 {% if tag_badges_html %}{{ tag_badges_html }}{% else %}<em>No tags yet</em>{% endif %}

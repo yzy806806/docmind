@@ -506,6 +506,9 @@ def _build_collection_tree_html(
             f'class="collection-tree-item{active_class}" style="{indent}"'
             f'>{_escape(name)} '
             f'<span class="collection-count">({count})</span></a>'
+            f'<span class="collection-tree-actions">'
+            f'<a href="/collections/{col_id}/edit" class="collection-action-link" title="Edit collection">✏️</a>'
+            f'</span>'
             f'{children_html}</li>'
         )
 
@@ -525,9 +528,16 @@ def _build_collection_tree_html(
         f'class="collection-tree-item{unassigned_active}">'
         f'Unassigned</a></li>'
     )
+    # "New Collection" button — links to the create form
+    new_btn = (
+        f'<a href="/collections/new" class="btn-new-collection">+ New Collection</a>'
+    )
     return f"""
     <div class="collection-tree">
-        <h3>Collections</h3>
+        <div class="collection-tree-header">
+            <h3>Collections</h3>
+            {new_btn}
+        </div>
         <ul class="collection-tree-list">
             {all_link}
             {items}
@@ -582,6 +592,106 @@ def _build_collection_breadcrumb_html(
         '<div class="collection-breadcrumb">'
         + "".join(parts)
         + "</div>"
+    )
+
+
+def _render_collection_detail(
+    collection: dict,
+    collection_path: list[dict],
+    child_collections: list[dict],
+    collection_counts: dict[int, int],
+    documents: list[dict],
+    tags_map: dict[int, list[str]],
+    *,
+    page: int = 1,
+    per_page: int = 20,
+    total: int = 0,
+    total_pages: int = 0,
+    collection_tree: list[dict] | None = None,
+) -> str:
+    """Render the collection detail page (GET /collections/{id}).
+
+    Shows:
+      - Collection name, description, parent collection link
+      - Breadcrumb path (root > ... > parent > self)
+      - Child collections as a list with document counts
+      - Documents in this collection (reusing the documents table partial)
+      - Edit / Delete buttons linking to the management forms
+
+    The collection-tree sidebar is shared with /documents for navigation
+    consistency. Active state highlights the current collection.
+    """
+    tags_map = tags_map or {}
+    collection_tree = collection_tree or []
+
+    # Breadcrumb navigation (reuses the existing renderer so the trail
+    # matches /documents?collection_id=N exactly).
+    breadcrumb_html = _build_collection_breadcrumb_html(collection_path)
+
+    # Child collections list with counts
+    child_items_html = ""
+    if child_collections:
+        rows = ""
+        for child in child_collections:
+            cid = child["id"]
+            cname = child.get("name", "Untitled")
+            cdesc = child.get("description", "") or ""
+            ccount = collection_counts.get(cid, 0)
+            rows += (
+                f'<tr><td><a href="/collections/{cid}">{_escape(cname)}</a></td>'
+                f'<td>{_escape(cdesc)}</td>'
+                f'<td>{ccount}</td></tr>'
+            )
+        child_items_html = (
+            '<table><tr><th>Name</th><th>Description</th>'
+            '<th>Documents</th></tr>'
+            f'{rows}</table>'
+        )
+    else:
+        child_items_html = "<p>No sub-collections.</p>"
+
+    # Parent collection link
+    parent_id = collection.get("parent_id")
+    parent_link_html = ""
+    if parent_id is not None:
+        # Find parent name in the collection_path (parent is second-to-last)
+        if len(collection_path) >= 2:
+            parent_col = collection_path[-2]
+            parent_link_html = (
+                f'<a href="/collections/{parent_col["id"]}" '
+                f'class="btn-view-link">{_escape(parent_col.get("name", "Parent"))}</a>'
+            )
+        else:
+            parent_link_html = (
+                f'<a href="/collections/{parent_id}" class="btn-view-link">'
+                f'Parent (id {parent_id})</a>'
+            )
+    else:
+        parent_link_html = '<span class="meta">— (root)</span>'
+
+    # Documents table — reuse the partial renderer so the table markup
+    # stays in sync with /documents (single source of truth).
+    documents_table_html = _render_documents_table_partial(
+        documents, page=page, per_page=per_page, total=total,
+        total_pages=total_pages, tags_map=tags_map,
+        active_collection_id=collection["id"],
+    )
+
+    # Collection-tree sidebar (active = current collection)
+    collection_tree_html = _build_collection_tree_html(
+        collection_tree, collection_counts, collection["id"],
+    )
+
+    return _render_template("collections/detail.html",
+        collection=collection,
+        breadcrumb_html=breadcrumb_html,
+        child_items_html=child_items_html,
+        parent_link_html=parent_link_html,
+        documents_table_html=documents_table_html,
+        collection_tree_html=collection_tree_html,
+        doc_count=total,
+        page=page, per_page=per_page,
+        total=total, total_pages=total_pages,
     )
 
 
@@ -1090,6 +1200,49 @@ def _render_job_detail(job: JobRecord, document: dict | None = None) -> str:
         </div>"""
 
     return _render_template("job_detail.html", job=job, doc_html=doc_html)
+
+
+def _render_collection_form(
+    *,
+    mode: str = "create",
+    collection: dict | None = None,
+    parent_choices: list[dict] | None = None,
+) -> str:
+    """Render the shared create/edit collection form.
+
+    Parameters
+    ----------
+    mode:
+        ``"create"`` for a new collection, ``"edit"`` for an existing one.
+    collection:
+        The collection dict (from ``db.get_collection``). Required for
+        edit mode (provides name, description, parent_id, id). Should be
+        ``None`` for create mode.
+    parent_choices:
+        Flat list of all collections (from ``db.list_collections()``) with
+        an added ``indented_name`` field showing the hierarchy depth.
+        The collection being edited is excluded from its own parent list.
+    """
+    parent_choices = parent_choices or []
+    if mode == "edit":
+        page_title = "Edit Collection"
+        col_id = collection["id"] if collection else 0
+        form_action = f"/collections/{col_id}/edit"
+        delete_action = f"/collections/{col_id}/delete"
+    else:
+        page_title = "New Collection"
+        form_action = "/collections/create"
+        delete_action = ""
+
+    return _render_template(
+        "collections/form.html",
+        mode=mode,
+        page_title=page_title,
+        collection=collection,
+        parent_choices=parent_choices,
+        form_action=form_action,
+        delete_action=delete_action,
+    )
 
 
 def _render_error(title: str, message: str) -> str:

@@ -139,6 +139,12 @@
         .collection-tree { background: var(--surface); border-radius: 8px; padding: 16px;
                            box-shadow: var(--shadow); margin-top: 16px; }
         .collection-tree h3 { margin-top: 0; color: var(--primary); }
+        .collection-tree-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+        .collection-tree-header h3 { margin: 0; }
+        .btn-new-collection { background: var(--primary); color: var(--header-text); text-decoration: none;
+                               border-radius: 6px; padding: 4px 12px; font-size: 0.8em; font-weight: 600;
+                               white-space: nowrap; }
+        .btn-new-collection:hover { background: var(--primary-hover); }
         .collection-tree-list { list-style: none; padding: 0; margin: 0; }
         .collection-tree-children { list-style: none; padding: 0; margin: 0; }
         .collection-tree-item { display: block; padding: 4px 8px; border-radius: 4px;
@@ -148,6 +154,9 @@
         .collection-tree-item:hover { background: var(--primary); color: var(--header-text); }
         .collection-tree-item .collection-count { font-size: 0.8em; opacity: 0.7; }
         .collection-tree-item.active { background: var(--primary); color: var(--header-text); font-weight: 600; }
+        .collection-tree-actions { display: inline-flex; gap: 4px; margin-left: 6px; }
+        .collection-action-link { text-decoration: none; font-size: 0.85em; padding: 0 4px; opacity: 0.6; }
+        .collection-action-link:hover { opacity: 1; }
         .collection-breadcrumb { background: var(--surface); border-radius: 8px; padding: 10px 16px;
                                  box-shadow: var(--shadow-sm); margin: 12px 0; display: flex;
                                  align-items: center; flex-wrap: wrap; gap: 4px; font-size: 0.9em; }

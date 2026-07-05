@@ -110,6 +110,7 @@ from .rendering import (
     _render_search_results,
     _render_documents_list,
     _render_documents_table_partial,
+    _render_collection_detail,
     _render_document_detail,
     _render_upload_form,
     _render_upload_success,
@@ -124,6 +125,7 @@ from .rendering import (
     _reload_llm_config_from_db,
     _render_jobs_page,
     _render_job_detail,
+    _render_collection_form,
     _render_error,
     _svg_line_chart,
     _svg_bar_chart,
@@ -2268,6 +2270,60 @@ def create_app() -> FastAPI:
 
     # ── Collections HTML form endpoints ──────────────────────────
 
+    @app.get(
+        "/collections/new",
+        response_class=HTMLResponse,
+        include_in_schema=False,
+    )
+    async def new_collection_form_page():
+        """Render the 'Create Collection' form (GET).
+
+        Displays a form with name, description, and a parent_id dropdown
+        populated from ``list_collections()``. The form POSTs to
+        ``/collections/create``.
+        """
+        db = get_db()
+        collections = await db.list_collections()
+        # Build indented names showing hierarchy depth
+        parent_choices = _build_parent_choices(collections)
+        html = _render_collection_form(
+            mode="create",
+            collection=None,
+            parent_choices=parent_choices,
+        )
+        return HTMLResponse(content=html)
+
+    @app.get(
+        "/collections/{collection_id}/edit",
+        response_class=HTMLResponse,
+        include_in_schema=False,
+    )
+    async def edit_collection_form_page(collection_id: int):
+        """Render the 'Edit Collection' form (GET), pre-filled with current values.
+
+        Displays the same form as create, but populated with the existing
+        collection's name, description, and parent_id. The form POSTs to
+        ``/collections/{id}/edit``. Returns 404 if the collection doesn't exist.
+        """
+        db = get_db()
+        existing = await db.get_collection(collection_id)
+        if existing is None:
+            return HTMLResponse(
+                content=_render_error(
+                    "Not Found",
+                    f"Collection {collection_id} not found.",
+                ),
+                status_code=404,
+            )
+        collections = await db.list_collections()
+        parent_choices = _build_parent_choices(collections)
+        html = _render_collection_form(
+            mode="edit",
+            collection=existing,
+            parent_choices=parent_choices,
+        )
+        return HTMLResponse(content=html)
+
     @app.post(
         "/collections/create",
         response_class=HTMLResponse,
@@ -2469,6 +2525,38 @@ def create_app() -> FastAPI:
 
 
 # ── Helpers ────────────────────────────────────────────────────
+
+
+def _build_parent_choices(collections: list[dict]) -> list[dict]:
+    """Build a flat list of collections with indented names for a parent dropdown.
+
+    Given the flat output of ``db.list_collections()`` (ordered by name),
+    produce a list suitable for a ``<select>`` of parent candidates. Each
+    entry gets an ``indented_name`` field where root collections appear as-is
+    and nested ones are prefixed with indentation (``→ `` repeated by depth)
+    so the hierarchy is visible in the dropdown.
+
+    The list is ordered root-first, then depth-first, so parents always
+    appear before their children in the dropdown.
+    """
+    # Group by parent for tree traversal
+    by_parent: dict[int | None, list[dict]] = {}
+    for col in collections:
+        pid = col.get("parent_id")
+        by_parent.setdefault(pid, []).append(col)
+
+    result: list[dict] = []
+
+    def _walk(parent_id: int | None, depth: int) -> None:
+        for col in by_parent.get(parent_id, []):
+            indent = "  " * depth + ("↳ " if depth > 0 else "")
+            entry = dict(col)
+            entry["indented_name"] = f"{indent}{col.get('name', 'Untitled')}"
+            result.append(entry)
+            _walk(col["id"], depth + 1)
+
+    _walk(None, 0)
+    return result
 
 
 def _get_ext(filename: Optional[str]) -> Optional[str]:
