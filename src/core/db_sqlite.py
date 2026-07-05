@@ -1581,6 +1581,40 @@ class Database:
             "by_type": by_type,
         }
 
+    async def get_file_type_facets(self) -> list[dict[str, Any]]:
+        """Return distinct file extensions with document counts.
+
+        Each dict has keys: ext (str), count (int).
+        Sorted by count descending then ext ascending.
+        Used to populate the file-type facet dropdown on /documents.
+        """
+        async with self.connection() as conn:
+            cursor = await conn.execute(
+                """SELECT ext, COUNT(*) as count
+                   FROM documents
+                   GROUP BY ext
+                   ORDER BY count DESC, ext ASC"""
+            )
+            rows = await cursor.fetchall()
+        return [{"ext": row["ext"] or "", "count": row["count"]} for row in rows]
+
+    async def get_source_facets(self) -> list[dict[str, Any]]:
+        """Return distinct source types with document counts.
+
+        Each dict has keys: source_type (str), count (int).
+        Sorted by count descending then source_type ascending.
+        Used to populate the source-type facet dropdown on /documents.
+        """
+        async with self.connection() as conn:
+            cursor = await conn.execute(
+                """SELECT source_type, COUNT(*) as count
+                   FROM documents
+                   GROUP BY source_type
+                   ORDER BY count DESC, source_type ASC"""
+            )
+            rows = await cursor.fetchall()
+        return [{"source_type": row["source_type"] or "", "count": row["count"]} for row in rows]
+
     async def get_chat_activity(self, days: int = 30) -> list[dict[str, Any]]:
         """Return daily chat message counts for the last *days* days.
 

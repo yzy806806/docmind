@@ -714,6 +714,9 @@ def _render_documents_list(
     date_from: str = "",
     date_to: str = "",
     file_type: str = "",
+    file_type_facets: list[dict] | None = None,
+    source_facets: list[dict] | None = None,
+    all_collections_list: list[dict] | None = None,
 ) -> str:
     tags_map = tags_map or {}
     all_tags = all_tags or []
@@ -830,6 +833,9 @@ def _render_documents_list(
         pagination_html=pagination_html,
         date_from=date_from, date_to=date_to, file_type=file_type,
         active_source=source, active_tag=active_tag,
+        all_collections_list=all_collections_list or [],
+        file_type_facets=file_type_facets or [],
+        source_facets=source_facets or [],
     )
 
 
@@ -847,6 +853,9 @@ def _render_documents_table_partial(
     date_from: str = "",
     date_to: str = "",
     file_type: str = "",
+    file_type_facets: list[dict] | None = None,
+    source_facets: list[dict] | None = None,
+    all_collections_list: list[dict] | None = None,
 ) -> str:
     """Render ONLY the document table region as an HTML fragment.
 
@@ -905,6 +914,9 @@ def _render_documents_table_partial(
         start=start, end=end, total=total,
         tags_col_header=tags_col_header,
         pagination_html=pagination_html,
+        file_type_facets=file_type_facets or [],
+        source_facets=source_facets or [],
+        all_collections_list=all_collections_list or [],
     )
 
 

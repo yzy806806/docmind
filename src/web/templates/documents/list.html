@@ -22,51 +22,95 @@
         </tr>
         {% endfor %}
         </table>
-        <div style="margin:8px 0;">
-            <button type="submit" id="delete-selected-btn" class="btn-delete" disabled style="padding:4px 12px;font-size:0.85em;cursor:not-allowed;opacity:0.5;">🗑 Delete Selected (<span id="selected-count">0</span>)</button>
-        </div>
         </form>
+        <div class="bulk-actions" id="bulk-actions-bar" style="margin:8px 0;padding:8px;background:var(--bg-secondary,#f5f5f5);border-radius:6px;display:flex;flex-wrap:wrap;gap:12px;align-items:center;">
+            <span class="bulk-actions-label" style="font-size:0.85em;font-weight:bold;">Bulk Actions:</span>
+            <span id="selected-count-label" style="font-size:0.85em;">Selected: <span id="selected-count">0</span></span>
+            <button type="submit" form="bulk-delete-form" id="delete-selected-btn" class="btn-delete" disabled style="padding:4px 12px;font-size:0.85em;cursor:not-allowed;opacity:0.5;">🗑 Delete Selected</button>
+            <form id="bulk-tag-form" action="/documents/bulk-tag" method="post" style="display:flex;gap:4px;align-items:center;">
+                <input type="hidden" name="doc_ids" id="bulk-tag-doc-ids">
+                <input type="text" name="tag" placeholder="tag name" style="padding:4px;width:120px;font-size:0.85em;" id="bulk-tag-input">
+                <button type="submit" id="tag-selected-btn" class="btn-tag" disabled style="padding:4px 12px;font-size:0.85em;cursor:not-allowed;opacity:0.5;">🏷 Tag Selected</button>
+            </form>
+            <form id="bulk-move-form" action="/documents/bulk-move-collection" method="post" style="display:flex;gap:4px;align-items:center;">
+                <input type="hidden" name="doc_ids" id="bulk-move-doc-ids">
+                <select name="collection_id" id="bulk-move-select" style="padding:4px;font-size:0.85em;" disabled>
+                    <option value="">-- Collection --</option>
+                    {% for col in all_collections_list or [] %}
+                    <option value="{{ col.id }}">{{ col.name }}</option>
+                    {% endfor %}
+                </select>
+                <button type="submit" id="move-selected-btn" class="btn-move" disabled style="padding:4px 12px;font-size:0.85em;cursor:not-allowed;opacity:0.5;">📦 Move Selected</button>
+            </form>
+            <form id="bulk-export-form" action="/documents/bulk-export" method="get" style="display:flex;gap:4px;align-items:center;">
+                <input type="hidden" name="doc_ids" id="bulk-export-doc-ids">
+                <select name="format" id="bulk-export-format" style="padding:4px;font-size:0.85em;" disabled>
+                    <option value="csv">CSV</option>
+                    <option value="json">JSON</option>
+                </select>
+                <button type="submit" id="export-selected-btn" class="btn-export" disabled style="padding:4px 12px;font-size:0.85em;cursor:not-allowed;opacity:0.5;">⬇ Export Selected</button>
+            </form>
+        </div>
         {% else %}
         <p>No documents found.</p>
         {% endif %}
         </div>{# /#doc-table-region #}
-            {# HTMX: hx-get sends this form's values to the partial endpoint, which
-               returns just the table HTML fragment. hx-target swaps #doc-table-region.
-               hx-trigger="submit, change" fires on submit AND when any input changes
-               (e.g. typing in a filter field, changing a date). hx-swap="outerHTML"
-               replaces the entire #doc-table-region div (the endpoint returns a new one).
-               Progressive enhancement: if HTMX is absent, the normal form GET to
-               /documents still works (full page reload). #}
+            {# Faceted search UI (Phase 4c):
+               Source type and file type are <select> dropdowns populated
+               from DB facet data (counts shown). Date range uses native
+               date pickers with quick-preset buttons. Tag remains a text
+               input. HTMX swaps #doc-table-region on change/submit.
+               Progressive enhancement: without HTMX, the form GETs
+               /documents normally (full page reload). #}
             <details class="filter-panel" {{ "open" if (date_from or date_to or file_type or active_source or active_tag) }}>
-            <summary>Filters</summary>
-            <form method="get" action="/documents"
+            <summary>🔍 Filters</summary>
+            <form id="facet-filter-form" method="get" action="/documents"
                   hx-get="/documents/partials/table"
                   hx-target="#doc-table-region"
                   hx-swap="outerHTML"
                   hx-trigger="submit, change"
-                  style="margin:8px 0;padding:8px;background:var(--bg-secondary,#f5f5f5);border-radius:6px;display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;">
+                  style="margin:8px 0;padding:12px;background:var(--bg-secondary,#f5f5f5);border-radius:6px;display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;">
                 <label style="display:flex;flex-direction:column;font-size:0.85em;">
-                    Source
-                    <input type="text" name="source" value="{{ active_source or '' }}" style="padding:4px;width:120px;" placeholder="source">
+                    Source Type
+                    <select name="source" class="facet-select" style="padding:4px;width:140px;">
+                        <option value="">All sources</option>
+                        {% for facet in source_facets %}
+                        <option value="{{ facet.source_type }}" {{ "selected" if active_source == facet.source_type }}>{{ facet.source_type }} ({{ facet.count }})</option>
+                        {% endfor %}
+                    </select>
+                </label>
+                <label style="display:flex;flex-direction:column;font-size:0.85em;">
+                    File Type
+                    <select name="file_type" class="facet-select" style="padding:4px;width:130px;">
+                        <option value="">All types</option>
+                        {% for facet in file_type_facets %}
+                        <option value="{{ facet.ext }}" {{ "selected" if file_type == facet.ext }}>{{ facet.ext or '(none)' }} ({{ facet.count }})</option>
+                        {% endfor %}
+                    </select>
                 </label>
                 <label style="display:flex;flex-direction:column;font-size:0.85em;">
                     Tag
                     <input type="text" name="tag" value="{{ active_tag or '' }}" style="padding:4px;width:120px;" placeholder="tag">
                 </label>
                 <label style="display:flex;flex-direction:column;font-size:0.85em;">
-                    File Type
-                    <input type="text" name="file_type" value="{{ file_type or '' }}" style="padding:4px;width:100px;" placeholder=".pdf">
-                </label>
-                <label style="display:flex;flex-direction:column;font-size:0.85em;">
                     Date From
-                    <input type="date" name="date_from" value="{{ date_from or '' }}" style="padding:4px;">
+                    <input type="date" name="date_from" value="{{ date_from or '' }}" style="padding:4px;" class="facet-date">
                 </label>
                 <label style="display:flex;flex-direction:column;font-size:0.85em;">
                     Date To
-                    <input type="date" name="date_to" value="{{ date_to or '' }}" style="padding:4px;">
+                    <input type="date" name="date_to" value="{{ date_to or '' }}" style="padding:4px;" class="facet-date">
                 </label>
+                <div style="display:flex;flex-direction:column;font-size:0.85em;gap:4px;">
+                    Quick Range
+                    <div style="display:flex;gap:4px;">
+                        <button type="button" class="date-preset-btn" data-days="7" style="padding:4px 8px;font-size:0.8em;cursor:pointer;border:1px solid var(--border-color,#ccc);border-radius:4px;background:var(--bg-primary,#fff);">7d</button>
+                        <button type="button" class="date-preset-btn" data-days="30" style="padding:4px 8px;font-size:0.8em;cursor:pointer;border:1px solid var(--border-color,#ccc);border-radius:4px;background:var(--bg-primary,#fff);">30d</button>
+                        <button type="button" class="date-preset-btn" data-days="90" style="padding:4px 8px;font-size:0.8em;cursor:pointer;border:1px solid var(--border-color,#ccc);border-radius:4px;background:var(--bg-primary,#fff);">90d</button>
+                        <button type="button" class="date-preset-btn" data-days="365" style="padding:4px 8px;font-size:0.8em;cursor:pointer;border:1px solid var(--border-color,#ccc);border-radius:4px;background:var(--bg-primary,#fff);">1y</button>
+                    </div>
+                </div>
                 <button type="submit" style="padding:5px 14px;cursor:pointer;">Apply</button>
-                <a href="/documents" style="padding:5px 10px;text-decoration:none;">Clear</a>
+                <a href="/documents" style="padding:5px 10px;text-decoration:none;" class="facet-clear-btn">Clear</a>
             </form>
         </details>
     </div>
@@ -77,4 +121,5 @@
 
 {% block extra_js %}
     <script src="/static/js/documents-list.js"></script>
+    <script src="/static/js/faceted-filters.js"></script>
 {% endblock %}

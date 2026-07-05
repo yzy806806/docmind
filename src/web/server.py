@@ -102,7 +102,7 @@ from ..errors import (
     ValidationError,
 )
 from ..validation import validate_doc_id, validate_search_query
-from .services import _export_search_results, _generate_summary_for_doc, _SyncLLMAdapter
+from .services import _export_search_results, _export_documents_bulk, _generate_summary_for_doc, _SyncLLMAdapter
 from .chat import handle_chat
 
 logger = logging.getLogger(__name__)
@@ -531,9 +531,16 @@ def create_app() -> FastAPI:
         # Fetch all tags for the tag cloud sidebar
         all_tags = await db.get_all_tags()
 
+        # Fetch facet data for the filter dropdowns (Phase 4c)
+        file_type_facets = await db.get_file_type_facets()
+        source_facets = await db.get_source_facets()
+
         # Fetch collection tree + counts for the collection sidebar
         collection_tree = await db.list_collections_tree()
         collection_counts = await db.get_collection_counts()
+
+        # Fetch all collections for the bulk-move dropdown
+        all_collections_list = await db.list_collections()
 
         # Fetch collection path for breadcrumb navigation
         # (only when a real collection is selected, not unassigned/id=0)
@@ -549,6 +556,9 @@ def create_app() -> FastAPI:
             active_collection_id=collection_id,
             collection_path=collection_path,
             date_from=date_from, date_to=date_to, file_type=file_type,
+            file_type_facets=file_type_facets,
+            source_facets=source_facets,
+            all_collections_list=all_collections_list,
         )
         return HTMLResponse(content=html)
 
@@ -600,13 +610,85 @@ def create_app() -> FastAPI:
         doc_ids = [d["id"] for d in documents]
         tags_map = await db.get_tags_for_documents(doc_ids) if doc_ids else {}
 
+        # Fetch facet data for the filter dropdowns (Phase 4c).
+        # The partial endpoint must return the same facet data as the
+        # full-page route so the swapped-in table region retains the
+        # bulk-actions bar (which needs all_collections_list for the
+        # move-to-collection <select>).
+        file_type_facets = await db.get_file_type_facets()
+        source_facets = await db.get_source_facets()
+        all_collections_list = await db.list_collections()
+
         html = _render_documents_table_partial(
             documents, page, per_page, total, total_pages,
             tags_map=tags_map, active_tag=tag, source=source,
             active_collection_id=collection_id,
             date_from=date_from, date_to=date_to, file_type=file_type,
+            file_type_facets=file_type_facets,
+            source_facets=source_facets,
+            all_collections_list=all_collections_list,
         )
         return HTMLResponse(content=html)
+
+    # ── Bulk document export (form/GET) ──────────────────────────
+    # Registered BEFORE /documents/{doc_id} to avoid path conflict
+    # (FastAPI matches "bulk-export" as a doc_id int parameter otherwise).
+
+    @app.get(
+        "/documents/bulk-export",
+        include_in_schema=False,
+    )
+    async def bulk_export_documents_form(
+        doc_ids: str = Query(default=""),
+        format: str = Query(default="csv"),
+    ):
+        """Export selected documents as a downloadable CSV or JSON file.
+
+        Accepts ``doc_ids`` as a comma-separated string (e.g. '1,2,3')
+        and ``format`` as 'csv' or 'json'. Returns a file download.
+        """
+        if not doc_ids.strip():
+            return HTMLResponse(
+                content=_render_error(
+                    "No documents selected",
+                    "Please select at least one document to export.",
+                ),
+                status_code=400,
+            )
+
+        parsed_ids: list[int] = []
+        invalid: list[str] = []
+        for part in doc_ids.split(","):
+            part = part.strip()
+            if not part:
+                continue
+            try:
+                parsed_ids.append(validate_doc_id(part))
+            except ValidationError:
+                invalid.append(part)
+
+        fmt = format.lower().strip()
+        if fmt not in ("csv", "json"):
+            return HTMLResponse(
+                content=_render_error(
+                    "Invalid format",
+                    'Format must be "csv" or "json".',
+                ),
+                status_code=400,
+            )
+
+        db = get_db()
+        documents: list[dict] = []
+        not_found_ids: list[int] = []
+
+        for doc_id in parsed_ids:
+            doc = await db.get_document(doc_id)
+            if doc is None:
+                not_found_ids.append(doc_id)
+            else:
+                documents.append(doc)
+
+        return _export_documents_bulk(documents, fmt, not_found_ids, invalid)
 
     @app.get("/documents/{doc_id}", response_class=HTMLResponse, include_in_schema=False)
     async def document_detail(doc_id: int):
@@ -990,6 +1072,268 @@ def create_app() -> FastAPI:
             "requested_count": len(parsed_ids),
         }
 
+    # ── Bulk document tag (API) ──────────────────────────────────
+
+    @app.post(
+        "/api/v1/documents/bulk-tag",
+        tags=["documents"],
+        summary="Add a tag to multiple documents in bulk",
+    )
+    async def bulk_tag_documents_api(
+        request: Request, api_key: str = Security(api_key_header)
+    ):
+        """Add a tag to multiple documents by ID.
+
+        Request body (JSON):
+            {"doc_ids": [1, 2, 3], "tag": "important"}
+
+        Returns a summary of tagged / not-found IDs.
+        The tag operation is idempotent — adding a tag that already
+        exists on a document does not error.
+        """
+        try:
+            body = await request.json()
+        except Exception:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid JSON body",
+            )
+
+        if not isinstance(body, dict):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Body must be a JSON object",
+            )
+
+        if "doc_ids" not in body:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail='Body must contain a "doc_ids" array',
+            )
+
+        if "tag" not in body:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail='Body must contain a "tag" string',
+            )
+
+        raw_ids = body["doc_ids"]
+        if not isinstance(raw_ids, list):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail='"doc_ids" must be an array of positive integers',
+            )
+
+        if len(raw_ids) == 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail='"doc_ids" must contain at least one ID',
+            )
+
+        tag = (str(body["tag"]) or "").strip()
+        if not tag:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail='"tag" must not be empty',
+            )
+
+        parsed_ids: list[int] = []
+        for raw in raw_ids:
+            try:
+                parsed_ids.append(validate_doc_id(raw))
+            except ValidationError as e:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Invalid document ID {raw!r}: {e.message}",
+                )
+
+        db = get_db()
+        tagged_ids: list[int] = []
+        not_found_ids: list[int] = []
+
+        for doc_id in parsed_ids:
+            doc = await db.get_document(doc_id)
+            if doc is None:
+                not_found_ids.append(doc_id)
+                continue
+            try:
+                await db.add_tag(doc_id, tag)
+                tagged_ids.append(doc_id)
+            except ValueError:
+                not_found_ids.append(doc_id)
+
+        return {
+            "tag": tag,
+            "tagged": tagged_ids,
+            "tagged_count": len(tagged_ids),
+            "not_found": not_found_ids,
+            "not_found_count": len(not_found_ids),
+            "requested_count": len(parsed_ids),
+        }
+
+    # ── Bulk document assign to collection (API) ─────────────────
+
+    @app.post(
+        "/api/v1/documents/bulk-assign",
+        tags=["documents"],
+        summary="Assign multiple documents to a collection in bulk",
+    )
+    async def bulk_assign_documents_api(
+        request: Request, api_key: str = Security(api_key_header)
+    ):
+        """Assign multiple documents to a collection by ID.
+
+        Request body (JSON):
+            {"doc_ids": [1, 2, 3], "collection_id": 5}
+
+        Returns 404 if the collection does not exist.
+        Returns a summary of assigned / not-found doc IDs.
+        """
+        try:
+            body = await request.json()
+        except Exception:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid JSON body",
+            )
+
+        if not isinstance(body, dict):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Body must be a JSON object",
+            )
+
+        if "doc_ids" not in body:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail='Body must contain a "doc_ids" array',
+            )
+
+        if "collection_id" not in body:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail='Body must contain a "collection_id" integer',
+            )
+
+        raw_ids = body["doc_ids"]
+        if not isinstance(raw_ids, list):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail='"doc_ids" must be an array of positive integers',
+            )
+
+        if len(raw_ids) == 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail='"doc_ids" must contain at least one ID',
+            )
+
+        try:
+            collection_id = int(body["collection_id"])
+        except (TypeError, ValueError):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail='"collection_id" must be an integer',
+            )
+
+        parsed_ids: list[int] = []
+        for raw in raw_ids:
+            try:
+                parsed_ids.append(validate_doc_id(raw))
+            except ValidationError as e:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Invalid document ID {raw!r}: {e.message}",
+                )
+
+        db = get_db()
+        # Verify the collection exists (404 if not)
+        col = await db.get_collection(collection_id)
+        if col is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"No collection with id {collection_id}",
+            )
+
+        assigned_ids: list[int] = []
+        not_found_ids: list[int] = []
+
+        for doc_id in parsed_ids:
+            ok = await db.assign_document_to_collection(doc_id, collection_id)
+            if ok:
+                assigned_ids.append(doc_id)
+            else:
+                not_found_ids.append(doc_id)
+
+        return {
+            "collection_id": collection_id,
+            "collection_name": col.get("name", ""),
+            "assigned": assigned_ids,
+            "assigned_count": len(assigned_ids),
+            "not_found": not_found_ids,
+            "not_found_count": len(not_found_ids),
+            "requested_count": len(parsed_ids),
+        }
+
+    # ── Bulk document export (API) ───────────────────────────────
+
+    @app.get(
+        "/api/v1/documents/bulk-export",
+        tags=["documents"],
+        summary="Export multiple documents as CSV or JSON",
+    )
+    async def bulk_export_documents_api(
+        doc_ids: str = Query(
+            default="",
+            description="Comma-separated document IDs (e.g. '1,2,3')",
+        ),
+        format: str = Query(
+            default="csv",
+            description="Export format: csv or json",
+        ),
+        api_key: str = Security(api_key_header),
+    ):
+        """Export selected documents as a downloadable CSV or JSON file.
+
+        Non-existent IDs are skipped and reported in ``not_found``.
+        """
+        if not doc_ids.strip():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail='"doc_ids" parameter is required (comma-separated IDs)',
+            )
+
+        parsed_ids: list[int] = []
+        invalid: list[str] = []
+        for part in doc_ids.split(","):
+            part = part.strip()
+            if not part:
+                continue
+            try:
+                parsed_ids.append(validate_doc_id(part))
+            except ValidationError:
+                invalid.append(part)
+
+        fmt = format.lower().strip()
+        if fmt not in ("csv", "json"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail='Format must be "csv" or "json"',
+            )
+
+        db = get_db()
+        documents: list[dict] = []
+        not_found_ids: list[int] = []
+
+        for doc_id in parsed_ids:
+            doc = await db.get_document(doc_id)
+            if doc is None:
+                not_found_ids.append(doc_id)
+            else:
+                documents.append(doc)
+
+        return _export_documents_bulk(documents, fmt, not_found_ids, invalid)
+
     @app.delete(
         "/api/v1/documents/{doc_id}",
         tags=["documents"],
@@ -1066,6 +1410,163 @@ def create_app() -> FastAPI:
         html = _render_template(
             "bulk_delete_success.html",
             deleted_ids=deleted_ids,
+            not_found_ids=not_found_ids,
+            invalid_ids=invalid,
+            total_requested=len(parsed_ids),
+        )
+        return HTMLResponse(content=html)
+
+    # ── Bulk document tag (form) ─────────────────────────────────
+
+    @app.post(
+        "/documents/bulk-tag",
+        response_class=HTMLResponse,
+        include_in_schema=False,
+    )
+    async def bulk_tag_documents_form(request: Request):
+        """Add a tag to multiple documents via form POST, then show success page.
+
+        Accepts form-encoded ``doc_ids`` fields (one per checkbox) and a
+        ``tag`` text field.
+        """
+        form = await request.form()
+        raw_ids = form.getlist("doc_ids")
+        tag = (form.get("tag") or "").strip()
+
+        if not raw_ids:
+            return HTMLResponse(
+                content=_render_error(
+                    "No documents selected",
+                    "Please select at least one document to tag.",
+                ),
+                status_code=400,
+            )
+
+        if not tag:
+            return HTMLResponse(
+                content=_render_error(
+                    "No tag provided",
+                    "Please enter a tag to apply to the selected documents.",
+                ),
+                status_code=400,
+            )
+
+        # Parse & validate IDs; collect failures
+        parsed_ids: list[int] = []
+        invalid: list[str] = []
+        for raw in raw_ids:
+            try:
+                parsed_ids.append(validate_doc_id(raw))
+            except ValidationError:
+                invalid.append(str(raw))
+
+        db = get_db()
+        tagged_ids: list[int] = []
+        not_found_ids: list[int] = []
+
+        for doc_id in parsed_ids:
+            doc = await db.get_document(doc_id)
+            if doc is None:
+                not_found_ids.append(doc_id)
+                continue
+            try:
+                await db.add_tag(doc_id, tag)
+                tagged_ids.append(doc_id)
+            except ValueError:
+                not_found_ids.append(doc_id)
+
+        html = _render_template(
+            "bulk_tag_success.html",
+            tag=tag,
+            tagged_ids=tagged_ids,
+            not_found_ids=not_found_ids,
+            invalid_ids=invalid,
+            total_requested=len(parsed_ids),
+        )
+        return HTMLResponse(content=html)
+
+    # ── Bulk document move to collection (form) ──────────────────
+
+    @app.post(
+        "/documents/bulk-move-collection",
+        response_class=HTMLResponse,
+        include_in_schema=False,
+    )
+    async def bulk_move_collection_form(request: Request):
+        """Assign multiple documents to a collection via form POST.
+
+        Accepts form-encoded ``doc_ids`` fields and a ``collection_id``
+        select field.
+        """
+        form = await request.form()
+        raw_ids = form.getlist("doc_ids")
+        raw_col_id = (form.get("collection_id") or "").strip()
+
+        if not raw_ids:
+            return HTMLResponse(
+                content=_render_error(
+                    "No documents selected",
+                    "Please select at least one document to move.",
+                ),
+                status_code=400,
+            )
+
+        if not raw_col_id:
+            return HTMLResponse(
+                content=_render_error(
+                    "No collection selected",
+                    "Please select a collection to move the documents to.",
+                ),
+                status_code=400,
+            )
+
+        try:
+            collection_id = int(raw_col_id)
+        except ValueError:
+            return HTMLResponse(
+                content=_render_error(
+                    "Invalid collection",
+                    "The selected collection ID is not valid.",
+                ),
+                status_code=400,
+            )
+
+        # Parse & validate IDs; collect failures
+        parsed_ids: list[int] = []
+        invalid: list[str] = []
+        for raw in raw_ids:
+            try:
+                parsed_ids.append(validate_doc_id(raw))
+            except ValidationError:
+                invalid.append(str(raw))
+
+        db = get_db()
+        # Verify collection exists (404 if not)
+        col = await db.get_collection(collection_id)
+        if col is None:
+            return HTMLResponse(
+                content=_render_error(
+                    "Collection not found",
+                    f"Collection {collection_id} does not exist.",
+                ),
+                status_code=404,
+            )
+
+        assigned_ids: list[int] = []
+        not_found_ids: list[int] = []
+
+        for doc_id in parsed_ids:
+            ok = await db.assign_document_to_collection(doc_id, collection_id)
+            if ok:
+                assigned_ids.append(doc_id)
+            else:
+                not_found_ids.append(doc_id)
+
+        html = _render_template(
+            "bulk_move_success.html",
+            collection_id=collection_id,
+            collection_name=col.get("name", ""),
+            assigned_ids=assigned_ids,
             not_found_ids=not_found_ids,
             invalid_ids=invalid,
             total_requested=len(parsed_ids),

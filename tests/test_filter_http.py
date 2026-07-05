@@ -510,19 +510,23 @@ class TestRenderDocumentsListWithFilters:
         assert 'name="date_to"' in html
 
     def test_filter_inputs_preserve_values(self) -> None:
-        """Active filter values are preserved in form inputs."""
+        """Active filter values are preserved in form inputs/selects."""
         from src.web.rendering import _render_documents_list
 
         html = _render_documents_list(
             documents=[], source="api", page=1, per_page=20, total=0,
             total_pages=0, date_from="2025-06-01", date_to="2025-12-31",
             file_type=".pdf",
+            source_facets=[{"source_type": "api", "count": 5}],
+            file_type_facets=[{"ext": ".pdf", "count": 3}],
         )
-        # Input values should be preserved
-        assert 'value="api"' in html
+        # Source and file_type are now <select> elements; the active
+        # option should have the "selected" attribute.
+        assert 'value="api"' in html and "selected" in html
+        assert 'value=".pdf"' in html
+        # Date inputs are still <input type="date"> with value attr
         assert 'value="2025-06-01"' in html
         assert 'value="2025-12-31"' in html
-        assert 'value=".pdf"' in html
 
     def test_pagination_preserves_filter_params(self) -> None:
         """Pagination links contain active filter parameters."""
@@ -546,3 +550,290 @@ class TestRenderDocumentsListWithFilters:
         )
         # When no filters, the label should just show "Documents"
         assert "Documents" in html
+
+
+# ── Faceted Search UI Tests (Phase 4c) ──────────────────────────
+
+
+class TestFacetedSearchUI:
+    """Test the faceted search UI — dropdowns with counts, date presets."""
+
+    def test_file_type_facet_dropdown_rendered(self) -> None:
+        """Template renders a <select> for file type with facet counts."""
+        from src.web.rendering import _render_documents_list
+
+        html = _render_documents_list(
+            documents=[], source="", page=1, per_page=20, total=0,
+            total_pages=0,
+            file_type_facets=[
+                {"ext": ".pdf", "count": 5},
+                {"ext": ".txt", "count": 3},
+            ],
+        )
+        assert '<select name="file_type"' in html
+        assert "All types" in html
+        assert ".pdf" in html
+        assert "(5)" in html
+        assert ".txt" in html
+        assert "(3)" in html
+
+    def test_source_facet_dropdown_rendered(self) -> None:
+        """Template renders a <select> for source type with facet counts."""
+        from src.web.rendering import _render_documents_list
+
+        html = _render_documents_list(
+            documents=[], source="", page=1, per_page=20, total=0,
+            total_pages=0,
+            source_facets=[
+                {"source_type": "api", "count": 7},
+                {"source_type": "local", "count": 2},
+            ],
+        )
+        assert '<select name="source"' in html
+        assert "All sources" in html
+        assert "api" in html
+        assert "(7)" in html
+        assert "local" in html
+        assert "(2)" in html
+
+    def test_file_type_facet_selected_option(self) -> None:
+        """Active file_type is marked 'selected' in the facet dropdown."""
+        from src.web.rendering import _render_documents_list
+
+        html = _render_documents_list(
+            documents=[], source="", page=1, per_page=20, total=0,
+            total_pages=0, file_type=".pdf",
+            file_type_facets=[
+                {"ext": ".pdf", "count": 5},
+                {"ext": ".txt", "count": 3},
+            ],
+        )
+        # The .pdf option should have the selected attribute
+        assert 'value=".pdf"' in html
+        # Find the option with .pdf and verify it has selected
+        pdf_option_idx = html.find('value=".pdf"')
+        assert "selected" in html[pdf_option_idx:pdf_option_idx + 50]
+
+    def test_source_facet_selected_option(self) -> None:
+        """Active source is marked 'selected' in the facet dropdown."""
+        from src.web.rendering import _render_documents_list
+
+        html = _render_documents_list(
+            documents=[], source="api", page=1, per_page=20, total=0,
+            total_pages=0,
+            source_facets=[
+                {"source_type": "api", "count": 7},
+                {"source_type": "local", "count": 2},
+            ],
+        )
+        api_option_idx = html.find('value="api"')
+        assert api_option_idx > -1
+        assert "selected" in html[api_option_idx:api_option_idx + 50]
+
+    def test_date_preset_buttons_rendered(self) -> None:
+        """Date-range quick-preset buttons (7d, 30d, 90d, 1y) are rendered."""
+        from src.web.rendering import _render_documents_list
+
+        html = _render_documents_list(
+            documents=[], source="", page=1, per_page=20, total=0,
+            total_pages=0,
+        )
+        assert "date-preset-btn" in html
+        assert 'data-days="7"' in html
+        assert 'data-days="30"' in html
+        assert 'data-days="90"' in html
+        assert 'data-days="365"' in html
+
+    def test_faceted_js_loaded(self) -> None:
+        """Template loads the faceted-filters.js script."""
+        from src.web.rendering import _render_documents_list
+
+        html = _render_documents_list(
+            documents=[], source="", page=1, per_page=20, total=0,
+            total_pages=0,
+        )
+        assert "/static/js/faceted-filters.js" in html
+
+    def test_no_facets_renders_empty_dropdowns(self) -> None:
+        """Empty facet lists render dropdowns with just the 'all' option."""
+        from src.web.rendering import _render_documents_list
+
+        html = _render_documents_list(
+            documents=[], source="", page=1, per_page=20, total=0,
+            total_pages=0,
+            file_type_facets=[],
+            source_facets=[],
+        )
+        assert '<select name="file_type"' in html
+        assert '<select name="source"' in html
+        assert "All types" in html
+        assert "All sources" in html
+
+    def test_facets_pass_through_to_template(self) -> None:
+        """_render_documents_list passes facet data to template context."""
+        from src.web.rendering import _render_documents_list
+
+        # When facet data is provided, the rendered HTML should contain
+        # the facet values as <option> elements
+        html = _render_documents_list(
+            documents=[], source="", page=1, per_page=20, total=0,
+            total_pages=0,
+            file_type_facets=[{"ext": ".docx", "count": 12}],
+            source_facets=[{"source_type": "webdav", "count": 4}],
+        )
+        assert ".docx" in html
+        assert "(12)" in html
+        assert "webdav" in html
+        assert "(4)" in html
+
+
+class TestFacetedSearchHTTP:
+    """Test the full HTTP stack — DB facets served on /documents page."""
+
+    @pytest.mark.asyncio
+    async def test_page_shows_file_type_facets(self, asgi_client) -> None:
+        """GET /documents renders file type facet options with counts."""
+        from src.web import server
+
+        await _insert_test_docs(server._db)
+
+        resp = await asgi_client.get("/documents")
+        assert resp.status_code == 200
+
+        html = resp.text
+        # Test docs have .pdf and .txt types
+        assert '<select name="file_type"' in html
+        assert ".pdf" in html
+        assert ".txt" in html
+
+    @pytest.mark.asyncio
+    async def test_page_shows_source_facets(self, asgi_client) -> None:
+        """GET /documents renders source type facet options with counts."""
+        from src.web import server
+
+        await _insert_test_docs(server._db)
+
+        resp = await asgi_client.get("/documents")
+        assert resp.status_code == 200
+
+        html = resp.text
+        # Test docs have 'api' and 'local' source types
+        assert '<select name="source"' in html
+        assert "api" in html
+        assert "local" in html
+
+    @pytest.mark.asyncio
+    async def test_facet_filter_by_source_select(self, asgi_client) -> None:
+        """GET /documents?source=api filters via the source facet."""
+        from src.web import server
+
+        await _insert_test_docs(server._db)
+
+        resp = await asgi_client.get("/documents?source=api")
+        assert resp.status_code == 200
+
+        html = resp.text
+        # The source facet should show 'api' as selected
+        api_idx = html.find('value="api"')
+        assert api_idx > -1
+        assert "selected" in html[api_idx:api_idx + 50]
+
+    @pytest.mark.asyncio
+    async def test_facet_filter_by_file_type_select(self, asgi_client) -> None:
+        """GET /documents?file_type=.pdf filters via the file type facet."""
+        from src.web import server
+
+        await _insert_test_docs(server._db)
+
+        resp = await asgi_client.get("/documents?file_type=.pdf")
+        assert resp.status_code == 200
+
+        html = resp.text
+        # The file_type facet should show .pdf as selected
+        pdf_idx = html.find('value=".pdf"')
+        assert pdf_idx > -1
+        assert "selected" in html[pdf_idx:pdf_idx + 50]
+
+    @pytest.mark.asyncio
+    async def test_date_preset_buttons_on_page(self, asgi_client) -> None:
+        """GET /documents renders date-preset quick range buttons."""
+        from src.web import server
+
+        await _insert_test_docs(server._db)
+
+        resp = await asgi_client.get("/documents")
+        assert resp.status_code == 200
+
+        html = resp.text
+        assert "date-preset-btn" in html
+        assert 'data-days="7"' in html
+        assert 'data-days="365"' in html
+
+
+class TestDbFacetMethods:
+    """Test the DB-layer facet query methods."""
+
+    @pytest.fixture
+    async def facet_db(self, tmp_db_path: str):
+        """Create a DB with test documents for facet testing."""
+        from src.core.db_sqlite import Database
+
+        db = Database(db_path=tmp_db_path)
+        await db.connect()
+
+        # Insert docs with varied types and sources
+        docs = [
+            ("/docs/a.pdf", "api", "Test A", ".pdf"),
+            ("/docs/b.txt", "api", "Test B", ".txt"),
+            ("/docs/c.pdf", "local", "Test C", ".pdf"),
+            ("/docs/d.txt", "local", "Test D", ".txt"),
+            ("/docs/e.pdf", "api", "Test E", ".pdf"),
+        ]
+        for path, src_type, title, ext in docs:
+            await db.save_document(
+                path=path, source_type=src_type, source_name=src_type,
+                title=title, ext=ext,
+                mime_type="application/pdf" if ext == ".pdf" else "text/plain",
+                body=f"Body of {title}", size=100,
+            )
+
+        yield db
+        await db.disconnect()
+
+    @pytest.mark.asyncio
+    async def test_get_file_type_facets(self, facet_db) -> None:
+        """get_file_type_facets returns ext + count, sorted by count desc."""
+        facets = await facet_db.get_file_type_facets()
+        assert len(facets) == 2
+
+        # .pdf has 3 docs, .txt has 2 — so .pdf comes first
+        assert facets[0]["ext"] == ".pdf"
+        assert facets[0]["count"] == 3
+        assert facets[1]["ext"] == ".txt"
+        assert facets[1]["count"] == 2
+
+    @pytest.mark.asyncio
+    async def test_get_source_facets(self, facet_db) -> None:
+        """get_source_facets returns source_type + count, sorted by count desc."""
+        facets = await facet_db.get_source_facets()
+        assert len(facets) == 2
+
+        # api has 3 docs, local has 2 — so api comes first
+        assert facets[0]["source_type"] == "api"
+        assert facets[0]["count"] == 3
+        assert facets[1]["source_type"] == "local"
+        assert facets[1]["count"] == 2
+
+    @pytest.mark.asyncio
+    async def test_facets_empty_db(self, tmp_db_path: str) -> None:
+        """Facet methods return empty list on a fresh DB."""
+        from src.core.db_sqlite import Database
+
+        db = Database(db_path=tmp_db_path)
+        await db.connect()
+
+        assert await db.get_file_type_facets() == []
+        assert await db.get_source_facets() == []
+
+        await db.disconnect()
+

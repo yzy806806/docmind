@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+
+{% block content %}
+    <div class="success">
+        <h2>🏷 Bulk Tag Complete</h2>
+        <p>Requested tagging of <strong>{{ total_requested }}</strong> document(s) with tag: <span class="tag-pill">{{ tag }}</span></p>
+        {% if tagged_ids %}
+        <p>✅ Tagged <strong>{{ tagged_ids|length }}</strong> document(s): {{ tagged_ids|join(', ') }}</p>
+        {% endif %}
+        {% if not_found_ids %}
+        <p>⚠️ Not found ({{ not_found_ids|length }}): {{ not_found_ids|join(', ') }}</p>
+        {% endif %}
+        {% if invalid_ids %}
+        <p>❌ Invalid IDs ({{ invalid_ids|length }}): {{ invalid_ids|join(', ') }}</p>
+        {% endif %}
+    </div>
+    <p><a href="/documents">← Back to Documents</a></p>
+{% endblock %}

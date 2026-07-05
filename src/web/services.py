@@ -119,6 +119,113 @@ def _export_search_results(
     )
 
 
+def _export_documents_bulk(
+    documents: list[dict],
+    fmt: str,
+    not_found_ids: list[int] | None = None,
+    invalid_ids: list[str] | None = None,
+) -> Response:
+    """Build a CSV or JSON download response for bulk document export.
+
+    Unlike ``_export_search_results`` which includes search rank and
+    snippet, this exports full document metadata (no rank, full body
+    preview up to 500 chars).
+
+    Args:
+        documents: List of document dicts from get_document().
+        fmt: "csv" or "json".
+        not_found_ids: IDs that were requested but not found in the DB.
+        invalid_ids: IDs that failed validation (non-integer, etc.).
+
+    Returns:
+        A ``Response`` with Content-Disposition for file download.
+    """
+    not_found_ids = not_found_ids or []
+    invalid_ids = invalid_ids or []
+
+    if fmt == "json":
+        payload = {
+            "exported_count": len(documents),
+            "not_found": not_found_ids,
+            "not_found_count": len(not_found_ids),
+            "invalid_ids": invalid_ids,
+            "documents": [
+                {
+                    "id": d.get("id"),
+                    "title": d.get("title", ""),
+                    "path": d.get("path", ""),
+                    "source": d.get("source_name", d.get("source_type", "")),
+                    "ext": d.get("ext", ""),
+                    "mime_type": d.get("mime_type", ""),
+                    "status": d.get("status", ""),
+                    "summary": d.get("summary", ""),
+                    "body_preview": (d.get("body", "") or "")[:500],
+                    "size": d.get("size", 0),
+                    "created_at": str(d.get("created_at", "")),
+                    "updated_at": str(d.get("updated_at", "")),
+                }
+                for d in documents
+            ],
+        }
+        body = json.dumps(payload, ensure_ascii=False, indent=2)
+        return Response(
+            content=body,
+            media_type="application/json",
+            headers={
+                "Content-Disposition": (
+                    'attachment; filename="documents_export.json"'
+                )
+            },
+        )
+
+    # CSV
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(
+        [
+            "id",
+            "title",
+            "path",
+            "source",
+            "ext",
+            "mime_type",
+            "status",
+            "summary",
+            "body_preview",
+            "size",
+            "created_at",
+            "updated_at",
+        ]
+    )
+    for d in documents:
+        writer.writerow(
+            [
+                d.get("id", ""),
+                d.get("title", ""),
+                d.get("path", ""),
+                d.get("source_name", d.get("source_type", "")),
+                d.get("ext", ""),
+                d.get("mime_type", ""),
+                d.get("status", ""),
+                d.get("summary", "") or "",
+                (d.get("body", "") or "")[:500],
+                d.get("size", 0),
+                str(d.get("created_at", "")),
+                str(d.get("updated_at", "")),
+            ]
+        )
+    body = output.getvalue()
+    return PlainTextResponse(
+        content=body,
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": (
+                'attachment; filename="documents_export.csv"'
+            )
+        },
+    )
+
+
 async def _generate_summary_for_doc(doc: dict) -> Optional[str]:
     """Generate a summary for a document using the Summarizer.
 
