@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 
 {% block content %}
+    {% if collection_breadcrumb_html %}{{ collection_breadcrumb_html | safe }}{% endif %}
     <div class="card">
         <h2>Documents{{ filter_label }}</h2>
         <div class="pagination-info">Showing {{ start }}–{{ end }} of {{ total }} document(s)</div>

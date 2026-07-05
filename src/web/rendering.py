@@ -536,6 +536,55 @@ def _build_collection_tree_html(
     </div>"""
 
 
+def _build_collection_breadcrumb_html(
+    collection_path: list[dict],
+) -> str:
+    """Build breadcrumb navigation showing the collection path.
+
+    Given the output of ``db.get_collection_path()`` — a root-first list
+    ``[root, ..., parent, self]`` — produce a self-contained
+    ``<div class="collection-breadcrumb">`` block.
+
+    Ancestor collections are clickable links to
+    ``/documents?collection_id=N``; the current (deepest) collection is
+    rendered as a non-clickable ``<span>``.  A leading "All Documents"
+    link points to ``/documents`` (clears the collection filter).
+
+    Returns an empty string when *collection_path* is empty.
+    """
+    if not collection_path:
+        return ""
+
+    # "All Documents" link at the start of the trail
+    parts = [
+        f'<a href="/documents" class="collection-breadcrumb-link">All</a>'
+    ]
+
+    for i, col in enumerate(collection_path):
+        col_id = col["id"]
+        name = col.get("name", "Untitled")
+        is_last = i == len(collection_path) - 1
+        if is_last:
+            # Current collection: non-clickable span
+            parts.append(
+                f'<span class="collection-breadcrumb-sep">/</span>'
+                f'<span class="collection-breadcrumb-current">{_escape(name)}</span>'
+            )
+        else:
+            # Ancestor: clickable link
+            parts.append(
+                f'<span class="collection-breadcrumb-sep">/</span>'
+                f'<a href="/documents?collection_id={col_id}" '
+                f'class="collection-breadcrumb-link">{_escape(name)}</a>'
+            )
+
+    return (
+        '<div class="collection-breadcrumb">'
+        + "".join(parts)
+        + "</div>"
+    )
+
+
 def _render_documents_list(
     documents: list[dict],
     source: str,
@@ -550,11 +599,13 @@ def _render_documents_list(
     collection_tree: list[dict] | None = None,
     collection_counts: dict[int, int] | None = None,
     active_collection_id: int | None = None,
+    collection_path: list[dict] | None = None,
 ) -> str:
     tags_map = tags_map or {}
     all_tags = all_tags or []
     collection_tree = collection_tree or []
     collection_counts = collection_counts or {}
+    collection_path = collection_path or []
 
     # Build tag badges HTML for each document
     for doc in documents:
@@ -593,6 +644,11 @@ def _render_documents_list(
     # Build collection tree sidebar
     collection_tree_html = _build_collection_tree_html(
         collection_tree, collection_counts, active_collection_id
+    )
+
+    # Build collection breadcrumb navigation
+    collection_breadcrumb_html = _build_collection_breadcrumb_html(
+        collection_path
     )
 
     # Build filter label
@@ -635,6 +691,7 @@ def _render_documents_list(
         tags_col_header=tags_col_header,
         tag_cloud_html=tag_cloud_html,
         collection_tree_html=collection_tree_html,
+        collection_breadcrumb_html=collection_breadcrumb_html,
         pagination_html=pagination_html,
     )
 

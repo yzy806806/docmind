@@ -520,12 +520,19 @@ def create_app() -> FastAPI:
         collection_tree = await db.list_collections_tree()
         collection_counts = await db.get_collection_counts()
 
+        # Fetch collection path for breadcrumb navigation
+        # (only when a real collection is selected, not unassigned/id=0)
+        collection_path: list[dict] = []
+        if collection_id is not None and collection_id > 0:
+            collection_path = await db.get_collection_path(collection_id)
+
         html = _render_documents_list(
             documents, source, page, per_page, total, total_pages,
             tags_map=tags_map, all_tags=all_tags, active_tag=tag,
             collection_tree=collection_tree,
             collection_counts=collection_counts,
             active_collection_id=collection_id,
+            collection_path=collection_path,
         )
         return HTMLResponse(content=html)
 
