@@ -422,3 +422,248 @@ class TestPaginationRoute:
         resp = await asgi_client.get("/documents")
         assert resp.status_code == 200
         assert "25" in resp.text  # We inserted 25 documents
+
+
+# ── Bulk delete tests ─────────────────────────────────────────────
+
+
+class TestBulkDeleteAPIEndpoint:
+    """Tests for DELETE /api/v1/documents/bulk (JSON API)."""
+
+    @pytest.mark.asyncio
+    async def test_bulk_delete_multiple_existing(self, asgi_client):
+        """DELETE /api/v1/documents/bulk should delete multiple docs."""
+        import json as _json
+        resp = await asgi_client.request(
+            "DELETE",
+            "/api/v1/documents/bulk",
+            content=_json.dumps({"doc_ids": [1, 2, 3]}).encode(),
+            headers={"content-type": "application/json"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["deleted_count"] == 3
+        assert set(data["deleted"]) == {1, 2, 3}
+        assert data["not_found_count"] == 0
+        assert data["requested_count"] == 3
+
+    @pytest.mark.asyncio
+    async def test_bulk_delete_with_not_found_ids(self, asgi_client):
+        """Non-existent IDs should be reported in not_found, not cause 4xx."""
+        import json as _json
+        resp = await asgi_client.request(
+            "DELETE",
+            "/api/v1/documents/bulk",
+            content=_json.dumps({"doc_ids": [1, 9999, 2]}).encode(),
+            headers={"content-type": "application/json"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["deleted_count"] == 2
+        assert set(data["deleted"]) == {1, 2}
+        assert 9999 in data["not_found"]
+        assert data["requested_count"] == 3
+
+    @pytest.mark.asyncio
+    async def test_bulk_delete_empty_array(self, asgi_client):
+        """Empty doc_ids array should return 400."""
+        import json as _json
+        resp = await asgi_client.request(
+            "DELETE",
+            "/api/v1/documents/bulk",
+            content=_json.dumps({"doc_ids": []}).encode(),
+            headers={"content-type": "application/json"},
+        )
+        assert resp.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_bulk_delete_invalid_id(self, asgi_client):
+        """Invalid (non-positive) ID should return 400."""
+        import json as _json
+        resp = await asgi_client.request(
+            "DELETE",
+            "/api/v1/documents/bulk",
+            content=_json.dumps({"doc_ids": [1, -1]}).encode(),
+            headers={"content-type": "application/json"},
+        )
+        assert resp.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_bulk_delete_missing_doc_ids_key(self, asgi_client):
+        """Missing 'doc_ids' key should return 400."""
+        import json as _json
+        resp = await asgi_client.request(
+            "DELETE",
+            "/api/v1/documents/bulk",
+            content=_json.dumps({"wrong_key": [1, 2]}).encode(),
+            headers={"content-type": "application/json"},
+        )
+        assert resp.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_bulk_delete_doc_ids_not_list(self, asgi_client):
+        """doc_ids as non-list should return 400."""
+        import json as _json
+        resp = await asgi_client.request(
+            "DELETE",
+            "/api/v1/documents/bulk",
+            content=_json.dumps({"doc_ids": 5}).encode(),
+            headers={"content-type": "application/json"},
+        )
+        assert resp.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_bulk_delete_invalid_json(self, asgi_client):
+        """Malformed JSON body should return 400."""
+        resp = await asgi_client.request(
+            "DELETE",
+            "/api/v1/documents/bulk",
+            content=b"not json",
+            headers={"content-type": "application/json"},
+        )
+        assert resp.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_bulk_delete_actually_deletes(self, asgi_client):
+        """Verify documents are actually deleted after bulk delete."""
+        import json as _json
+        resp = await asgi_client.request(
+            "DELETE",
+            "/api/v1/documents/bulk",
+            content=_json.dumps({"doc_ids": [4, 5]}).encode(),
+            headers={"content-type": "application/json"},
+        )
+        assert resp.status_code == 200
+        resp2 = await asgi_client.delete("/api/v1/documents/4")
+        assert resp2.status_code == 404
+        resp3 = await asgi_client.delete("/api/v1/documents/5")
+        assert resp3.status_code == 404
+
+
+class TestBulkDeleteFormHandler:
+    """Tests for POST /documents/bulk-delete (HTML form)."""
+
+    @pytest.mark.asyncio
+    async def test_bulk_delete_form_multiple(self, asgi_client):
+        """POST form with multiple doc_ids should delete them and show success."""
+        resp = await asgi_client.post(
+            "/documents/bulk-delete",
+            data={"doc_ids": ["6", "7", "8"]},
+        )
+        assert resp.status_code == 200
+        assert "Bulk Delete" in resp.text or "Deleted" in resp.text
+        assert "6" in resp.text
+        assert "7" in resp.text
+        assert "8" in resp.text
+
+    @pytest.mark.asyncio
+    async def test_bulk_delete_form_no_selection(self, asgi_client):
+        """POST form with no doc_ids should return 400."""
+        resp = await asgi_client.post(
+            "/documents/bulk-delete",
+            data={},
+        )
+        assert resp.status_code == 400
+        assert "selected" in resp.text.lower()
+
+    @pytest.mark.asyncio
+    async def test_bulk_delete_form_with_not_found(self, asgi_client):
+        """Non-existent IDs should be reported but not cause error."""
+        resp = await asgi_client.post(
+            "/documents/bulk-delete",
+            data={"doc_ids": ["9", "9999"]},
+        )
+        assert resp.status_code == 200
+        assert "9" in resp.text
+        assert "9999" in resp.text or "Not found" in resp.text
+
+    @pytest.mark.asyncio
+    async def test_bulk_delete_form_has_back_link(self, asgi_client):
+        """Bulk delete success page should link back to documents."""
+        resp = await asgi_client.post(
+            "/documents/bulk-delete",
+            data={"doc_ids": ["10"]},
+        )
+        assert resp.status_code == 200
+        assert "/documents" in resp.text
+
+    @pytest.mark.asyncio
+    async def test_bulk_delete_form_actually_deletes(self, asgi_client):
+        """Verify documents are actually deleted after form bulk delete."""
+        resp = await asgi_client.post(
+            "/documents/bulk-delete",
+            data={"doc_ids": ["11", "12"]},
+        )
+        assert resp.status_code == 200
+        resp2 = await asgi_client.delete("/api/v1/documents/11")
+        assert resp2.status_code == 404
+        resp3 = await asgi_client.delete("/api/v1/documents/12")
+        assert resp3.status_code == 404
+
+
+class TestBulkDeleteListUI:
+    """Tests for checkboxes and bulk delete UI in the documents list template."""
+
+    def test_list_template_has_checkboxes(self):
+        """Documents list should have per-row checkboxes."""
+        from src.web.server import _render_documents_list
+
+        docs = [{"id": 1, "title": "A", "status": "indexed", "source_name": "s",
+                 "ext": ".txt", "created_at": "2025-01-01"}]
+        html = _render_documents_list(docs, "", 1, 20, 1, 1,
+                                       tags_map={1: []})
+        assert 'class="doc-checkbox"' in html
+        assert 'name="doc_ids"' in html
+        assert 'value="1"' in html
+
+    def test_list_template_has_select_all(self):
+        """Documents list should have a Select All checkbox."""
+        from src.web.server import _render_documents_list
+
+        docs = [{"id": 1, "title": "A", "status": "indexed", "source_name": "s",
+                 "ext": ".txt", "created_at": "2025-01-01"}]
+        html = _render_documents_list(docs, "", 1, 20, 1, 1,
+                                       tags_map={1: []})
+        assert 'id="select-all"' in html
+        assert "toggleSelectAll" in html
+
+    def test_list_template_has_delete_selected_button(self):
+        """Documents list should have a Delete Selected button."""
+        from src.web.server import _render_documents_list
+
+        docs = [{"id": 1, "title": "A", "status": "indexed", "source_name": "s",
+                 "ext": ".txt", "created_at": "2025-01-01"}]
+        html = _render_documents_list(docs, "", 1, 20, 1, 1,
+                                       tags_map={1: []})
+        assert "delete-selected-btn" in html
+        assert "Delete Selected" in html
+
+    def test_list_template_has_confirmation_js(self):
+        """Documents list should have JavaScript confirmation for bulk delete."""
+        from src.web.server import _render_documents_list
+
+        docs = [{"id": 1, "title": "A", "status": "indexed", "source_name": "s",
+                 "ext": ".txt", "created_at": "2025-01-01"}]
+        html = _render_documents_list(docs, "", 1, 20, 1, 1,
+                                       tags_map={1: []})
+        assert "confirmBulkDelete" in html
+        assert "confirm(" in html
+
+    def test_list_template_has_bulk_delete_form(self):
+        """Documents list should wrap table in a form posting to /documents/bulk-delete."""
+        from src.web.server import _render_documents_list
+
+        docs = [{"id": 1, "title": "A", "status": "indexed", "source_name": "s",
+                 "ext": ".txt", "created_at": "2025-01-01"}]
+        html = _render_documents_list(docs, "", 1, 20, 1, 1,
+                                       tags_map={1: []})
+        assert 'action="/documents/bulk-delete"' in html
+        assert 'method="post"' in html
+
+    def test_list_template_empty_docs_no_form(self):
+        """When no documents, the bulk-delete form should not appear."""
+        from src.web.server import _render_documents_list
+
+        html = _render_documents_list([], "", 1, 20, 0, 0)
+        assert "bulk-delete-form" not in html
+        assert "doc-checkbox" not in html
