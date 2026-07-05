@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+
+{% block content %}
+    {% if breadcrumb_html %}{{ breadcrumb_html | safe }}{% endif %}
+    <div class="card">
+        <h2>{{ collection.name or 'Untitled Collection' }}</h2>
+
+        <div style="margin: 12px 0;">
+            <a href="/documents">← Back to Documents</a>
+        </div>
+
+        {% if collection.description %}
+        <p class="pagination-info">{{ collection.description }}</p>
+        {% else %}
+        <p class="pagination-info" style="color: var(--text-muted, #888);">No description.</p>
+        {% endif %}
+
+        <div style="margin: 12px 0; display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+            <strong>Parent:</strong> {{ parent_link_html | safe }}
+        </div>
+
+        <div style="margin: 12px 0; display: flex; gap: 8px; flex-wrap: wrap;">
+            <a href="/collections/{{ collection.id }}/edit" class="btn-view-link" style="padding: 5px 14px; text-decoration: none;">✏️ Edit</a>
+            <form method="post" action="/collections/{{ collection.id }}/delete" style="display: inline;" onsubmit="return confirm('Delete this collection? Documents will be moved to All Documents.');">
+                <button type="submit" class="btn-delete" style="padding: 5px 14px; cursor: pointer;">🗑 Delete</button>
+            </form>
+            <a href="/collections/new" class="btn-view-link" style="padding: 5px 14px; text-decoration: none;">＋ New Collection</a>
+        </div>
+
+        <h3>Sub-Collections</h3>
+        {{ child_items_html | safe }}
+
+        <h3>Documents ({{ doc_count }})</h3>
+        {{ documents_table_html | safe }}
+    </div>
+
+    {% if collection_tree_html %}{{ collection_tree_html | safe }}{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+    <script src="/static/js/documents-list.js"></script>
+{% endblock %}

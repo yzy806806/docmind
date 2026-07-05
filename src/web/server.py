@@ -21,6 +21,12 @@ REST:
 - GET  /api/v1/documents         List documents (JSON, pagination, collection_id filter)
 - GET  /api/v1/documents/{id}/status  Document processing status
 - GET  /api/v1/jobs/{id}         Background job status
+- GET  /collections/{id}          Collection detail page (documents, children, breadcrumb)
+- GET  /collections/new           Create collection form
+- GET  /collections/{id}/edit     Edit collection form
+- POST /collections/create        Create collection (form POST)
+- POST /collections/{id}/edit     Update collection (form POST)
+- POST /collections/{id}/delete   Delete collection (form POST)
 - POST /api/v1/collections       Create a collection
 - GET  /api/v1/collections       List all collections (flat)
 - GET  /api/v1/collections/tree  List collections as nested tree
@@ -2290,6 +2296,74 @@ def create_app() -> FastAPI:
             mode="create",
             collection=None,
             parent_choices=parent_choices,
+        )
+        return HTMLResponse(content=html)
+
+    @app.get(
+        "/collections/{collection_id}",
+        response_class=HTMLResponse,
+        include_in_schema=False,
+    )
+    async def collection_detail_page(
+        collection_id: int,
+        page: int = Query(default=1, ge=1),
+        per_page: int = Query(default=20, ge=1, le=100),
+    ):
+        """Render the collection detail page (GET /collections/{id}).
+
+        Shows the collection's name, description, parent link, breadcrumb
+        path, child collections table, documents list, and edit/delete
+        buttons. The collection-tree sidebar is shared with /documents for
+        navigation consistency. Returns 404 if the collection doesn't exist.
+        """
+        db = get_db()
+        collection = await db.get_collection(collection_id)
+        if collection is None:
+            return HTMLResponse(
+                content=_render_error(
+                    "Not Found",
+                    f"Collection {collection_id} not found.",
+                ),
+                status_code=404,
+            )
+
+        # Breadcrumb path from root to this collection
+        collection_path = await db.get_collection_path(collection_id)
+
+        # Child collections (filter the flat list by parent_id == this id)
+        all_collections = await db.list_collections()
+        child_collections = [
+            c for c in all_collections if c.get("parent_id") == collection_id
+        ]
+
+        # Documents in this collection (paginated)
+        result = await db.list_documents_by_collection(
+            collection_id, page=page, per_page=per_page,
+        )
+        documents = result["documents"]
+        total = result["total"]
+        total_pages = result["total_pages"]
+
+        # Tags for the displayed documents (batch)
+        doc_ids = [d["id"] for d in documents]
+        tags_map = await db.get_tags_for_documents(doc_ids) if doc_ids else {}
+
+        # Collection tree + counts for the sidebar
+        collection_tree = await db.list_collections_tree()
+        collection_counts = await db.get_collection_counts()
+
+        html = _render_collection_detail(
+            collection=collection,
+            collection_path=collection_path,
+            child_collections=child_collections,
+            collection_counts=collection_counts,
+            documents=documents,
+            tags_map=tags_map,
+            page=page,
+            per_page=per_page,
+            total=total,
+            total_pages=total_pages,
+            collection_tree=collection_tree,
         )
         return HTMLResponse(content=html)
 

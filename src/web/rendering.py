@@ -683,6 +683,7 @@ def _render_collection_detail(
     )
 
     return _render_template("collections/detail.html",
+        title=f"Collection: {collection.get('name', 'Untitled')}",
         collection=collection,
         breadcrumb_html=breadcrumb_html,
         child_items_html=child_items_html,
