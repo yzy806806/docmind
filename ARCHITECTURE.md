@@ -49,6 +49,7 @@ src/
 ├── web/            # Web layer — depends on core/
 │   ├── server.py         # FastAPI app + routes (2470 LOC)
 │   ├── rendering.py      # Jinja2 template engine + render helpers (1016 LOC)
+│   ├── rate_limit.py     # In-memory per-IP rate limiting middleware
 │   ├── auth.py           # API Key + session auth (HMAC-SHA256)
 │   ├── chat.py           # WebSocket Q&A with citations
 │   ├── document_viewer.py # Paginated viewer + in-doc search
@@ -138,6 +139,51 @@ stable metadata (collections, settings, tag cloud) expire in 300-600 seconds.
 See `src/core/cache.py` → `CacheTTLConfig` for the full table.
 
 **Design doc:** `docs/architecture/caching.md`
+
+### 3.2 Rate Limiting (Phase 6a)
+
+API rate limiting is enforced by a per-IP sliding-window middleware
+registered in `server.py`. It is disabled by default and requires no
+external dependencies:
+
+```
+Incoming request (after auth)
+  │
+  ├── config.rate_limit.enabled == False? ──► pass through (no-op)
+  │
+  ├── Path in exempt list? (/health, /docs, /static/*, ...) ──► pass through
+  │
+  ▼
+RateLimiter.check(request)
+  │
+  ├── Under limit? ──► Allow (append timestamp)
+  │
+  └── Over limit? ──► 429 JSONResponse + Retry-After header
+```
+
+**Configuration:**
+
+| Variable                                  | Default | Description                                   |
+|-------------------------------------------|---------|-----------------------------------------------|
+| `DOCMIND_RATE_LIMIT_ENABLED`              | `false` | Enable/disable the rate limiter.              |
+| `DOCMIND_RATE_LIMIT_REQUESTS_PER_MINUTE`  | `60`    | Max requests per client IP per 60s window.    |
+
+The `RateLimiter` class (`src/web/rate_limit.py`) maintains a
+`defaultdict[str, list[float]]` — one list of timestamps per client IP.
+Expired entries (older than 60s) are pruned on each `check()` call. When
+a bucket is full, the `retry_after` value is computed from the time
+remaining until the oldest entry expires.
+
+**Exempt paths** (never rate limited): `/login`, `/logout`, `/health`,
+`/docs`, `/redoc`, `/openapi.json`, and all paths under `/static/`. These
+mirror the auth middleware's public path list.
+
+**Limitations:** The in-memory limiter is per-worker — in multi-worker
+setups each worker has independent state. For accurate global limits
+across workers a Redis-backed limiter would be needed (not yet
+implemented).
+
+**Design doc:** `docs/architecture/rate-limiting.md`
 
 ---
 

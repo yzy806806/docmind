@@ -78,6 +78,7 @@ WebDAV / 本地目录 / PostgreSQL 数据库
 - [x] **API Key 认证 (API Key Authentication)：** 可选的会话 + API Key 双模式认证，HMAC-SHA256 签名 Cookie，支持 `X-API-Key` 头部
 - [x] **Hermes Tool 接入：** `kb_search`、`kb_list`、`kb_read`、`kb_ingest` 四个工具，可在 Hermes 聊天中直接检索知识库
 - [x] **TPM 限速 (TPM Rate Limiting)：** 控制 LLM 调用频率（默认 5 TPM），可配置，不炸 API
+- [x] **API 速率限制 (API Rate Limiting)：** 基于 IP 的滑动窗口限流，可配置每分钟请求上限，超限返回 429 + `Retry-After` 头部
 
 ### LLM 与部署
 
@@ -182,6 +183,22 @@ export DOCMIND_CACHE_ENABLED=false
 ```
 
 > **自托管说明：** 内存缓存（默认）是进程内缓存，每个 worker 进程独立维护。若使用 `DOCMIND_WORKERS > 1` 的多进程模式，各进程的缓存不互通 —— 写入操作会通过 SQLite 的 WAL 模式确保数据一致性，但缓存命中率会因进程隔离而降低。如需跨进程共享缓存，请启用 Redis 后端。
+
+### 速率限制配置
+
+DocMind 内置基于 IP 的滑动窗口速率限制器，无需外部依赖：
+
+```bash
+# 开启速率限制（默认关闭，匹配自托管单用户场景）
+export DOCMIND_RATE_LIMIT_ENABLED=true
+
+# 每 IP 每分钟最大请求数（默认 60）
+export DOCMIND_RATE_LIMIT_REQUESTS_PER_MINUTE=120
+```
+
+超限时返回 `HTTP 429 Too Many Requests`，响应体包含 `Retry-After` 头部和 JSON 错误详情。健康检查、API 文档和静态资源路径不受限制。详见 `docs/architecture/rate-limiting.md`。
+
+> **反向代理注意事项：** 若 DocMind 位于 nginx/Caddy/Traefik 等反向代理之后，请确保代理转发客户端真实 IP（`X-Forwarded-For` 头部），否则所有请求将共享同一个速率限制桶。
 
 ## 技术栈
 

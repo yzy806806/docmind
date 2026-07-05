@@ -3,6 +3,46 @@
 All notable changes to DocMind are documented in this file. The project uses
 calendar-based versioning: each section groups changes by the week they shipped.
 
+## 2026-07-06 — Phase 6: Security & Hardening
+
+### Added — API Rate Limiting (Phase 6a)
+
+A per-IP sliding-window rate limiter protects the DocMind API from abuse.
+When enabled, each client IP is capped at a configurable number of
+requests per rolling 60-second window. Requests exceeding the limit
+receive an `HTTP 429 Too Many Requests` response with a `Retry-After`
+header so well-behaved clients can back off.
+
+- **Disabled by default** — matches the open behaviour of a self-hosted
+  single-user deployment. Enable with `DOCMIND_RATE_LIMIT_ENABLED=true`.
+- **Sliding window algorithm.** Per-client-IP timestamp buckets. Old
+  entries are pruned on every check — no hard reset at minute boundaries.
+- **429 response with Retry-After.** JSON body includes `error` (`"RATE_LIMIT"`),
+  `message`, and `retry_after` (seconds). The standard `Retry-After` HTTP
+  header carries the same value.
+- **Exempt paths.** `/health`, `/login`, `/logout`, `/docs`, `/redoc`,
+  `/openapi.json`, and `/static/*` are never rate limited — mirroring the
+  auth middleware's public path list.
+- **Zero external dependencies.** The limiter runs entirely in-process —
+  no Redis, no `slowapi`, no additional Python packages.
+- **41 tests** covering sliding-window logic, middleware integration,
+  429 response shape, Retry-After header, per-IP isolation, exempt paths,
+  and config/env var parsing.
+
+### Configuration reference
+
+```bash
+# Enable rate limiting (default: false)
+DOCMIND_RATE_LIMIT_ENABLED=true
+
+# Max requests per client IP per 60-second window (default: 60)
+DOCMIND_RATE_LIMIT_REQUESTS_PER_MINUTE=120
+```
+
+See `docs/architecture/rate-limiting.md` for full documentation.
+
+---
+
 ## 2026-07-06 — Phase 5: Performance & Intelligence
 
 ### Added — Query Result Caching (Phase 5a)
