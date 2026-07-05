@@ -220,6 +220,57 @@ class DocumentLimits:
 
 
 @dataclass
+class CacheConfig:
+    """Cache layer settings for query result caching.
+
+    The cache is integrated at the Database layer to reduce redundant
+    SQLite queries for read-heavy operations (dashboard, search,
+    document lists, analytics).
+
+    Backend selection:
+      - 'memory': In-process dict with TTL + LRU eviction (default, zero-config)
+      - 'redis':  Optional external Redis backend for multi-process deployments
+
+    When ``enabled`` is False, a NoopCache is used — all cache operations
+    become no-ops with zero overhead.
+    """
+    enabled: bool = field(
+        default_factory=lambda: _env_bool("DOCMIND_CACHE_ENABLED", True)
+    )
+    backend: str = field(
+        default_factory=lambda: _env("DOCMIND_CACHE_BACKEND", "memory")
+    )
+    redis_url: str = field(
+        default_factory=lambda: _env(
+            "DOCMIND_CACHE_REDIS_URL", "redis://localhost:6379/0"
+        )
+    )
+    max_size: int = field(
+        default_factory=lambda: _env_int("DOCMIND_CACHE_MAX_SIZE", 10000)
+    )
+
+
+@dataclass
+class AutoDetectionConfig:
+    """LLM-based document type auto-detection settings.
+
+    When enabled, documents are classified by type during ingestion
+    using the configured LLM provider. If no LLM is configured, a
+    keyword-based heuristic is used instead.
+
+    The detection uses the existing LLMConfig for provider settings —
+    no separate LLM endpoint is needed.
+    """
+
+    enabled: bool = field(
+        default_factory=lambda: _env_bool("DOCMIND_AUTODETECT_ENABLED", True)
+    )
+    max_body_chars: int = field(
+        default_factory=lambda: _env_int("DOCMIND_AUTODETECT_MAX_BODY_CHARS", 2000)
+    )
+
+
+@dataclass
 class AuthConfig:
     """Authentication settings for the web UI and REST API.
 
@@ -263,6 +314,8 @@ class Config:
     embedding: EmbeddingConfig = field(default_factory=EmbeddingConfig)
     chunking: ChunkingConfig = field(default_factory=ChunkingConfig)
     auth: AuthConfig = field(default_factory=AuthConfig)
+    cache: CacheConfig = field(default_factory=CacheConfig)
+    auto_detection: AutoDetectionConfig = field(default_factory=AutoDetectionConfig)
     debug: bool = field(
         default_factory=lambda: _env_bool("DOCMIND_DEBUG", False)
     )

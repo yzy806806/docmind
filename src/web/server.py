@@ -47,6 +47,11 @@ Bulk Operations (Phase 4b):
 - DELETE /api/v1/documents/bulk          Delete multiple documents (API)
 - POST   /documents/bulk-delete          Delete multiple documents (form)
 
+Document Type Detection (Phase 5b):
+- POST   /api/v1/documents/{doc_id}/detect-type  Re-run auto-detection
+- PATCH  /api/v1/documents/{doc_id}/type         Manually set document type
+- GET    /api/v1/documents/type-facets           Get document type facet counts
+
 WebSocket:
 - WS   /chat                     Real-time Q&A with citation tracking
 """
@@ -68,6 +73,7 @@ from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
 from fastapi import (
+    Body,
     FastAPI,
     File,
     Form,
@@ -91,6 +97,7 @@ from fastapi.security import APIKeyHeader
 from fastapi.staticfiles import StaticFiles
 
 from ..core.config import config
+from ..core.cache import create_cache_backend
 from ..core.db_sqlite import Database
 from ..core.job_queue import JobQueue
 from ..core.models import (
@@ -112,7 +119,7 @@ from ..errors import (
     ValidationError,
 )
 from ..validation import validate_doc_id, validate_search_query
-from .services import _export_search_results, _export_documents_bulk, _generate_summary_for_doc, _SyncLLMAdapter
+from .services import _export_search_results, _export_documents_bulk, _generate_summary_for_doc, _detect_document_type, _SyncLLMAdapter
 from .chat import handle_chat
 
 logger = logging.getLogger(__name__)
@@ -194,6 +201,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         db_path=config.database.path,
         min_size=config.database.pool_min_size,
         max_size=config.database.pool_max_size,
+        cache=create_cache_backend(
+            enabled=config.cache.enabled,
+            backend=config.cache.backend,
+            redis_url=config.cache.redis_url,
+            max_size=config.cache.max_size,
+        ),
     )
     await _db.connect()
 
@@ -937,6 +950,19 @@ def create_app() -> FastAPI:
                     body=body,
                     size=len(raw),
                 )
+
+                # Auto-detect document type (best-effort)
+                if config.auto_detection.enabled:
+                    try:
+                        doc_type, method = await _detect_document_type(
+                            display_title, body, ext or ""
+                        )
+                        await db.update_document_type(doc_id, doc_type)
+                    except Exception:
+                        logger.warning(
+                            "Type detection failed for doc %s, continuing",
+                            doc_id,
+                        )
 
                 # Auto-generate summary on upload (best-effort)
                 try:
@@ -2247,6 +2273,18 @@ def create_app() -> FastAPI:
             metadata=doc.metadata,
         )
 
+        # Auto-detect document type (best-effort)
+        if config.auto_detection.enabled:
+            try:
+                doc_type, method = await _detect_document_type(
+                    doc.title, doc.body, doc.ext
+                )
+                await db.update_document_type(doc_id, doc_type)
+            except Exception:
+                logger.warning(
+                    "Type detection failed for doc %s, continuing", doc_id
+                )
+
         # Auto-generate summary on submit (best-effort)
         try:
             summary = await _generate_summary_for_doc(
@@ -2334,6 +2372,117 @@ def create_app() -> FastAPI:
             created_at=doc["created_at"],
             updated_at=doc["updated_at"],
         )
+
+    # ── Document type detection (Phase 5b) ────────────────────────
+
+    @app.post(
+        "/api/v1/documents/{doc_id}/detect-type",
+        response_model=dict,
+        tags=["documents"],
+        summary="Re-run document type auto-detection",
+    )
+    async def redetect_document_type(
+        doc_id: int, api_key: str = Security(api_key_header)
+    ):
+        """Re-run LLM-based document type detection on an existing document.
+
+        Useful when the LLM was not configured during initial ingestion,
+        or after OCR improvements make text available.
+        """
+        db = get_db()
+        doc = await db.get_document(doc_id)
+        if doc is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"No document with id {doc_id}",
+            )
+
+        previous_type = doc.get("document_type", "other")
+        title = doc.get("title", "")
+        body = doc.get("body", "") or ""
+        ext = doc.get("ext", "") or ""
+
+        doc_type, method = await _detect_document_type(title, body, ext)
+        await db.update_document_type(doc_id, doc_type)
+
+        logger.info(
+            "Re-detected type for doc %s: %s → %s (method=%s)",
+            doc_id, previous_type, doc_type, method,
+        )
+
+        return {
+            "doc_id": doc_id,
+            "previous_type": previous_type,
+            "detected_type": doc_type,
+            "detection_method": method,
+        }
+
+    @app.patch(
+        "/api/v1/documents/{doc_id}/type",
+        response_model=dict,
+        tags=["documents"],
+        summary="Manually set document type (override auto-detection)",
+    )
+    async def set_document_type(
+        doc_id: int,
+        body: dict = Body(...),
+        api_key: str = Security(api_key_header),
+    ):
+        """Manually set the document type, overriding auto-detection.
+
+        The body must contain a ``document_type`` field with one of
+        the valid type keys (invoice, contract, resume, email,
+        research_paper, report, receipt, letter, form, presentation,
+        spreadsheet, manual, article, other).
+        """
+        from ..core.detector import DOCUMENT_TYPES
+
+        doc_type = body.get("document_type", "")
+        if doc_type not in DOCUMENT_TYPES:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"Invalid document_type '{doc_type}'. "
+                    f"Valid types: {', '.join(sorted(DOCUMENT_TYPES))}"
+                ),
+            )
+
+        db = get_db()
+        doc = await db.get_document(doc_id)
+        if doc is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"No document with id {doc_id}",
+            )
+
+        previous_type = doc.get("document_type", "other")
+        await db.update_document_type(doc_id, doc_type)
+
+        logger.info(
+            "Manual type override for doc %s: %s → %s",
+            doc_id, previous_type, doc_type,
+        )
+
+        return {
+            "doc_id": doc_id,
+            "previous_type": previous_type,
+            "document_type": doc_type,
+            "detection_method": "manual",
+        }
+
+    @app.get(
+        "/api/v1/documents/type-facets",
+        response_model=list,
+        tags=["documents"],
+        summary="Get document type facet counts",
+    )
+    async def get_document_type_facets(
+        api_key: str = Security(api_key_header)
+    ):
+        """Return document type counts for faceted filtering."""
+        db = get_db()
+        facets = await db.get_document_type_facet()
+        return facets
 
     @app.get(
         "/api/v1/jobs/{job_id}",

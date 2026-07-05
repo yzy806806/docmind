@@ -30,6 +30,13 @@ from .embeddings import (
     deserialize_vector,
     serialize_vector,
 )
+from .cache import (
+    CacheBackend,
+    CacheTTLConfig,
+    create_cache_backend,
+    hash_params,
+    make_key,
+)
 from .models import JobRecord, JobState
 
 logger = logging.getLogger(__name__)
@@ -51,6 +58,7 @@ CREATE TABLE IF NOT EXISTS documents (
     summary         TEXT,
     raw_preview     TEXT DEFAULT '',
     body            TEXT DEFAULT '',
+    document_type   TEXT DEFAULT 'other',
     status          TEXT NOT NULL DEFAULT 'pending'
                         CHECK (status IN ('pending','indexed','summarized','error')),
     metadata        TEXT DEFAULT '{}',
@@ -60,6 +68,7 @@ CREATE TABLE IF NOT EXISTS documents (
 
 CREATE INDEX IF NOT EXISTS idx_documents_status ON documents(status);
 CREATE INDEX IF NOT EXISTS idx_documents_source ON documents(source_type, source_name);
+CREATE INDEX IF NOT EXISTS idx_documents_type ON documents(document_type);
 
 CREATE TABLE IF NOT EXISTS jobs (
     id              TEXT PRIMARY KEY,
@@ -259,6 +268,7 @@ class Database:
         *,
         min_size: int = 1,
         max_size: int = 5,
+        cache: Optional[CacheBackend] = None,
     ):
         """Initialize the Database with a path to the SQLite file.
 
@@ -267,6 +277,9 @@ class Database:
                 are created automatically.
             min_size: Ignored (kept for interface compatibility with asyncpg).
             max_size: Maximum number of concurrent connections in the pool.
+            cache: Optional CacheBackend for query result caching. If None,
+                one is created from environment config via
+                ``create_cache_backend()``. Pass a ``NoopCache`` to disable.
         """
         self._db_path = db_path
         self._path = Path(db_path)
@@ -275,6 +288,8 @@ class Database:
         self._lock = asyncio.Lock()
         self._min_size = min_size
         self._max_size = max_size
+        # Cache backend for read-path caching (cache-aside pattern).
+        self._cache: CacheBackend = cache or create_cache_backend()
         # Optional async callback invoked after a document is saved.
         # Signature: async fn(doc_id: int, path: str, title: str, summary: str, body: str)
         # Used by the embedding pipeline to generate vectors on document index.
@@ -298,6 +313,66 @@ class Database:
             await self._conn.close()
             self._conn = None
 
+    # ── Cache Helpers ───────────────────────────────────────────
+
+    async def _invalidate_document_mutations(self, doc_id: Optional[int] = None) -> None:
+        """Invalidate cache keys affected by document mutations.
+
+        Called after document create/update/delete operations.
+        If doc_id is provided, also invalidates per-document keys.
+        """
+        await self._cache.delete_pattern("docmind:docs:list:*")
+        await self._cache.delete_pattern("docmind:search:fts:*")
+        await self._cache.delete_pattern("docmind:docs:by_tag:*")
+        await self._cache.delete("docmind:analytics:stats")
+        await self._cache.delete("docmind:analytics:storage")
+        await self._cache.delete("docmind:analytics:tag_dist")
+        await self._cache.delete_pattern("docmind:analytics:growth:*")
+        await self._cache.delete("docmind:collection:counts")
+        await self._cache.delete("docmind:tag:all")
+        await self._cache.delete_pattern("docmind:analytics:file_type_facets")
+        await self._cache.delete_pattern("docmind:analytics:source_facets")
+        await self._cache.delete("docmind:doc:type:facet")
+        if doc_id is not None:
+            await self._cache.delete(make_key("docmind", "doc", "get", doc_id))
+            await self._cache.delete(make_key("docmind", "tag", "get", doc_id))
+            await self._cache.delete(make_key("docmind", "doc", "by_path", doc_id))
+
+    async def _invalidate_tag_mutations(self, doc_id: Optional[int] = None) -> None:
+        """Invalidate cache keys affected by tag add/remove."""
+        if doc_id is not None:
+            await self._cache.delete(make_key("docmind", "tag", "get", doc_id))
+        await self._cache.delete("docmind:tag:all")
+        await self._cache.delete_pattern("docmind:docs:by_tag:*")
+        await self._cache.delete("docmind:analytics:tag_dist")
+        await self._cache.delete("docmind:analytics:stats")
+
+    async def _invalidate_collection_mutations(self, collection_id: Optional[int] = None) -> None:
+        """Invalidate cache keys affected by collection mutations."""
+        if collection_id is not None:
+            await self._cache.delete(make_key("docmind", "collection", "get", collection_id))
+        await self._cache.delete("docmind:collection:tree")
+        await self._cache.delete("docmind:collection:counts")
+        await self._cache.delete_pattern("docmind:docs:list:*")
+        await self._cache.delete("docmind:analytics:stats")
+
+    async def _invalidate_job_mutations(self, job_id: Optional[str] = None) -> None:
+        """Invalidate cache keys affected by job state changes."""
+        await self._cache.delete_pattern("docmind:jobs:list:*")
+        await self._cache.delete("docmind:analytics:job_stats")
+        await self._cache.delete("docmind:analytics:stats")
+        if job_id is not None:
+            await self._cache.delete(make_key("docmind", "job", "get", job_id))
+
+    async def _invalidate_chat_mutations(self, session_id: Optional[str] = None) -> None:
+        """Invalidate cache keys affected by chat mutations."""
+        await self._cache.delete_pattern("docmind:chat:sessions:*")
+        await self._cache.delete("docmind:analytics:chat_activity")
+        if session_id is not None:
+            await self._cache.delete_pattern(
+                make_key("docmind", "chat", "messages", session_id, "*")
+            )
+
     async def migrate(self) -> None:
         """Apply schema DDL idempotently."""
         if self._conn is None:
@@ -316,6 +391,13 @@ class Database:
             await self._conn.execute(
                 "ALTER TABLE documents ADD COLUMN collection_id INTEGER "
                 "REFERENCES collections(id) ON DELETE SET NULL"
+            )
+
+        # Idempotent ALTER TABLE: add document_type column for Phase 5b
+        # auto-detection if it does not already exist.
+        if "document_type" not in columns:
+            await self._conn.execute(
+                "ALTER TABLE documents ADD COLUMN document_type TEXT DEFAULT 'other'"
             )
 
         await self._conn.commit()
@@ -360,7 +442,9 @@ class Database:
             )
             row = await cursor.fetchone()
 
-        return self._row_to_job_record(row)
+        job = self._row_to_job_record(row)
+        await self._invalidate_job_mutations(job_id)
+        return job
 
     async def dequeue_job(self) -> Optional[JobRecord]:
         """Claim the oldest pending job atomically.
@@ -397,6 +481,8 @@ class Database:
             )
             row = await cursor.fetchone()
 
+        if row:
+            await self._invalidate_job_mutations(str(row["id"]))
         return self._row_to_job_record(row) if row else None
 
     async def complete_job(self, job_id: str, document_id: int) -> None:
@@ -410,6 +496,8 @@ class Database:
                 (document_id, now, job_id),
             )
             await conn.commit()
+        await self._invalidate_job_mutations(job_id)
+        await self._invalidate_document_mutations(document_id)
 
     async def fail_job(self, job_id: str, error: str) -> None:
         """Mark a job as failed with an error message."""
@@ -422,9 +510,14 @@ class Database:
                 (error, now, job_id),
             )
             await conn.commit()
+        await self._invalidate_job_mutations(job_id)
 
     async def get_job(self, job_id: str) -> Optional[JobRecord]:
         """Fetch a single job by ID."""
+        key = make_key("docmind", "job", "get", job_id)
+        cached = await self._cache.get(key)
+        if cached is not None:
+            return cached
         async with self.connection() as conn:
             cursor = await conn.execute(
                 """SELECT id, state, document_path, document_title, source_name,
@@ -434,7 +527,10 @@ class Database:
             )
             row = await cursor.fetchone()
 
-        return self._row_to_job_record(row) if row else None
+        result = self._row_to_job_record(row) if row else None
+        if result is not None:
+            await self._cache.set(key, result, ttl=CacheTTLConfig.job_detail)
+        return result
 
     async def create_job(
         self,
@@ -489,6 +585,14 @@ class Database:
         Returns a dict with ``jobs``, ``total``, ``page``, ``per_page``,
         and ``total_pages`` keys.
         """
+        cache_key = make_key(
+            "docmind", "jobs", "list",
+            hash_params(state=state, page=page, per_page=per_page),
+        )
+        cached = await self._cache.get(cache_key)
+        if cached is not None:
+            return cached
+
         offset = (page - 1) * per_page
         async with self.connection() as conn:
             if state:
@@ -521,13 +625,15 @@ class Database:
 
         total = count_row["cnt"] if count_row else 0
         total_pages = (total + per_page - 1) // per_page if per_page > 0 else 0
-        return {
+        result = {
             "jobs": [self._row_to_job_record(r) for r in rows],
             "total": total,
             "page": page,
             "per_page": per_page,
             "total_pages": total_pages,
         }
+        await self._cache.set(cache_key, result, ttl=CacheTTLConfig.job_list)
+        return result
 
     async def count_jobs(self, *, state: Optional[str] = None) -> int:
         """Count jobs, optionally filtered by state."""
@@ -580,6 +686,7 @@ class Database:
                     (state, now, job_id),
                 )
             await conn.commit()
+        await self._invalidate_job_mutations(job_id)
 
     # ── Document CRUD ───────────────────────────────────────────
 
@@ -598,6 +705,7 @@ class Database:
         metadata: dict[str, Any] | None = None,
         summary: Optional[str] = None,
         status: str = "indexed",
+        document_type: str = "other",
     ) -> int:
         """Insert or update a document, returning its id.
 
@@ -613,25 +721,26 @@ class Database:
                 """INSERT INTO documents
                       (path, source_type, source_name, file_hash, mtime, size,
                        title, ext, mime_type, summary, raw_preview, body,
-                       status, metadata, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                       document_type, status, metadata, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                    ON CONFLICT(path) DO UPDATE SET
-                       file_hash   = excluded.file_hash,
-                       mtime       = excluded.mtime,
-                       size        = excluded.size,
-                       title       = excluded.title,
-                       ext         = excluded.ext,
-                       mime_type   = excluded.mime_type,
-                       summary     = excluded.summary,
-                       raw_preview = excluded.raw_preview,
-                       body        = excluded.body,
-                       status      = excluded.status,
-                       metadata    = excluded.metadata,
-                       updated_at  = excluded.updated_at""",
+                       file_hash      = excluded.file_hash,
+                       mtime          = excluded.mtime,
+                       size           = excluded.size,
+                       title          = excluded.title,
+                       ext            = excluded.ext,
+                       mime_type      = excluded.mime_type,
+                       summary        = excluded.summary,
+                       raw_preview    = excluded.raw_preview,
+                       body           = excluded.body,
+                       document_type  = excluded.document_type,
+                       status         = excluded.status,
+                       metadata       = excluded.metadata,
+                       updated_at     = excluded.updated_at""",
                 (
                     path, source_type, source_name, file_hash, mtime, size,
                     title, ext, mime_type, summary, raw_preview, body,
-                    status, meta_json, now, now,
+                    document_type, status, meta_json, now, now,
                 ),
             )
             await conn.commit()
@@ -642,6 +751,9 @@ class Database:
             row = await cursor.fetchone()
 
         doc_id = row["id"] if row else 0
+
+        # Invalidate cache for document mutations
+        await self._invalidate_document_mutations(doc_id if doc_id else None)
 
         # Fire the embedding hook if configured (non-blocking, error-tolerant)
         if doc_id and self.on_document_saved is not None:
@@ -674,6 +786,7 @@ class Database:
         mtime: float = 0.0,
         size: int = 0,
         metadata: dict[str, Any] | None = None,
+        document_type: str = "other",
     ) -> int:
         """Insert or update a document — alias for save_document.
 
@@ -683,10 +796,101 @@ class Database:
         return await self.save_document(
             path, source_type, source_name, title, ext, mime_type, body,
             file_hash=file_hash, mtime=mtime, size=size, metadata=metadata,
+            document_type=document_type,
         )
+
+    async def update_document_type(self, doc_id: int, doc_type: str) -> bool:
+        """Update the document_type column for a document.
+
+        Args:
+            doc_id: Internal document ID.
+            doc_type: One of the type keys from DOCUMENT_TYPES.
+
+        Returns:
+            True if the row was updated, False if the document was not found.
+        """
+        now = _now_iso()
+        async with self.connection() as conn:
+            cursor = await conn.execute(
+                """UPDATE documents SET document_type = ?, updated_at = ?
+                   WHERE id = ?""",
+                (doc_type, now, doc_id),
+            )
+            await conn.commit()
+            updated = cursor.rowcount > 0
+
+        if updated:
+            await self._invalidate_document_mutations(doc_id)
+
+        return updated
+
+    async def get_documents_by_type(
+        self,
+        doc_type: str,
+        *,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        """Fetch all documents of a given type.
+
+        Args:
+            doc_type: One of the type keys from DOCUMENT_TYPES.
+            limit: Maximum number of results.
+            offset: Pagination offset.
+
+        Returns:
+            List of document dicts.
+        """
+        key = make_key("docmind", "docs", "by_type", doc_type, offset, limit)
+        cached = await self._cache.get(key)
+        if cached is not None:
+            return cached
+
+        async with self.connection() as conn:
+            cursor = await conn.execute(
+                """SELECT * FROM documents
+                   WHERE document_type = ?
+                   ORDER BY updated_at DESC
+                   LIMIT ? OFFSET ?""",
+                (doc_type, limit, offset),
+            )
+            rows = await cursor.fetchall()
+
+        result = [self._row_to_doc_dict(r) for r in rows]
+        await self._cache.set(key, result, ttl=CacheTTLConfig.doc_list)
+        return result
+
+    async def get_document_type_facet(self) -> list[dict[str, Any]]:
+        """Return document_type counts for faceted filtering.
+
+        Returns:
+            List of {"value": type_key, "count": N} dicts, sorted by
+            count descending.
+        """
+        key = "docmind:doc:type:facet"
+        cached = await self._cache.get(key)
+        if cached is not None:
+            return cached
+
+        async with self.connection() as conn:
+            cursor = await conn.execute(
+                """SELECT document_type AS value, COUNT(*) AS count
+                   FROM documents
+                   GROUP BY document_type
+                   ORDER BY count DESC"""
+            )
+            rows = await cursor.fetchall()
+
+        result = [{"value": r["value"], "count": r["count"]} for r in rows]
+        await self._cache.set(key, result, ttl=CacheTTLConfig.doc_list)
+        return result
 
     async def get_document(self, doc_id: int) -> Optional[dict[str, Any]]:
         """Fetch a document by its internal ID."""
+        key = make_key("docmind", "doc", "get", doc_id)
+        cached = await self._cache.get(key)
+        if cached is not None:
+            return cached
         async with self.connection() as conn:
             cursor = await conn.execute(
                 "SELECT * FROM documents WHERE id = ?", (doc_id,)
@@ -695,10 +899,17 @@ class Database:
 
         if row is None:
             return None
-        return self._row_to_doc_dict(row)
+        result = self._row_to_doc_dict(row)
+        await self._cache.set(key, result, ttl=CacheTTLConfig.doc_single)
+        return result
 
     async def get_document_by_path(self, path: str) -> Optional[dict[str, Any]]:
         """Fetch a document by its unique path."""
+        path_hash = hash_params(path=path)
+        key = make_key("docmind", "doc", "by_path", path_hash)
+        cached = await self._cache.get(key)
+        if cached is not None:
+            return cached
         async with self.connection() as conn:
             cursor = await conn.execute(
                 "SELECT * FROM documents WHERE path = ?", (path,)
@@ -707,7 +918,9 @@ class Database:
 
         if row is None:
             return None
-        return self._row_to_doc_dict(row)
+        result = self._row_to_doc_dict(row)
+        await self._cache.set(key, result, ttl=CacheTTLConfig.doc_by_path)
+        return result
 
     def _build_filter_clause(
         self,
@@ -845,6 +1058,20 @@ class Database:
             file_type: Optional file extension filter (e.g. '.pdf', 'pdf').
             tag: Optional tag name filter.
         """
+        # Build cache key from all filter parameters
+        key = make_key(
+            "docmind", "docs", "list",
+            hash_params(
+                source=source, collection_id=collection_id,
+                date_from=date_from, date_to=date_to,
+                file_type=file_type, tag=tag,
+                page=page, per_page=per_page,
+            ),
+        )
+        cached = await self._cache.get(key)
+        if cached is not None:
+            return cached
+
         offset = (page - 1) * per_page
         docs = await self.list_documents(
             source=source, collection_id=collection_id,
@@ -857,13 +1084,15 @@ class Database:
             date_from=date_from, date_to=date_to,
             file_type=file_type, tag=tag,
         )
-        return {
+        result = {
             "documents": docs,
             "total": total,
             "page": page,
             "per_page": per_page,
             "total_pages": (total + per_page - 1) // per_page if per_page > 0 else 0,
         }
+        await self._cache.set(key, result, ttl=CacheTTLConfig.doc_list)
+        return result
 
     async def get_document_count(
         self, *, source: Optional[str] = None,
@@ -911,7 +1140,14 @@ class Database:
                 "DELETE FROM documents WHERE id = ?", (doc_id,)
             )
             await conn.commit()
-            return cursor.rowcount > 0
+            deleted = cursor.rowcount > 0
+
+        if deleted:
+            await self._invalidate_document_mutations(doc_id)
+            await self._invalidate_tag_mutations(doc_id)
+            await self._invalidate_collection_mutations()
+            await self._invalidate_job_mutations()
+        return deleted
 
     async def update_summary(self, doc_id: int, summary: str) -> None:
         """Store an LLM-generated summary for a document."""
@@ -924,6 +1160,8 @@ class Database:
                 (summary, now, doc_id),
             )
             await conn.commit()
+
+        await self._invalidate_document_mutations(doc_id)
 
     async def search_documents(
         self, query: str, limit: int = 30,
@@ -951,6 +1189,19 @@ class Database:
         safe_query = _sanitize_fts_query(query)
         if not safe_query or safe_query == '""':
             return []
+
+        # Check cache
+        search_key = make_key(
+            "docmind", "search", "fts",
+            hash_params(
+                query=query, limit=limit, collection_id=collection_id,
+                date_from=date_from, date_to=date_to,
+                file_type=file_type, tag=tag,
+            ),
+        )
+        cached = await self._cache.get(search_key)
+        if cached is not None:
+            return cached
 
         # Build extra filter conditions for the FTS query
         extra_conditions: list[str] = []
@@ -1005,7 +1256,9 @@ class Database:
             )
             rows = await cursor.fetchall()
 
-        return [self._row_to_doc_dict(r) for r in rows]
+        result = [self._row_to_doc_dict(r) for r in rows]
+        await self._cache.set(search_key, result, ttl=CacheTTLConfig.search)
+        return result
 
     async def fulltext_search(
         self, query: str, limit: int = 30,
@@ -1025,6 +1278,10 @@ class Database:
 
     async def get_stats(self) -> dict[str, Any]:
         """Return knowledge base statistics."""
+        key = "docmind:analytics:stats"
+        cached = await self._cache.get(key)
+        if cached is not None:
+            return cached
         async with self.connection() as conn:
             total_cursor = await conn.execute(
                 "SELECT COUNT(*) as c FROM documents"
@@ -1056,7 +1313,7 @@ class Database:
             )
             job_row = await job_cursor.fetchone()
 
-        return {
+        result = {
             "total": total_row["c"] if total_row else 0,
             "pending": pending_row["c"] if pending_row else 0,
             "indexed": indexed_row["c"] if indexed_row else 0,
@@ -1064,6 +1321,8 @@ class Database:
             "error": error_row["c"] if error_row else 0,
             "active_jobs": job_row["c"] if job_row else 0,
         }
+        await self._cache.set(key, result, ttl=CacheTTLConfig.dashboard_stats)
+        return result
 
     async def get_pending_summaries(self, limit: int = 10) -> list[dict[str, Any]]:
         """Get documents that need LLM summarization (status = 'indexed')."""
@@ -1097,6 +1356,7 @@ class Database:
                 (sid, title, now, now),
             )
             await conn.commit()
+        await self._invalidate_chat_mutations()
         return {"id": sid, "title": title, "created_at": now, "updated_at": now}
 
     async def get_chat_session(self, session_id: str) -> Optional[dict[str, Any]]:
@@ -1119,6 +1379,10 @@ class Database:
         Each entry includes a ``preview`` field: the first 120 chars of the
         most recent user message in that session (or empty string if none).
         """
+        key = make_key("docmind", "chat", "sessions", limit)
+        cached = await self._cache.get(key)
+        if cached is not None:
+            return cached
         async with self.connection() as conn:
             cursor = await conn.execute(
                 """SELECT s.id, s.title, s.created_at, s.updated_at,
@@ -1144,6 +1408,7 @@ class Database:
                 "created_at": r["created_at"],
                 "updated_at": r["updated_at"],
             })
+        await self._cache.set(key, result, ttl=CacheTTLConfig.chat_sessions)
         return result
 
     async def delete_chat_session(self, session_id: str) -> bool:
@@ -1156,7 +1421,11 @@ class Database:
                 "DELETE FROM chat_sessions WHERE id = ?", (session_id,)
             )
             await conn.commit()
-            return cursor.rowcount > 0
+            deleted = cursor.rowcount > 0
+
+        if deleted:
+            await self._invalidate_chat_mutations(session_id)
+        return deleted
 
     async def update_chat_session_title(
         self, session_id: str, title: str
@@ -1173,7 +1442,11 @@ class Database:
                 (title, now, session_id),
             )
             await conn.commit()
-            return cursor.rowcount > 0
+            updated = cursor.rowcount > 0
+
+        if updated:
+            await self._invalidate_chat_mutations(session_id)
+        return updated
 
     async def save_chat_message(
         self,
@@ -1205,6 +1478,7 @@ class Database:
             )
             await conn.commit()
 
+        await self._invalidate_chat_mutations(session_id)
         return {
             "id": msg_id,
             "session_id": session_id,
@@ -1218,6 +1492,10 @@ class Database:
         self, session_id: str, limit: int = 50
     ) -> list[dict[str, Any]]:
         """Return messages for a session, oldest first, up to ``limit``."""
+        key = make_key("docmind", "chat", "messages", session_id, limit)
+        cached = await self._cache.get(key)
+        if cached is not None:
+            return cached
         async with self.connection() as conn:
             cursor = await conn.execute(
                 """SELECT id, session_id, role, content, citations_json, created_at
@@ -1229,7 +1507,9 @@ class Database:
             )
             rows = await cursor.fetchall()
 
-        return [self._row_to_chat_message_dict(r) for r in rows]
+        result = [self._row_to_chat_message_dict(r) for r in rows]
+        await self._cache.set(key, result, ttl=CacheTTLConfig.chat_messages)
+        return result
 
     # ── Settings key/value store ─────────────────────────────────
 
@@ -1275,6 +1555,7 @@ class Database:
                 (key, value, now),
             )
             await conn.commit()
+        await self._cache.delete("docmind:settings:all")
 
     async def get_all_settings(self) -> dict[str, str]:
         """Return all settings as a {key: value} dict.
@@ -1282,17 +1563,23 @@ class Database:
         Values that are SQL NULL are skipped (matching the get_setting
         default semantics — callers that need a value should provide one).
         """
+        key = "docmind:settings:all"
+        cached = await self._cache.get(key)
+        if cached is not None:
+            return cached
         async with self.connection() as conn:
             cursor = await conn.execute(
                 "SELECT key, value FROM settings ORDER BY key"
             )
             rows = await cursor.fetchall()
 
-        return {
+        result = {
             row["key"]: row["value"]
             for row in rows
             if row["value"] is not None
         }
+        await self._cache.set(key, result, ttl=CacheTTLConfig.settings)
+        return result
 
     async def delete_setting(self, key: str) -> bool:
         """Delete a setting by key. Returns True if a row was removed."""
@@ -1301,7 +1588,10 @@ class Database:
                 "DELETE FROM settings WHERE key = ?", (key,)
             )
             await conn.commit()
-            return cursor.rowcount > 0
+            deleted = cursor.rowcount > 0
+        if deleted:
+            await self._cache.delete("docmind:settings:all")
+        return deleted
 
     # ── Document Tags ────────────────────────────────────────────
 
@@ -1341,6 +1631,7 @@ class Database:
             )
             row = await cursor.fetchone()
 
+        await self._invalidate_tag_mutations(doc_id)
         return {
             "id": row["id"],
             "doc_id": row["doc_id"],
@@ -1362,23 +1653,37 @@ class Database:
                 (doc_id, tag),
             )
             await conn.commit()
-            return cursor.rowcount > 0
+            removed = cursor.rowcount > 0
+
+        if removed:
+            await self._invalidate_tag_mutations(doc_id)
+        return removed
 
     async def get_tags(self, doc_id: int) -> list[str]:
         """Return a list of tag names for the given document, sorted alphabetically."""
+        key = make_key("docmind", "tag", "get", doc_id)
+        cached = await self._cache.get(key)
+        if cached is not None:
+            return cached
         async with self.connection() as conn:
             cursor = await conn.execute(
                 "SELECT tag FROM document_tags WHERE doc_id = ? ORDER BY tag",
                 (doc_id,),
             )
             rows = await cursor.fetchall()
-        return [row["tag"] for row in rows]
+        result = [row["tag"] for row in rows]
+        await self._cache.set(key, result, ttl=CacheTTLConfig.tag_list)
+        return result
 
     async def get_documents_by_tag(self, tag: str) -> list[dict[str, Any]]:
         """Return all documents that have the given tag, newest first."""
         tag = (tag or "").strip()
         if not tag:
             return []
+        key = make_key("docmind", "docs", "by_tag", hash_params(tag=tag))
+        cached = await self._cache.get(key)
+        if cached is not None:
+            return cached
         async with self.connection() as conn:
             cursor = await conn.execute(
                 """SELECT d.* FROM documents d
@@ -1388,13 +1693,19 @@ class Database:
                 (tag,),
             )
             rows = await cursor.fetchall()
-        return [self._row_to_doc_dict(r) for r in rows]
+        result = [self._row_to_doc_dict(r) for r in rows]
+        await self._cache.set(key, result, ttl=CacheTTLConfig.docs_by_tag)
+        return result
 
     async def get_all_tags(self) -> list[dict[str, Any]]:
         """Return all tags with their document counts, sorted by count descending.
 
         Each dict has keys: tag (str), count (int).
         """
+        key = "docmind:tag:all"
+        cached = await self._cache.get(key)
+        if cached is not None:
+            return cached
         async with self.connection() as conn:
             cursor = await conn.execute(
                 """SELECT tag, COUNT(*) as count
@@ -1403,7 +1714,9 @@ class Database:
                    ORDER BY count DESC, tag ASC""",
             )
             rows = await cursor.fetchall()
-        return [{"tag": row["tag"], "count": row["count"]} for row in rows]
+        result = [{"tag": row["tag"], "count": row["count"]} for row in rows]
+        await self._cache.set(key, result, ttl=CacheTTLConfig.tag_cloud)
+        return result
 
     async def get_tags_for_documents(
         self, doc_ids: list[int]
@@ -1459,6 +1772,10 @@ class Database:
 
         Returns a dict with keys: total_searches, avg_results, unique_queries.
         """
+        key = make_key("docmind", "analytics", "search_stats", days)
+        cached = await self._cache.get(key)
+        if cached is not None:
+            return cached
         async with self.connection() as conn:
             cursor = await conn.execute(
                 """SELECT COUNT(*) as total,
@@ -1472,17 +1789,23 @@ class Database:
 
         if row is None or row["total"] == 0:
             return {"total_searches": 0, "avg_results": 0.0, "unique_queries": 0}
-        return {
+        result = {
             "total_searches": row["total"],
             "avg_results": round(row["avg_results"] or 0, 2),
             "unique_queries": row["unique_queries"],
         }
+        await self._cache.set(key, result, ttl=CacheTTLConfig.search_stats)
+        return result
 
     async def get_popular_queries(self, limit: int = 10) -> list[dict[str, Any]]:
         """Return the most popular search queries by count.
 
         Each dict has keys: query, count, avg_results.
         """
+        key = make_key("docmind", "analytics", "popular", limit)
+        cached = await self._cache.get(key)
+        if cached is not None:
+            return cached
         async with self.connection() as conn:
             cursor = await conn.execute(
                 """SELECT query, COUNT(*) as count, AVG(results_count) as avg_results
@@ -1493,7 +1816,7 @@ class Database:
                 (limit,),
             )
             rows = await cursor.fetchall()
-        return [
+        result = [
             {
                 "query": row["query"],
                 "count": row["count"],
@@ -1501,12 +1824,18 @@ class Database:
             }
             for row in rows
         ]
+        await self._cache.set(key, result, ttl=CacheTTLConfig.popular_queries)
+        return result
 
     async def get_search_trend(self, days: int = 30) -> list[dict[str, Any]]:
         """Return daily search counts for the last *days* days.
 
         Each dict has keys: date (YYYY-MM-DD), count.
         """
+        key = make_key("docmind", "analytics", "search_trend", days)
+        cached = await self._cache.get(key)
+        if cached is not None:
+            return cached
         async with self.connection() as conn:
             cursor = await conn.execute(
                 """SELECT DATE(searched_at) as date, COUNT(*) as count
@@ -1517,7 +1846,9 @@ class Database:
                 (f"-{days} days",),
             )
             rows = await cursor.fetchall()
-        return [{"date": row["date"], "count": row["count"]} for row in rows]
+        result = [{"date": row["date"], "count": row["count"]} for row in rows]
+        await self._cache.set(key, result, ttl=CacheTTLConfig.search_trend)
+        return result
 
     # ── Analytics ────────────────────────────────────────────────
 
@@ -1526,6 +1857,10 @@ class Database:
 
         Each dict has keys: date (YYYY-MM-DD), count.
         """
+        key = make_key("docmind", "analytics", "growth", days)
+        cached = await self._cache.get(key)
+        if cached is not None:
+            return cached
         async with self.connection() as conn:
             cursor = await conn.execute(
                 """SELECT DATE(created_at) as date, COUNT(*) as count
@@ -1536,14 +1871,22 @@ class Database:
                 (f"-{days} days",),
             )
             rows = await cursor.fetchall()
-        return [{"date": row["date"], "count": row["count"]} for row in rows]
+        result = [{"date": row["date"], "count": row["count"]} for row in rows]
+        await self._cache.set(key, result, ttl=CacheTTLConfig.doc_growth)
+        return result
 
     async def get_tag_distribution(self) -> list[dict[str, Any]]:
         """Return tag distribution with counts, sorted by count descending.
 
         Each dict has keys: tag, count.
         """
-        return await self.get_all_tags()
+        key = "docmind:analytics:tag_dist"
+        cached = await self._cache.get(key)
+        if cached is not None:
+            return cached
+        result = await self.get_all_tags()
+        await self._cache.set(key, result, ttl=CacheTTLConfig.tag_dist)
+        return result
 
     async def get_storage_stats(self) -> dict[str, Any]:
         """Return storage statistics.
@@ -1551,6 +1894,10 @@ class Database:
         Returns a dict with keys: total_size, by_type (dict of ext -> size),
         avg_doc_size, doc_count.
         """
+        key = "docmind:analytics:storage"
+        cached = await self._cache.get(key)
+        if cached is not None:
+            return cached
         async with self.connection() as conn:
             cursor = await conn.execute(
                 """SELECT
@@ -1574,12 +1921,14 @@ class Database:
             ext = tr["ext"] or "unknown"
             by_type[ext] = tr["total_size"] or 0
 
-        return {
+        result = {
             "total_size": row["total_size"] if row else 0,
             "avg_doc_size": round(row["avg_doc_size"], 2) if row else 0,
             "doc_count": row["doc_count"] if row else 0,
             "by_type": by_type,
         }
+        await self._cache.set(key, result, ttl=CacheTTLConfig.storage_stats)
+        return result
 
     async def get_file_type_facets(self) -> list[dict[str, Any]]:
         """Return distinct file extensions with document counts.
@@ -1588,6 +1937,10 @@ class Database:
         Sorted by count descending then ext ascending.
         Used to populate the file-type facet dropdown on /documents.
         """
+        key = "docmind:analytics:file_type_facets"
+        cached = await self._cache.get(key)
+        if cached is not None:
+            return cached
         async with self.connection() as conn:
             cursor = await conn.execute(
                 """SELECT ext, COUNT(*) as count
@@ -1596,7 +1949,9 @@ class Database:
                    ORDER BY count DESC, ext ASC"""
             )
             rows = await cursor.fetchall()
-        return [{"ext": row["ext"] or "", "count": row["count"]} for row in rows]
+        result = [{"ext": row["ext"] or "", "count": row["count"]} for row in rows]
+        await self._cache.set(key, result, ttl=CacheTTLConfig.file_type_facets)
+        return result
 
     async def get_source_facets(self) -> list[dict[str, Any]]:
         """Return distinct source types with document counts.
@@ -1605,6 +1960,10 @@ class Database:
         Sorted by count descending then source_type ascending.
         Used to populate the source-type facet dropdown on /documents.
         """
+        key = "docmind:analytics:source_facets"
+        cached = await self._cache.get(key)
+        if cached is not None:
+            return cached
         async with self.connection() as conn:
             cursor = await conn.execute(
                 """SELECT source_type, COUNT(*) as count
@@ -1613,13 +1972,19 @@ class Database:
                    ORDER BY count DESC, source_type ASC"""
             )
             rows = await cursor.fetchall()
-        return [{"source_type": row["source_type"] or "", "count": row["count"]} for row in rows]
+        result = [{"source_type": row["source_type"] or "", "count": row["count"]} for row in rows]
+        await self._cache.set(key, result, ttl=CacheTTLConfig.source_facets)
+        return result
 
     async def get_chat_activity(self, days: int = 30) -> list[dict[str, Any]]:
         """Return daily chat message counts for the last *days* days.
 
         Each dict has keys: date (YYYY-MM-DD), message_count.
         """
+        key = make_key("docmind", "analytics", "chat_activity", days)
+        cached = await self._cache.get(key)
+        if cached is not None:
+            return cached
         async with self.connection() as conn:
             cursor = await conn.execute(
                 """SELECT DATE(created_at) as date, COUNT(*) as message_count
@@ -1630,7 +1995,9 @@ class Database:
                 (f"-{days} days",),
             )
             rows = await cursor.fetchall()
-        return [{"date": row["date"], "message_count": row["message_count"]} for row in rows]
+        result = [{"date": row["date"], "message_count": row["message_count"]} for row in rows]
+        await self._cache.set(key, result, ttl=CacheTTLConfig.chat_activity)
+        return result
 
     async def get_job_stats(self) -> dict[str, Any]:
         """Return job queue statistics.
@@ -1638,6 +2005,10 @@ class Database:
         Returns a dict with keys: by_state (dict of state -> count),
         total, success_rate, avg_processing_time_seconds, recent_failures.
         """
+        key = "docmind:analytics:job_stats"
+        cached = await self._cache.get(key)
+        if cached is not None:
+            return cached
         async with self.connection() as conn:
             state_cursor = await conn.execute(
                 """SELECT state, COUNT(*) as count
@@ -1689,13 +2060,15 @@ class Database:
             for fr in fail_rows
         ]
 
-        return {
+        result = {
             "by_state": by_state,
             "total": total,
             "success_rate": success_rate,
             "avg_processing_time_seconds": round(avg_row["avg_seconds"] or 0, 2) if avg_row else 0.0,
             "recent_failures": recent_failures,
         }
+        await self._cache.set(key, result, ttl=CacheTTLConfig.job_stats)
+        return result
 
     # ── Vector Embeddings ────────────────────────────────────────
 
@@ -2079,10 +2452,16 @@ class Database:
                 (name, description, parent_id, now, now),
             )
             await conn.commit()
-            return cursor.lastrowid or 0
+            col_id = cursor.lastrowid or 0
+        await self._invalidate_collection_mutations(col_id)
+        return col_id
 
     async def get_collection(self, collection_id: int) -> Optional[dict[str, Any]]:
         """Fetch a single collection by id. Returns None if not found."""
+        key = make_key("docmind", "collection", "get", collection_id)
+        cached = await self._cache.get(key)
+        if cached is not None:
+            return cached
         async with self.connection() as conn:
             cursor = await conn.execute(
                 """SELECT id, name, description, parent_id,
@@ -2094,7 +2473,9 @@ class Database:
 
         if row is None:
             return None
-        return self._row_to_collection_dict(row)
+        result = self._row_to_collection_dict(row)
+        await self._cache.set(key, result, ttl=CacheTTLConfig.collection_single)
+        return result
 
     async def list_collections(self) -> list[dict[str, Any]]:
         """Return a flat list of all collections, ordered by name."""
@@ -2113,6 +2494,10 @@ class Database:
         Each node has a ``children`` list. Root collections (parent_id IS NULL)
         are at the top level.
         """
+        key = "docmind:collection:tree"
+        cached = await self._cache.get(key)
+        if cached is not None:
+            return cached
         all_collections = await self.list_collections()
         by_parent: dict[Optional[int], list[dict[str, Any]]] = {}
         for col in all_collections:
@@ -2125,7 +2510,9 @@ class Database:
                 node["children"] = build_tree(node["id"])
             return nodes
 
-        return build_tree(None)
+        result = build_tree(None)
+        await self._cache.set(key, result, ttl=CacheTTLConfig.collection_tree)
+        return result
 
     async def update_collection(
         self,
@@ -2186,7 +2573,9 @@ class Database:
                 params,
             )
             await conn.commit()
-            return cursor.rowcount > 0
+            updated = cursor.rowcount > 0
+        await self._invalidate_collection_mutations(collection_id)
+        return updated
 
     async def _check_cycle(
         self, new_parent_id: int, collection_id: int
@@ -2247,7 +2636,11 @@ class Database:
                 "DELETE FROM collections WHERE id = ?", (collection_id,)
             )
             await conn.commit()
-            return cursor.rowcount > 0
+            deleted = cursor.rowcount > 0
+        if deleted:
+            await self._invalidate_collection_mutations(collection_id)
+            await self._invalidate_document_mutations()
+        return deleted
 
     async def get_collection_path(
         self, collection_id: int
@@ -2291,7 +2684,11 @@ class Database:
                 (collection_id, now, doc_id),
             )
             await conn.commit()
-            return cursor.rowcount > 0
+            assigned = cursor.rowcount > 0
+        if assigned:
+            await self._invalidate_collection_mutations(collection_id)
+            await self._invalidate_document_mutations(doc_id)
+        return assigned
 
     async def remove_document_from_collection(self, doc_id: int) -> bool:
         """Remove a document from its collection (set collection_id to NULL).
@@ -2308,7 +2705,11 @@ class Database:
                 (now, doc_id),
             )
             await conn.commit()
-            return cursor.rowcount > 0
+            removed = cursor.rowcount > 0
+        if removed:
+            await self._invalidate_collection_mutations()
+            await self._invalidate_document_mutations(doc_id)
+        return removed
 
     async def list_documents_by_collection(
         self,
@@ -2345,6 +2746,10 @@ class Database:
 
         Only collections that have at least one document are included.
         """
+        key = "docmind:collection:counts"
+        cached = await self._cache.get(key)
+        if cached is not None:
+            return cached
         async with self.connection() as conn:
             cursor = await conn.execute(
                 """SELECT collection_id, COUNT(*) as cnt
@@ -2353,7 +2758,9 @@ class Database:
                    GROUP BY collection_id"""
             )
             rows = await cursor.fetchall()
-        return {row["collection_id"]: row["cnt"] for row in rows}
+        result = {row["collection_id"]: row["cnt"] for row in rows}
+        await self._cache.set(key, result, ttl=CacheTTLConfig.collection_counts)
+        return result
 
     @staticmethod
     def _row_to_collection_dict(row: aiosqlite.Row) -> dict[str, Any]:
