@@ -274,7 +274,7 @@ class StorageConnector:
                             except (TypeError, ValueError):
                                 meta[col] = str(val)
 
-                self.indexer.upsert_document(
+                doc_id = self.indexer.upsert_document(
                     path=path,
                     source_type="postgresql",
                     source_name=source_name,
@@ -286,6 +286,7 @@ class StorageConnector:
                     size=len(content.encode("utf-8")),
                     metadata=meta,
                 )
+                self._detect_and_update(doc_id, str(title), str(body), ".txt")
                 count += 1
         finally:
             await conn.close()
