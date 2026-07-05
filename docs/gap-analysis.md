@@ -56,7 +56,7 @@
 
 | Feature | Status | Priority | Notes |
 |---------|--------|----------|-------|
-| OCR for scanned PDFs/images | 🔴 Missing | **HIGH** | No OCR/Tesseract integration found in `extractor.py` |
+| OCR for scanned PDFs/images | ✅ Have | - | Tesseract OCR via pytesseract, scanned PDF fallback, image file support (Phase 4a done) |
 | Email ingestion | 🔴 Missing | Medium | Paperless-ngx, Docspell have this |
 | Bulk operations (beyond delete) | 🟡 Partial | **HIGH** | Only bulk delete; missing bulk tag, move, export |
 | Faceted search (filters by type, date, tags) | 🟡 Partial | **HIGH** | Basic tag filter exists, no date/type facets |

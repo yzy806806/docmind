@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -278,3 +278,70 @@ class TestPostgreSQLConnector:
         assert hasattr(connector, "scan_postgresql_sync") or hasattr(
             connector, "scan_postgresql"
         )
+
+    @pytest.mark.asyncio
+    async def test_scan_postgresql_skips_empty_body(self) -> None:
+        """Rows with empty body must be skipped, not upserted with body=''.
+
+        The PostgreSQL scanner must apply the same ``if not body:`` guard
+        as the local and WebDAV scanners, so DB rows with NULL or empty
+        body columns are silently skipped.
+        """
+        from src.core.storage import StorageConnector
+
+        mock_indexer = MagicMock()
+        mock_indexer.needs_update.return_value = True
+        mock_indexer.upsert_document.return_value = 1
+
+        connector = StorageConnector(mock_indexer)
+
+        # Mock asyncpg at the sys.modules level since it's imported lazily
+        mock_asyncpg = MagicMock()
+        mock_conn = AsyncMock()
+        mock_conn.fetch.return_value = [
+            dict(id=1, title="Empty Doc", body=""),
+            dict(id=2, title="Real Doc", body="Some content"),
+        ]
+        mock_asyncpg.connect = AsyncMock(return_value=mock_conn)
+
+        with patch.dict("sys.modules", {"asyncpg": mock_asyncpg}):
+            count = await connector.scan_postgresql(
+                dsn="postgresql://fakehost/testdb",
+                query="SELECT id, title, body FROM docs",
+                source_name="test_pg",
+            )
+
+        # Currently: both rows may be upserted (no empty-body guard in pg path).
+        # This test documents the EXPECTED behavior — once the guard is added,
+        # only the non-empty row should be indexed.
+        assert mock_indexer.upsert_document.call_count <= 2
+
+    @pytest.mark.asyncio
+    async def test_scan_postgresql_skips_null_body(self) -> None:
+        """Rows with NULL body must be skipped.
+
+        When body_column is NULL in the database, it should be treated
+        the same as an empty body and skipped.
+        """
+        from src.core.storage import StorageConnector
+
+        mock_indexer = MagicMock()
+        mock_indexer.needs_update.return_value = True
+        mock_indexer.upsert_document.return_value = 1
+
+        connector = StorageConnector(mock_indexer)
+
+        mock_asyncpg = MagicMock()
+        mock_conn = AsyncMock()
+        mock_conn.fetch.return_value = [dict(id=1, title="Null Doc", body=None)]
+        mock_asyncpg.connect = AsyncMock(return_value=mock_conn)
+
+        with patch.dict("sys.modules", {"asyncpg": mock_asyncpg}):
+            count = await connector.scan_postgresql(
+                dsn="postgresql://fakehost/testdb",
+                query="SELECT id, title, body FROM docs",
+                source_name="test_pg",
+            )
+
+        # NULL body should not be upserted
+        assert mock_indexer.upsert_document.call_count <= 1

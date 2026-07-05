@@ -192,37 +192,84 @@ def test_extract_docx_with_tables() -> None:
 
 # ── PDF extraction (basic) ─────────────────────────────────────
 
-def test_extract_pdf_basic() -> None:
-    """Test that PDF extraction with pdfplumber works on a simple PDF."""
-    import pdfplumber
+def _minimal_pdf_bytes() -> bytes:
+    """Return bytes of a minimal valid PDF with no text (1 page, empty)."""
+    return (
+        b"%PDF-1.4\n"
+        b"1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n"
+        b"2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n"
+        b"3 0 obj<</Type/Page/MediaBox[0 0 612 792]/Parent 2 0 R/Resources<<>>>>endobj\n"
+        b"xref\n0 4\n0000000000 65535 f \n0000000009 00000 n \n0000000058 00000 n \n0000000115 00000 n \n"
+        b"trailer<</Size 4/Root 1 0 R>>\nstartxref\n190\n%%EOF\n"
+    )
 
+
+def _pdf_with_text_bytes(text_lines: list[str]) -> bytes:
+    """Create a PDF with real text using reportlab.  Each string is a separate line."""
+    import io as _io
+    from reportlab.pdfgen import canvas
+    from reportlab.lib.pagesizes import letter
+
+    buf = _io.BytesIO()
+    c = canvas.Canvas(buf, pagesize=letter)
+    y = 750
+    for line in text_lines:
+        c.drawString(100, y, line)
+        y -= 15
+    c.showPage()
+    c.save()
+    return buf.getvalue()
+
+
+def test_extract_pdf_basic() -> None:
+    """Test that PDF extraction with pdfplumber works on a simple PDF with text."""
     from src.core.extractor import Extractor
 
+    pdf_bytes = _pdf_with_text_bytes(["Hello world", "Line two"])
     tmp = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
+    tmp.write(pdf_bytes)
     tmp.close()
     p = Path(tmp.name)
 
     try:
-        # Create a minimal PDF with pdfplumber's own facilities... actually we can't
-        # easily create a PDF from scratch. Instead we'll test with pdfplumber's
-        # synthetic capabilities or skip. Actually pdfplumber can write too?
-        # Let's use a different approach: create a minimal valid PDF manually.
-        # Minimal PDF with one page of text
-        pdf_bytes = (
-            b"%PDF-1.4\n"
-            b"1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n"
-            b"2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n"
-            b"3 0 obj<</Type/Page/MediaBox[0 0 612 792]/Parent 2 0 R/Resources<<>>>>endobj\n"
-            b"xref\n0 4\n0000000000 65535 f \n0000000009 00000 n \n0000000058 00000 n \n0000000115 00000 n \n"
-            b"trailer<</Size 4/Root 1 0 R>>\nstartxref\n190\n%%EOF\n"
-        )
-        p.write_bytes(pdf_bytes)
-
         result = Extractor.extract(p)
-        # pdfplumber can open this but may not find text — that's fine
         assert result is not None
-        # result exists (even if empty string)
-        assert isinstance(result, str)
+        assert "Hello world" in result
+        assert "Line two" in result
+    finally:
+        p.unlink()
+
+
+def test_extract_pdf_scanned_empty_body() -> None:
+    """Scanned PDFs (no text layer) must return empty string, not None.
+
+    This is the key contract: the storage layer's ``if not body:`` guard
+    relies on Extractor returning ``""`` for scanned PDFs so they are
+    skipped rather than upserted with empty body.
+
+    Regression test for the silent data-loss bug — the old ``if body is None``
+    check in StorageConnector let empty strings through.
+    """
+    from src.core.extractor import Extractor
+
+    p = _write_temp(_minimal_pdf_bytes(), ".pdf")
+    try:
+        result = Extractor.extract(p)
+        assert result == "", (
+            f"Expected empty string for scanned PDF, got {result!r}"
+        )
+    finally:
+        p.unlink()
+
+
+def test_extract_pdf_error_returns_none() -> None:
+    """Corrupt/non-PDF bytes with .pdf extension must return None on failure."""
+    from src.core.extractor import Extractor
+
+    p = _write_temp(b"not a pdf at all", ".pdf")
+    try:
+        result = Extractor.extract(p)
+        assert result is None
     finally:
         p.unlink()
 
@@ -246,6 +293,33 @@ def test_extract_from_bytes_html() -> None:
     assert "HTML from bytes" in result
 
 
+def test_extract_from_bytes_pdf_text() -> None:
+    from src.core.extractor import Extractor
+
+    pdf_bytes = _pdf_with_text_bytes(["PDF from bytes test"])
+    result = Extractor.extract_from_bytes(pdf_bytes, ".pdf")
+    assert result is not None
+    assert "PDF from bytes test" in result
+
+
+def test_extract_from_bytes_pdf_scanned_empty() -> None:
+    """Scanned PDF bytes must return empty string from extract_from_bytes."""
+    from src.core.extractor import Extractor
+
+    result = Extractor.extract_from_bytes(_minimal_pdf_bytes(), ".pdf")
+    assert result == "", (
+        f"Expected empty string for scanned PDF bytes, got {result!r}"
+    )
+
+
+def test_extract_from_bytes_pdf_corrupt() -> None:
+    """Corrupt PDF bytes must return None on extraction failure."""
+    from src.core.extractor import Extractor
+
+    result = Extractor.extract_from_bytes(b"not a pdf", ".pdf")
+    assert result is None
+
+
 def test_extract_from_bytes_unsupported() -> None:
     from src.core.extractor import Extractor
 
@@ -258,15 +332,7 @@ def test_extract_from_bytes_unsupported() -> None:
 def test_extract_pages_pdf() -> None:
     from src.core.extractor import Extractor
 
-    # Minimal PDF
-    pdf_bytes = (
-        b"%PDF-1.4\n"
-        b"1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n"
-        b"2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n"
-        b"3 0 obj<</Type/Page/MediaBox[0 0 612 792]/Parent 2 0 R/Resources<<>>>>endobj\n"
-        b"xref\n0 4\n0000000000 65535 f \n0000000009 00000 n \n0000000058 00000 n \n0000000115 00000 n \n"
-        b"trailer<</Size 4/Root 1 0 R>>\nstartxref\n190\n%%EOF\n"
-    )
+    pdf_bytes = _pdf_with_text_bytes(["Page one text", "More page one"])
     tmp = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
     tmp.write(pdf_bytes)
     tmp.close()
@@ -275,11 +341,41 @@ def test_extract_pages_pdf() -> None:
     try:
         pages = Extractor.extract_pages(p)
         assert isinstance(pages, list)
-        # At least 1 page (from the PDF structure)
-        assert len(pages) >= 1
+        assert len(pages) == 1
         for page_num, text in pages:
             assert isinstance(page_num, int)
             assert isinstance(text, str)
+            assert "Page one text" in text
+    finally:
+        p.unlink()
+
+
+def test_extract_pages_empty_pdf() -> None:
+    """extract_pages on an empty/scanned PDF must return pages with empty text."""
+    from src.core.extractor import Extractor
+
+    p = _write_temp(_minimal_pdf_bytes(), ".pdf")
+    try:
+        pages = Extractor.extract_pages(p)
+        assert isinstance(pages, list)
+        assert len(pages) >= 1
+        for page_num, text in pages:
+            assert isinstance(page_num, int)
+            assert text == "", (
+                f"Expected empty text for scanned PDF page, got {text!r}"
+            )
+    finally:
+        p.unlink()
+
+
+def test_extract_pages_non_pdf() -> None:
+    """extract_pages on a non-PDF file must return empty list."""
+    from src.core.extractor import Extractor
+
+    p = _write_temp("not a pdf", ".txt")
+    try:
+        pages = Extractor.extract_pages(p)
+        assert pages == []
     finally:
         p.unlink()
 
