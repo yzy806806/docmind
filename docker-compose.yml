@@ -1,0 +1,50 @@
+services:
+  docmind:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: docmind:latest
+    container_name: docmind
+    restart: unless-stopped
+    ports:
+      - "${DOCMIND_PORT:-8000}:8000"
+    volumes:
+      # Persistent data (SQLite databases)
+      - ./data:/app/data
+      # Config (mount your config.yaml here; example included in image)
+      - ./config:/app/config
+    environment:
+      # ── Server ──────────────────────────────
+      DOCMIND_HOST: "0.0.0.0"
+      DOCMIND_PORT: "8000"
+      DOCMIND_WORKERS: "1"
+      DOCMIND_DEBUG: "false"
+
+      # ── Database ────────────────────────────
+      DOCMIND_DATABASE_PATH: "data/docmind.db"
+
+      # ── LLM ─────────────────────────────────
+      # Set these in a .env file or override on the command line.
+      DOCMIND_LLM_PROVIDER: "${DOCMIND_LLM_PROVIDER:-}"
+      DOCMIND_LLM_MODEL: "${DOCMIND_LLM_MODEL:-gpt-4o-mini}"
+      DOCMIND_LLM_API_KEY: "${DOCMIND_LLM_API_KEY:-}"
+      DOCMIND_LLM_BASE_URL: "${DOCMIND_LLM_BASE_URL:-}"
+
+      # ── Embeddings (enabled by default in image) ─
+      DOCMIND_EMBEDDING_PROVIDER: "${DOCMIND_EMBEDDING_PROVIDER:-local}"
+      DOCMIND_EMBEDDING_MODEL: "${DOCMIND_EMBEDDING_MODEL:-all-MiniLM-L6-v2}"
+
+      # ── Auth (optional) ─────────────────────
+      DOCMIND_AUTH_ENABLED: "${DOCMIND_AUTH_ENABLED:-false}"
+      DOCMIND_AUTH_API_KEY: "${DOCMIND_AUTH_API_KEY:-}"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
