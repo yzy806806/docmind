@@ -457,6 +457,85 @@ def _render_search_results(query: str, results: list[dict]) -> str:
     return _render_template("search_results.html", query=query, results=prepared)
 
 
+def _find_collection_name(
+    tree: list[dict], target_id: int
+) -> str | None:
+    """Recursively find a collection name by id in the tree."""
+    for node in tree:
+        if node["id"] == target_id:
+            return node.get("name", "")
+        found = _find_collection_name(
+            node.get("children", []), target_id
+        )
+        if found:
+            return found
+    return None
+
+
+def _build_collection_tree_html(
+    tree: list[dict],
+    counts: dict[int, int],
+    active_id: int | None,
+    *,
+    _level: int = 0,
+) -> str:
+    """Build an HTML <ul> tree of collections with document counts.
+
+    Mirrors the tag_cloud_html pattern: produces a self-contained
+    ``<div class="collection-tree">`` block ready for the template.
+    """
+    if not tree and _level == 0:
+        # Also show the "All" + "Unassigned" links even when no collections exist
+        pass
+
+    def _render_node(node: dict, level: int) -> str:
+        col_id = node["id"]
+        name = node.get("name", "Untitled")
+        count = counts.get(col_id, 0)
+        active_class = " active" if col_id == active_id else ""
+        indent = f"margin-left:{level * 16}px;"
+        children_html = ""
+        children = node.get("children", [])
+        if children:
+            inner = "".join(
+                _render_node(child, level + 1) for child in children
+            )
+            children_html = f'<ul class="collection-tree-children">{inner}</ul>'
+        return (
+            f'<li><a href="/documents?collection_id={col_id}" '
+            f'class="collection-tree-item{active_class}" style="{indent}"'
+            f'>{_escape(name)} '
+            f'<span class="collection-count">({count})</span></a>'
+            f'{children_html}</li>'
+        )
+
+    items = "".join(_render_node(node, 0) for node in tree)
+    # "Show all" link (clears collection filter)
+    all_active = " active" if active_id is None else ""
+    all_link = (
+        f'<li><a href="/documents" '
+        f'class="collection-tree-item{all_active}">'
+        f'All Documents</a></li>'
+    )
+    # "Unassigned" link (collection_id=0)
+    unassigned_count = 0  # computed below from total docs minus assigned
+    unassigned_active = " active" if active_id == 0 else ""
+    unassigned_link = (
+        f'<li><a href="/documents?collection_id=0" '
+        f'class="collection-tree-item{unassigned_active}">'
+        f'Unassigned</a></li>'
+    )
+    return f"""
+    <div class="collection-tree">
+        <h3>Collections</h3>
+        <ul class="collection-tree-list">
+            {all_link}
+            {items}
+            {unassigned_link}
+        </ul>
+    </div>"""
+
+
 def _render_documents_list(
     documents: list[dict],
     source: str,
@@ -468,9 +547,14 @@ def _render_documents_list(
     tags_map: dict[int, list[str]] | None = None,
     all_tags: list[dict] | None = None,
     active_tag: str = "",
+    collection_tree: list[dict] | None = None,
+    collection_counts: dict[int, int] | None = None,
+    active_collection_id: int | None = None,
 ) -> str:
     tags_map = tags_map or {}
     all_tags = all_tags or []
+    collection_tree = collection_tree or []
+    collection_counts = collection_counts or {}
 
     # Build tag badges HTML for each document
     for doc in documents:
@@ -506,18 +590,38 @@ def _render_documents_list(
             {'<p style="margin-top:8px;"><a href="/documents">← Show all documents</a></p>' if active_tag else ''}
         </div>"""
 
+    # Build collection tree sidebar
+    collection_tree_html = _build_collection_tree_html(
+        collection_tree, collection_counts, active_collection_id
+    )
+
     # Build filter label
     filter_label = ""
     if active_tag:
         filter_label = f" — tag: {_escape(active_tag)}"
     elif source:
         filter_label = f" — {_escape(source)}"
+    elif active_collection_id is not None:
+        if active_collection_id == 0:
+            filter_label = " — unassigned"
+        else:
+            # Find collection name in the tree
+            col_name = _find_collection_name(
+                collection_tree, active_collection_id
+            )
+            if col_name:
+                filter_label = f" — collection: {_escape(col_name)}"
 
     # Build pagination
     source_param = f"&source={_escape(source)}" if source else ""
     tag_param = f"&tag={_escape(active_tag)}" if active_tag else ""
+    col_param = (
+        f"&collection_id={active_collection_id}"
+        if active_collection_id is not None
+        else ""
+    )
     pagination_html = _render_pagination(
-        page, per_page, total, total_pages, source_param + tag_param
+        page, per_page, total, total_pages, source_param + tag_param + col_param
     )
 
     start = (page - 1) * per_page + 1 if total > 0 else 0
@@ -530,6 +634,7 @@ def _render_documents_list(
         start=start, end=end, total=total,
         tags_col_header=tags_col_header,
         tag_cloud_html=tag_cloud_html,
+        collection_tree_html=collection_tree_html,
         pagination_html=pagination_html,
     )
 

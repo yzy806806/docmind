@@ -475,10 +475,11 @@ def create_app() -> FastAPI:
     async def list_documents_page(
         source: str = Query(default=""),
         tag: str = Query(default=""),
+        collection_id: Optional[int] = Query(default=None),
         page: int = Query(default=1, ge=1),
         per_page: int = Query(default=20, ge=1, le=100),
     ):
-        """List documents with pagination, optional tag/source filtering."""
+        """List documents with pagination, optional tag/source/collection filtering."""
         db = get_db()
         try:
             if tag:
@@ -488,6 +489,14 @@ def create_app() -> FastAPI:
                 total_pages = (total + per_page - 1) // per_page if per_page > 0 else 0
                 offset = (page - 1) * per_page
                 documents = tag_docs[offset : offset + per_page]
+            elif collection_id is not None:
+                # Filter by collection (0 = unassigned)
+                result = await db.list_documents_paginated(
+                    page=page, per_page=per_page, collection_id=collection_id,
+                )
+                documents = result["documents"]
+                total = result["total"]
+                total_pages = result["total_pages"]
             else:
                 result = await db.list_documents_paginated(
                     page=page, per_page=per_page, source=source if source else None
@@ -507,9 +516,16 @@ def create_app() -> FastAPI:
         # Fetch all tags for the tag cloud sidebar
         all_tags = await db.get_all_tags()
 
+        # Fetch collection tree + counts for the collection sidebar
+        collection_tree = await db.list_collections_tree()
+        collection_counts = await db.get_collection_counts()
+
         html = _render_documents_list(
             documents, source, page, per_page, total, total_pages,
             tags_map=tags_map, all_tags=all_tags, active_tag=tag,
+            collection_tree=collection_tree,
+            collection_counts=collection_counts,
+            active_collection_id=collection_id,
         )
         return HTMLResponse(content=html)
 

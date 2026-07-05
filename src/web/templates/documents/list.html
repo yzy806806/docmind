@@ -71,6 +71,7 @@
         <p>No documents found.</p>
         {% endif %}
     </div>
-    {% if tag_cloud_html %}{{ tag_cloud_html }}{% endif %}
+    {% if collection_tree_html %}{{ collection_tree_html | safe }}{% endif %}
+    {% if tag_cloud_html %}{{ tag_cloud_html | safe }}{% endif %}
     {{ pagination_html }}
 {% endblock %}
