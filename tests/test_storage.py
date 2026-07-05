@@ -345,3 +345,45 @@ class TestPostgreSQLConnector:
 
         # NULL body should not be upserted
         assert mock_indexer.upsert_document.call_count <= 1
+
+    @pytest.mark.asyncio
+    async def test_scan_postgresql_calls_detect_and_update(self) -> None:
+        """scan_postgresql must call _detect_and_update after upserting.
+
+        Ensures documents ingested via PostgreSQL get the same
+        keyword-based type detection as WebDAV and local scanners.
+        """
+        from src.core.storage import StorageConnector
+
+        mock_indexer = MagicMock()
+        mock_indexer.needs_update.return_value = True
+        mock_indexer.upsert_document.return_value = 42
+
+        mock_detector = MagicMock()
+
+        connector = StorageConnector(mock_indexer, detector=mock_detector)
+
+        mock_asyncpg = MagicMock()
+        mock_conn = AsyncMock()
+        mock_conn.fetch.return_value = [
+            dict(id=1, title="Invoice 123", body="Total due: $500"),
+        ]
+        mock_asyncpg.connect = AsyncMock(return_value=mock_conn)
+
+        with patch.dict("sys.modules", {"asyncpg": mock_asyncpg}):
+            count = await connector.scan_postgresql(
+                dsn="postgresql://fakehost/testdb",
+                query="SELECT id, title, body FROM docs",
+                source_name="test_pg",
+            )
+
+        # upsert_document was called
+        assert mock_indexer.upsert_document.call_count == 1
+
+        # _detect_and_update should have been called via the detector path
+        mock_detector._detect_keyword.assert_called_once_with(
+            "Invoice 123", "Total due: $500"
+        )
+
+        # update_document_type should have been called with doc_id=42
+        mock_indexer.update_document_type.assert_called_once()
