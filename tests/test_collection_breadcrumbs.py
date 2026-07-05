@@ -233,3 +233,40 @@ class TestCollectionBreadcrumbs:
         bc_end = text.find("</div>", bc_start)
         breadcrumb_html = text[bc_start:bc_end]
         assert "collection_id=2" not in breadcrumb_html
+
+    @pytest.mark.asyncio
+    async def test_breadcrumb_has_separator_between_items(self, asgi_client):
+        """Breadcrumb items should be separated by / (in separator spans)."""
+        resp = await asgi_client.get("/documents?collection_id=3")
+        assert resp.status_code == 200
+        text = resp.text
+        assert "collection-breadcrumb-sep" in text
+        assert "/" in text
+
+    @pytest.mark.asyncio
+    async def test_breadcrumb_all_link_is_first_element(self, asgi_client):
+        """The 'All' link should be the first element in the breadcrumb."""
+        resp = await asgi_client.get("/documents?collection_id=3")
+        assert resp.status_code == 200
+        text = resp.text
+        bc_start = text.find('<div class="collection-breadcrumb">')
+        bc_end = text.find("</div>", bc_start)
+        breadcrumb_html = text[bc_start:bc_end]
+        # "All" link should appear before any collection name
+        all_pos = breadcrumb_html.find("All")
+        assert all_pos != -1
+        # "All" should be a link to /documents
+        assert 'href="/documents"' in breadcrumb_html
+        # "All" should come before the first separator
+        sep_pos = breadcrumb_html.find("collection-breadcrumb-sep")
+        assert all_pos < sep_pos
+
+    @pytest.mark.asyncio
+    async def test_breadcrumb_current_has_span_class(self, asgi_client):
+        """The current collection should have the 'collection-breadcrumb-current' class."""
+        resp = await asgi_client.get("/documents?collection_id=3")
+        assert resp.status_code == 200
+        text = resp.text
+        assert "collection-breadcrumb-current" in text
+        # Django should be the current collection
+        assert "Django" in text

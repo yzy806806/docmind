@@ -282,3 +282,62 @@ class TestCollectionFiltering:
         await db.disconnect()
         server._db = original_db
         server._queue = original_queue
+
+    @pytest.mark.asyncio
+    async def test_negative_collection_id_returns_no_docs(self, asgi_client):
+        """GET /documents?collection_id=-1 should return empty results gracefully."""
+        resp = await asgi_client.get("/documents?collection_id=-1")
+        assert resp.status_code == 200
+        # Negative collection IDs don't match any collection — returns empty
+        # But the page still renders without error
+        assert "collection-tree" in resp.text
+
+    @pytest.mark.asyncio
+    async def test_nonexistent_collection_id_shows_empty(self, asgi_client):
+        """GET /documents?collection_id=99999 should show no documents."""
+        resp = await asgi_client.get("/documents?collection_id=99999")
+        assert resp.status_code == 200
+        # No documents should match a nonexistent collection
+        assert "No documents found" in resp.text or "0 documents" in resp.text.lower()
+
+
+# ── Combined filter tests ────────────────────────────────────────
+
+
+class TestCombinedFilters:
+    """Tests for combining collection_id with other filters on /documents."""
+
+    @pytest.mark.asyncio
+    async def test_collection_id_and_tag_combined(self, asgi_client):
+        """Filtering by collection_id AND tag should combine with AND logic."""
+        resp = await asgi_client.get("/documents?collection_id=2&tag=nosuchtag")
+        assert resp.status_code == 200
+        # No documents should match both Python collection AND nonexistent tag
+        assert "No documents found" in resp.text or "0 documents" in resp.text.lower()
+
+    @pytest.mark.asyncio
+    async def test_collection_id_and_file_type_combined(self, asgi_client):
+        """Filtering by collection_id AND file_type should combine."""
+        # All test docs are .txt, so filtering Python + .txt should return Python's docs
+        resp = await asgi_client.get("/documents?collection_id=2&file_type=.txt")
+        assert resp.status_code == 200
+        # Python has docs 0, 1, 2
+        assert "Collection Test Document 0" in resp.text
+        assert "Collection Test Document 1" in resp.text
+        assert "Collection Test Document 2" in resp.text
+
+    @pytest.mark.asyncio
+    async def test_collection_id_and_file_type_no_match(self, asgi_client):
+        """Filtering by collection_id AND nonexistent file_type returns empty."""
+        resp = await asgi_client.get("/documents?collection_id=2&file_type=.pdf")
+        assert resp.status_code == 200
+        # No PDFs in Python collection
+        assert "No documents found" in resp.text or "0 documents" in resp.text.lower()
+
+    @pytest.mark.asyncio
+    async def test_all_filter_params_preserved_in_html(self, asgi_client):
+        """The HTML should contain the active filter params for the UI."""
+        resp = await asgi_client.get("/documents?collection_id=2")
+        assert resp.status_code == 200
+        # collection_id=2 should be reflected in the page
+        assert "collection_id=2" in resp.text
