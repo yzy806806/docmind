@@ -145,6 +145,25 @@ CREATE TABLE IF NOT EXISTS document_chunks (
 
 CREATE INDEX IF NOT EXISTS idx_document_chunks_doc_id ON document_chunks(doc_id);
 CREATE INDEX IF NOT EXISTS idx_document_chunks_chunk_index ON document_chunks(chunk_index);
+
+CREATE TABLE IF NOT EXISTS collections (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    name            TEXT NOT NULL,
+    description     TEXT DEFAULT '',
+    parent_id       INTEGER REFERENCES collections(id) ON DELETE CASCADE,
+    created_at      TEXT DEFAULT (datetime('now')),
+    updated_at      TEXT DEFAULT (datetime('now'))
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_collections_name_parent ON collections(parent_id, name);
+
+-- Root-level collections (parent_id IS NULL) also need name uniqueness.
+-- SQLite treats NULLs as distinct, so the index above doesn't catch
+-- duplicate root names. This partial index closes that gap.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_collections_root_name
+    ON collections(name) WHERE parent_id IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_collections_parent_id ON collections(parent_id);
 """
 
 # FTS5 virtual table — created separately because some SQLite builds
@@ -288,6 +307,17 @@ class Database:
         await self._conn.executescript(FTS_TRIGGERS_SQL)
         await self._conn.executescript(CHUNK_FTS_SCHEMA_SQL)
         await self._conn.executescript(CHUNK_FTS_TRIGGERS_SQL)
+
+        # Idempotent ALTER TABLE: add collection_id column to documents
+        # if it does not already exist.
+        cursor = await self._conn.execute("PRAGMA table_info(documents)")
+        columns = {row[1] for row in await cursor.fetchall()}
+        if "collection_id" not in columns:
+            await self._conn.execute(
+                "ALTER TABLE documents ADD COLUMN collection_id INTEGER "
+                "REFERENCES collections(id) ON DELETE SET NULL"
+            )
+
         await self._conn.commit()
 
     @asynccontextmanager
@@ -683,12 +713,50 @@ class Database:
         self,
         *,
         source: Optional[str] = None,
+        collection_id: Optional[int] = None,
         limit: int = 100,
         offset: int = 0,
     ) -> list[dict[str, Any]]:
-        """List documents, optionally filtered by source name or type."""
+        """List documents, optionally filtered by source name/type or collection.
+
+        When ``collection_id`` is provided, only documents belonging to that
+        collection are returned. Use ``collection_id=0`` to list unassigned
+        documents (collection_id IS NULL).
+        """
         async with self.connection() as conn:
-            if source:
+            if source and collection_id is not None:
+                if collection_id == 0:
+                    cursor = await conn.execute(
+                        """SELECT * FROM documents
+                           WHERE (source_name = ? OR source_type = ?)
+                             AND collection_id IS NULL
+                           ORDER BY created_at DESC LIMIT ? OFFSET ?""",
+                        (source, source, limit, offset),
+                    )
+                else:
+                    cursor = await conn.execute(
+                        """SELECT * FROM documents
+                           WHERE (source_name = ? OR source_type = ?)
+                             AND collection_id = ?
+                           ORDER BY created_at DESC LIMIT ? OFFSET ?""",
+                        (source, source, collection_id, limit, offset),
+                    )
+            elif collection_id is not None:
+                if collection_id == 0:
+                    cursor = await conn.execute(
+                        """SELECT * FROM documents
+                           WHERE collection_id IS NULL
+                           ORDER BY created_at DESC LIMIT ? OFFSET ?""",
+                        (limit, offset),
+                    )
+                else:
+                    cursor = await conn.execute(
+                        """SELECT * FROM documents
+                           WHERE collection_id = ?
+                           ORDER BY created_at DESC LIMIT ? OFFSET ?""",
+                        (collection_id, limit, offset),
+                    )
+            elif source:
                 cursor = await conn.execute(
                     """SELECT * FROM documents
                        WHERE source_name = ? OR source_type = ?
@@ -711,13 +779,25 @@ class Database:
         page: int = 1,
         per_page: int = 20,
         source: Optional[str] = None,
+        collection_id: Optional[int] = None,
     ) -> dict[str, Any]:
-        """List documents with pagination metadata."""
+        """List documents with pagination metadata.
+
+        Args:
+            page: Page number (1-indexed).
+            per_page: Documents per page.
+            source: Optional source name/type filter.
+            collection_id: If provided, restrict to documents in that collection.
+                Use ``0`` to list unassigned documents (collection_id IS NULL).
+        """
         offset = (page - 1) * per_page
         docs = await self.list_documents(
-            source=source, limit=per_page, offset=offset
+            source=source, collection_id=collection_id,
+            limit=per_page, offset=offset,
         )
-        total = await self.get_document_count(source=source)
+        total = await self.get_document_count(
+            source=source, collection_id=collection_id,
+        )
         return {
             "documents": docs,
             "total": total,
@@ -727,11 +807,43 @@ class Database:
         }
 
     async def get_document_count(
-        self, *, source: Optional[str] = None
+        self, *, source: Optional[str] = None,
+        collection_id: Optional[int] = None,
     ) -> int:
-        """Return the total number of documents, optionally filtered."""
+        """Return the total number of documents, optionally filtered.
+
+        Args:
+            source: Optional source name/type filter.
+            collection_id: If provided, count documents in that collection.
+                Use ``0`` to count unassigned documents (collection_id IS NULL).
+        """
         async with self.connection() as conn:
-            if source:
+            if source and collection_id is not None:
+                if collection_id == 0:
+                    cursor = await conn.execute(
+                        """SELECT COUNT(*) as c FROM documents
+                           WHERE (source_name = ? OR source_type = ?)
+                             AND collection_id IS NULL""",
+                        (source, source),
+                    )
+                else:
+                    cursor = await conn.execute(
+                        """SELECT COUNT(*) as c FROM documents
+                           WHERE (source_name = ? OR source_type = ?)
+                             AND collection_id = ?""",
+                        (source, source, collection_id),
+                    )
+            elif collection_id is not None:
+                if collection_id == 0:
+                    cursor = await conn.execute(
+                        "SELECT COUNT(*) as c FROM documents WHERE collection_id IS NULL"
+                    )
+                else:
+                    cursor = await conn.execute(
+                        "SELECT COUNT(*) as c FROM documents WHERE collection_id = ?",
+                        (collection_id,),
+                    )
+            elif source:
                 cursor = await conn.execute(
                     """SELECT COUNT(*) as c FROM documents
                        WHERE source_name = ? OR source_type = ?""",
@@ -775,31 +887,55 @@ class Database:
             await conn.commit()
 
     async def search_documents(
-        self, query: str, limit: int = 30
+        self, query: str, limit: int = 30,
+        collection_id: Optional[int] = None,
     ) -> list[dict[str, Any]]:
         """Full-text search using SQLite FTS5 with BM25 ranking.
 
         Weights: title (A=10.0), summary (B=5.0), raw_preview (C=2.0), body (D=1.0).
         BM25 returns negative scores; we negate to get descending rank order.
+
+        Args:
+            query: The search query string.
+            limit: Maximum number of results.
+            collection_id: If provided, restrict results to documents in the
+                given collection. Use ``None`` (default) to search all documents.
         """
         safe_query = _sanitize_fts_query(query)
         if not safe_query or safe_query == '""':
             return []
 
         async with self.connection() as conn:
-            cursor = await conn.execute(
-                """SELECT d.id, d.path, d.source_type, d.source_name,
-                          d.file_hash, d.mtime, d.size, d.title, d.ext,
-                          d.mime_type, d.summary, d.raw_preview, d.body,
-                          d.status, d.metadata, d.created_at, d.updated_at,
-                          -bm25(documents_fts, 10.0, 5.0, 2.0, 1.0) AS rank
-                   FROM documents d
-                   JOIN documents_fts fts ON d.id = fts.rowid
-                   WHERE documents_fts MATCH ?
-                   ORDER BY rank DESC
-                   LIMIT ?""",
-                (safe_query, limit),
-            )
+            if collection_id is not None:
+                cursor = await conn.execute(
+                    """SELECT d.id, d.path, d.source_type, d.source_name,
+                              d.file_hash, d.mtime, d.size, d.title, d.ext,
+                              d.mime_type, d.summary, d.raw_preview, d.body,
+                              d.status, d.metadata, d.created_at, d.updated_at,
+                              d.collection_id,
+                              -bm25(documents_fts, 10.0, 5.0, 2.0, 1.0) AS rank
+                       FROM documents d
+                       JOIN documents_fts fts ON d.id = fts.rowid
+                       WHERE documents_fts MATCH ? AND d.collection_id = ?
+                       ORDER BY rank DESC
+                       LIMIT ?""",
+                    (safe_query, collection_id, limit),
+                )
+            else:
+                cursor = await conn.execute(
+                    """SELECT d.id, d.path, d.source_type, d.source_name,
+                              d.file_hash, d.mtime, d.size, d.title, d.ext,
+                              d.mime_type, d.summary, d.raw_preview, d.body,
+                              d.status, d.metadata, d.created_at, d.updated_at,
+                              d.collection_id,
+                              -bm25(documents_fts, 10.0, 5.0, 2.0, 1.0) AS rank
+                       FROM documents d
+                       JOIN documents_fts fts ON d.id = fts.rowid
+                       WHERE documents_fts MATCH ?
+                       ORDER BY rank DESC
+                       LIMIT ?""",
+                    (safe_query, limit),
+                )
             rows = await cursor.fetchall()
 
         return [self._row_to_doc_dict(r) for r in rows]
@@ -1798,6 +1934,328 @@ class Database:
             )
             row = await cursor.fetchone()
         return row["c"] if row else 0
+
+    # ── Collections ──────────────────────────────────────────────
+
+    async def create_collection(
+        self,
+        name: str,
+        description: str = "",
+        parent_id: Optional[int] = None,
+    ) -> int:
+        """Create a new collection and return its id.
+
+        Args:
+            name: Collection name (must not be empty or whitespace).
+            description: Optional description text.
+            parent_id: Optional parent collection id for nesting.
+
+        Returns:
+            The new collection's id.
+
+        Raises:
+            ValueError: If name is empty or whitespace-only.
+        """
+        name = (name or "").strip()
+        if not name:
+            raise ValueError("collection name must not be empty")
+        now = _now_iso()
+        async with self.connection() as conn:
+            cursor = await conn.execute(
+                """INSERT INTO collections (name, description, parent_id,
+                                            created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (name, description, parent_id, now, now),
+            )
+            await conn.commit()
+            return cursor.lastrowid or 0
+
+    async def get_collection(self, collection_id: int) -> Optional[dict[str, Any]]:
+        """Fetch a single collection by id. Returns None if not found."""
+        async with self.connection() as conn:
+            cursor = await conn.execute(
+                """SELECT id, name, description, parent_id,
+                          created_at, updated_at
+                   FROM collections WHERE id = ?""",
+                (collection_id,),
+            )
+            row = await cursor.fetchone()
+
+        if row is None:
+            return None
+        return self._row_to_collection_dict(row)
+
+    async def list_collections(self) -> list[dict[str, Any]]:
+        """Return a flat list of all collections, ordered by name."""
+        async with self.connection() as conn:
+            cursor = await conn.execute(
+                """SELECT id, name, description, parent_id,
+                          created_at, updated_at
+                   FROM collections ORDER BY name"""
+            )
+            rows = await cursor.fetchall()
+        return [self._row_to_collection_dict(r) for r in rows]
+
+    async def list_collections_tree(self) -> list[dict[str, Any]]:
+        """Return a nested tree structure of collections for UI rendering.
+
+        Each node has a ``children`` list. Root collections (parent_id IS NULL)
+        are at the top level.
+        """
+        all_collections = await self.list_collections()
+        by_parent: dict[Optional[int], list[dict[str, Any]]] = {}
+        for col in all_collections:
+            pid = col["parent_id"]
+            by_parent.setdefault(pid, []).append(col)
+
+        def build_tree(parent_id: Optional[int]) -> list[dict[str, Any]]:
+            nodes = by_parent.get(parent_id, [])
+            for node in nodes:
+                node["children"] = build_tree(node["id"])
+            return nodes
+
+        return build_tree(None)
+
+    async def update_collection(
+        self,
+        collection_id: int,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+        parent_id: Optional[int] = None,
+    ) -> bool:
+        """Update one or more fields of a collection.
+
+        Returns True if the collection was updated, False if not found.
+
+        Raises:
+            ValueError: If name is empty/whitespace, or if setting parent_id
+                would create a cycle (collection becomes its own ancestor).
+        """
+        existing = await self.get_collection(collection_id)
+        if existing is None:
+            return False
+
+        updates: list[str] = []
+        params: list[Any] = []
+
+        if name is not None:
+            name = name.strip()
+            if not name:
+                raise ValueError("collection name must not be empty")
+            updates.append("name = ?")
+            params.append(name)
+
+        if description is not None:
+            updates.append("description = ?")
+            params.append(description)
+
+        if parent_id is not None:
+            # Cycle detection: parent_id must not be the collection itself
+            # or any of its descendants.
+            if parent_id == collection_id:
+                raise ValueError(
+                    "cannot set parent_id to itself — this would create a cycle"
+                )
+            await self._check_cycle(parent_id, collection_id)
+            updates.append("parent_id = ?")
+            params.append(parent_id)
+
+        if not updates:
+            return True  # nothing to update
+
+        now = _now_iso()
+        updates.append("updated_at = ?")
+        params.append(now)
+        params.append(collection_id)
+
+        async with self.connection() as conn:
+            cursor = await conn.execute(
+                f"""UPDATE collections SET {', '.join(updates)}
+                    WHERE id = ?""",
+                params,
+            )
+            await conn.commit()
+            return cursor.rowcount > 0
+
+    async def _check_cycle(
+        self, new_parent_id: int, collection_id: int
+    ) -> None:
+        """Raise ValueError if ``collection_id`` is an ancestor of ``new_parent_id``.
+
+        This prevents cycles when moving a collection under a new parent.
+        """
+        visited: set[int] = set()
+        current_id: Optional[int] = new_parent_id
+        while current_id is not None:
+            if current_id in visited:
+                # Safety: should not happen but guard against existing cycles
+                break
+            visited.add(current_id)
+            if current_id == collection_id:
+                raise ValueError(
+                    "cannot move collection under its own descendant — "
+                    "this would create a cycle"
+                )
+            col = await self.get_collection(current_id)
+            if col is None:
+                break
+            current_id = col["parent_id"]
+
+    async def delete_collection(self, collection_id: int) -> bool:
+        """Delete a collection by id.
+
+        Documents in this collection are moved to All Documents
+        (collection_id set to NULL). Child collections are cascade-deleted
+        via the ON DELETE CASCADE foreign key constraint.
+
+        Returns True if the collection was deleted, False if not found.
+        """
+        existing = await self.get_collection(collection_id)
+        if existing is None:
+            return False
+
+        async with self.connection() as conn:
+            # Move documents to "All Documents" (NULL collection_id).
+            # ON DELETE SET NULL would only apply to the direct collection,
+            # but child collections are cascade-deleted, so their documents
+            # also need to be unassigned. We handle this explicitly.
+            await conn.execute(
+                """UPDATE documents SET collection_id = NULL
+                   WHERE collection_id IN (
+                       WITH RECURSIVE descendant(id) AS (
+                           SELECT id FROM collections WHERE id = ?
+                           UNION ALL
+                           SELECT c.id FROM collections c
+                           JOIN descendant d ON c.parent_id = d.id
+                       )
+                       SELECT id FROM descendant
+                   )""",
+                (collection_id,),
+            )
+            cursor = await conn.execute(
+                "DELETE FROM collections WHERE id = ?", (collection_id,)
+            )
+            await conn.commit()
+            return cursor.rowcount > 0
+
+    async def get_collection_path(
+        self, collection_id: int
+    ) -> list[dict[str, Any]]:
+        """Return the breadcrumb chain from root to the given collection.
+
+        Returns an empty list if the collection does not exist.
+        The list is ordered root-first: [root, ..., parent, self].
+        """
+        chain: list[dict[str, Any]] = []
+        current_id: Optional[int] = collection_id
+        visited: set[int] = set()
+        while current_id is not None and current_id not in visited:
+            visited.add(current_id)
+            col = await self.get_collection(current_id)
+            if col is None:
+                break
+            chain.append(col)
+            current_id = col["parent_id"]
+        chain.reverse()
+        return chain
+
+    async def assign_document_to_collection(
+        self, doc_id: int, collection_id: int
+    ) -> bool:
+        """Assign a document to a collection.
+
+        Returns True if the assignment was made, False if the document or
+        collection does not exist.
+        """
+        # Verify the collection exists
+        col = await self.get_collection(collection_id)
+        if col is None:
+            return False
+        now = _now_iso()
+        async with self.connection() as conn:
+            cursor = await conn.execute(
+                """UPDATE documents
+                   SET collection_id = ?, updated_at = ?
+                   WHERE id = ?""",
+                (collection_id, now, doc_id),
+            )
+            await conn.commit()
+            return cursor.rowcount > 0
+
+    async def remove_document_from_collection(self, doc_id: int) -> bool:
+        """Remove a document from its collection (set collection_id to NULL).
+
+        Returns True if the document was updated, False if not found or
+        already unassigned.
+        """
+        now = _now_iso()
+        async with self.connection() as conn:
+            cursor = await conn.execute(
+                """UPDATE documents
+                   SET collection_id = NULL, updated_at = ?
+                   WHERE id = ? AND collection_id IS NOT NULL""",
+                (now, doc_id),
+            )
+            await conn.commit()
+            return cursor.rowcount > 0
+
+    async def list_documents_by_collection(
+        self,
+        collection_id: int,
+        page: int = 1,
+        per_page: int = 20,
+    ) -> dict[str, Any]:
+        """List documents in a collection with pagination metadata."""
+        return await self.list_documents_paginated(
+            page=page, per_page=per_page, collection_id=collection_id,
+        )
+
+    async def get_document_collection(
+        self, doc_id: int
+    ) -> Optional[dict[str, Any]]:
+        """Return the collection a document belongs to, or None if unassigned."""
+        async with self.connection() as conn:
+            cursor = await conn.execute(
+                """SELECT c.id, c.name, c.description, c.parent_id,
+                          c.created_at, c.updated_at
+                   FROM collections c
+                   JOIN documents d ON d.collection_id = c.id
+                   WHERE d.id = ?""",
+                (doc_id,),
+            )
+            row = await cursor.fetchone()
+
+        if row is None:
+            return None
+        return self._row_to_collection_dict(row)
+
+    async def get_collection_counts(self) -> dict[int, int]:
+        """Return a mapping of collection_id -> document count.
+
+        Only collections that have at least one document are included.
+        """
+        async with self.connection() as conn:
+            cursor = await conn.execute(
+                """SELECT collection_id, COUNT(*) as cnt
+                   FROM documents
+                   WHERE collection_id IS NOT NULL
+                   GROUP BY collection_id"""
+            )
+            rows = await cursor.fetchall()
+        return {row["collection_id"]: row["cnt"] for row in rows}
+
+    @staticmethod
+    def _row_to_collection_dict(row: aiosqlite.Row) -> dict[str, Any]:
+        """Convert a collections row to a dict."""
+        d = dict(row)
+        for field in ("created_at", "updated_at"):
+            val = d.get(field)
+            if isinstance(val, str):
+                try:
+                    d[field] = datetime.fromisoformat(val)
+                except (ValueError, TypeError):
+                    pass
+        return d
 
     # ── Helpers ─────────────────────────────────────────────────
 
