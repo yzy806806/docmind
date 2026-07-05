@@ -574,6 +574,25 @@ def _render_upload_success(title: str, doc_id: int, job_id: str) -> str:
     return _render_template("upload_success.html", title=title, doc_id=doc_id, job_id=job_id)
 
 
+def _render_upload_batch(
+    results: list[dict] | None = None,
+    errors: list[dict] | None = None,
+) -> str:
+    """Render the batch upload results page.
+
+    ``results`` is a list of ``{title, doc_id, job_id}`` dicts for files
+    that were accepted. ``errors`` is a list of ``{filename, error}`` dicts
+    for files that were rejected.
+    """
+    return _render_template(
+        "upload_batch.html",
+        results=results or [],
+        errors=errors or [],
+        total_ok=len(results or []),
+        total_err=len(errors or []),
+    )
+
+
 def _render_pagination(
     page: int,
     per_page: int,
