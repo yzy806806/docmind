@@ -166,12 +166,22 @@ class TestRateLimitConfig:
 class TestRateLimiter:
     """Unit tests for the RateLimiter sliding-window logic."""
 
-    def _make_request(self, ip: str = "1.2.3.4"):
-        """Create a minimal mock Request with a client.host."""
+    def _make_request(self, ip: str = "1.2.3.4", xff: str | None = None):
+        """Create a minimal mock Request with a client.host.
+
+        Args:
+            ip: The direct peer IP (request.client.host).
+            xff: Optional X-Forwarded-For header value.
+        """
         req = MagicMock()
         req.client = MagicMock()
         req.client.host = ip
         req.url.path = "/api/v1/documents"
+        # Mock headers dict — supports case-insensitive lookup via .get().
+        headers: dict[str, str] = {}
+        if xff is not None:
+            headers["x-forwarded-for"] = xff
+        req.headers = headers
         return req
 
     def test_allows_requests_under_limit(self):
@@ -465,3 +475,280 @@ class TestRateLimitMiddlewareEnabled:
         for _ in range(3):
             resp = await asgi_client_rate_limited.get("/")
             assert resp.status_code == 200
+
+
+# ── _client_key: X-Forwarded-For spoofing protection ─────────────
+
+
+class TestClientKeyForwardedFor:
+    """Tests for _client_key() X-Forwarded-For handling.
+
+    When deployed behind a reverse proxy with --proxy-headers, the
+    rate limiter must use the rightmost XFF entry (set by the trusted
+    proxy) rather than the leftmost (client-controlled) to prevent
+    IP spoofing bypass.
+    """
+
+    def _make_request_with_headers(self, client_ip: str, headers: dict | None = None):
+        """Create a mock Request with client.host and optional headers."""
+        req = MagicMock()
+        req.client = MagicMock()
+        req.client.host = client_ip
+        req.url.path = "/api/v1/documents"
+        # Starlette headers are case-insensitive; mock .get() and .getlist().
+        headers = headers or {}
+        req.headers = MagicMock()
+        req.headers.get = MagicMock(
+            side_effect=lambda key, default="": headers.get(key.lower(), default)
+        )
+        # .getlist returns a list of values for a given key.
+        xff = headers.get("x-forwarded-for", "")
+        xff_list = [v.strip() for v in xff.split(",")] if xff else []
+        req.headers.getlist = MagicMock(
+            side_effect=lambda key: xff_list if key.lower() == "x-forwarded-for" else []
+        )
+        return req
+
+    def test_no_xff_uses_client_host(self):
+        """Without X-Forwarded-For, _client_key uses request.client.host."""
+        from src.web.rate_limit import RateLimiter
+
+        rl = RateLimiter(max_requests=5)
+        req = self._make_request_with_headers("1.2.3.4")
+        assert rl._client_key(req) == "1.2.3.4"
+
+    def test_xff_ignored_without_trusted_proxies(self):
+        """When no trusted_proxy_ips configured, XFF is ignored entirely."""
+        from src.web.rate_limit import RateLimiter
+
+        rl = RateLimiter(max_requests=5, trusted_proxy_ips=set())
+        req = self._make_request_with_headers(
+            "10.0.0.1",
+            headers={"x-forwarded-for": "99.99.99.99"},
+        )
+        # Should use direct connection IP, not XFF.
+        assert rl._client_key(req) == "10.0.0.1"
+
+    def test_xff_used_when_client_is_trusted_proxy(self):
+        """When request comes from a trusted proxy, use rightmost XFF entry."""
+        from src.web.rate_limit import RateLimiter
+
+        rl = RateLimiter(
+            max_requests=5,
+            trusted_proxy_ips={"10.0.0.1"},
+        )
+        req = self._make_request_with_headers(
+            "10.0.0.1",
+            headers={"x-forwarded-for": "203.0.113.5"},
+        )
+        assert rl._client_key(req) == "203.0.113.5"
+
+    def test_xff_rightmost_used_not_leftmost(self):
+        """Use the rightmost XFF entry (proxy-set), not leftmost (client-controlled).
+
+        This is the core anti-spoofing test: a malicious client sends
+        X-Forwarded-For: 1.1.1.1, 2.2.2.2, 203.0.113.5
+        The trusted proxy (10.0.0.1) appends the real client IP.
+        We should use the rightmost (203.0.113.5), not the leftmost (1.1.1.1).
+        """
+        from src.web.rate_limit import RateLimiter
+
+        rl = RateLimiter(
+            max_requests=5,
+            trusted_proxy_ips={"10.0.0.1"},
+        )
+        req = self._make_request_with_headers(
+            "10.0.0.1",
+            headers={"x-forwarded-for": "1.1.1.1, 2.2.2.2, 203.0.113.5"},
+        )
+        assert rl._client_key(req) == "203.0.113.5"
+
+    def test_xff_untrusted_proxy_ignored(self):
+        """XFF from a non-trusted proxy IP should be ignored."""
+        from src.web.rate_limit import RateLimiter
+
+        rl = RateLimiter(
+            max_requests=5,
+            trusted_proxy_ips={"10.0.0.1"},
+        )
+        req = self._make_request_with_headers(
+            "10.0.0.2",  # NOT a trusted proxy
+            headers={"x-forwarded-for": "99.99.99.99"},
+        )
+        assert rl._client_key(req) == "10.0.0.2"
+
+    def test_xff_empty_string_falls_back_to_client_host(self):
+        """Empty XFF header falls back to request.client.host."""
+        from src.web.rate_limit import RateLimiter
+
+        rl = RateLimiter(
+            max_requests=5,
+            trusted_proxy_ips={"10.0.0.1"},
+        )
+        req = self._make_request_with_headers(
+            "10.0.0.1",
+            headers={"x-forwarded-for": ""},
+        )
+        assert rl._client_key(req) == "10.0.0.1"
+
+    def test_xff_only_spaces_falls_back_to_client_host(self):
+        """XFF with only commas/spaces falls back to request.client.host."""
+        from src.web.rate_limit import RateLimiter
+
+        rl = RateLimiter(
+            max_requests=5,
+            trusted_proxy_ips={"10.0.0.1"},
+        )
+        req = self._make_request_with_headers(
+            "10.0.0.1",
+            headers={"x-forwarded-for": " ,  ,  "},
+        )
+        assert rl._client_key(req) == "10.0.0.1"
+
+    def test_multiple_trusted_proxies(self):
+        """Multiple trusted proxy IPs are all accepted."""
+        from src.web.rate_limit import RateLimiter
+
+        rl = RateLimiter(
+            max_requests=5,
+            trusted_proxy_ips={"10.0.0.1", "10.0.0.2", "192.168.1.1"},
+        )
+        req = self._make_request_with_headers(
+            "192.168.1.1",
+            headers={"x-forwarded-for": "203.0.113.10"},
+        )
+        assert rl._client_key(req) == "203.0.113.10"
+
+    def test_spoofed_xff_does_not_create_separate_buckets(self):
+        """A client cannot bypass rate limiting by rotating XFF values.
+
+        Without trusted proxy validation, each spoofed IP would get its
+        own bucket. With the fix, the rightmost entry from a trusted
+        proxy is used consistently.
+        """
+        from src.web.rate_limit import RateLimiter
+
+        rl = RateLimiter(
+            max_requests=2,
+            trusted_proxy_ips={"10.0.0.1"},
+        )
+
+        # Client sends different spoofed leftmost XFF values each time.
+        spoofed_ips = ["1.1.1.1", "2.2.2.2", "3.3.3.3"]
+        for spoofed in spoofed_ips:
+            req = self._make_request_with_headers(
+                "10.0.0.1",
+                headers={"x-forwarded-for": f"{spoofed}, 203.0.113.5"},
+            )
+            allowed, _ = rl.check(req)
+
+        # After 2 requests from real IP 203.0.113.5, the 3rd should be blocked.
+        req4 = self._make_request_with_headers(
+            "10.0.0.1",
+            headers={"x-forwarded-for": "4.4.4.4, 203.0.113.5"},
+        )
+        allowed, _ = rl.check(req4)
+        assert allowed is False, "Spoofed XFF should not create separate buckets"
+
+
+# ── Bucket cleanup ───────────────────────────────────────────────
+
+
+class TestBucketCleanup:
+    """Tests for periodic pruning of empty bucket entries.
+
+    The _buckets dict can grow unboundedly as new IPs are seen. After
+    pruning, entries that become empty should be periodically removed
+    to prevent memory growth.
+    """
+
+    def _make_request(self, ip: str = "1.2.3.4"):
+        req = MagicMock()
+        req.client = MagicMock()
+        req.client.host = ip
+        req.url.path = "/api/v1/documents"
+        req.headers = MagicMock()
+        req.headers.get = MagicMock(return_value="")
+        req.headers.getlist = MagicMock(return_value=[])
+        return req
+
+    def test_empty_bucket_removed_after_cleanup(self):
+        """After cleanup, empty bucket entries are removed from _buckets."""
+        from src.web.rate_limit import RateLimiter
+
+        rl = RateLimiter(max_requests=5, window_seconds=1, cleanup_interval=3)
+
+        # Make requests from a few IPs.
+        for ip in ["1.1.1.1", "2.2.2.2", "3.3.3.3"]:
+            rl.check(self._make_request(ip))
+
+        assert len(rl._buckets) == 3
+
+        # Wait for window to expire.
+        time.sleep(1.1)
+
+        # Next check triggers pruning; after cleanup_interval checks,
+        # empty entries should be removed.
+        rl.check(self._make_request("4.4.4.4"))  # check 1 (prunes, doesn't clean)
+        rl.check(self._make_request("4.4.4.4"))  # check 2
+        rl.check(self._make_request("4.4.4.4"))  # check 3 — triggers cleanup
+
+        # The expired IPs should have been cleaned up.
+        assert "1.1.1.1" not in rl._buckets
+        assert "2.2.2.2" not in rl._buckets
+        assert "3.3.3.3" not in rl._buckets
+        # Current IP should still be there.
+        assert "4.4.4.4" in rl._buckets
+
+    def test_non_empty_buckets_not_removed(self):
+        """Buckets with active entries are not removed during cleanup."""
+        from src.web.rate_limit import RateLimiter
+
+        rl = RateLimiter(max_requests=5, cleanup_interval=2)
+
+        rl.check(self._make_request("1.1.1.1"))
+
+        # Trigger cleanup (2 checks).
+        rl.check(self._make_request("1.1.1.1"))
+        rl.check(self._make_request("1.1.1.1"))
+
+        # Bucket should still exist (has active entries).
+        assert "1.1.1.1" in rl._buckets
+        assert len(rl._buckets["1.1.1.1"]) > 0
+
+
+# ── Config: trusted_proxy_ip_set property ────────────────────────
+
+
+class TestTrustedProxyIpSet:
+    """Tests for RateLimitConfig.trusted_proxy_ip_set parsing."""
+
+    def test_empty_string_returns_empty_set(self):
+        from src.core.config import RateLimitConfig
+
+        rc = RateLimitConfig()
+        assert rc.trusted_proxy_ip_set == set()
+
+    def test_single_ip(self):
+        from src.core.config import RateLimitConfig
+
+        rc = RateLimitConfig(trusted_proxy_ips="10.0.0.1")
+        assert rc.trusted_proxy_ip_set == {"10.0.0.1"}
+
+    def test_multiple_ips_comma_separated(self):
+        from src.core.config import RateLimitConfig
+
+        rc = RateLimitConfig(trusted_proxy_ips="10.0.0.1, 10.0.0.2, 192.168.1.1")
+        assert rc.trusted_proxy_ip_set == {"10.0.0.1", "10.0.0.2", "192.168.1.1"}
+
+    def test_whitespace_stripped(self):
+        from src.core.config import RateLimitConfig
+
+        rc = RateLimitConfig(trusted_proxy_ips="  10.0.0.1  ,  10.0.0.2  ")
+        assert rc.trusted_proxy_ip_set == {"10.0.0.1", "10.0.0.2"}
+
+    def test_empty_entries_ignored(self):
+        from src.core.config import RateLimitConfig
+
+        rc = RateLimitConfig(trusted_proxy_ips="10.0.0.1,,  ,10.0.0.2")
+        assert rc.trusted_proxy_ip_set == {"10.0.0.1", "10.0.0.2"}

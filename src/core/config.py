@@ -315,6 +315,14 @@ class RateLimitConfig:
 
     Tunable via ``DOCMIND_RATE_LIMIT_ENABLED`` and
     ``DOCMIND_RATE_LIMIT_REQUESTS_PER_MINUTE`` environment variables.
+
+    When deploying behind a reverse proxy, set
+    ``DOCMIND_RATE_LIMIT_TRUSTED_PROXY_IPS`` to the proxy's IP address(es)
+    so the rate limiter uses the real client IP from ``X-Forwarded-For``
+    instead of the proxy's IP.  This prevents all users behind a single
+    proxy from sharing a single rate-limit bucket.  Only list IPs you
+    control — trusting an untrusted IP allows rate-limit bypass via header
+    spoofing.
     """
 
     enabled: bool = field(
@@ -325,6 +333,27 @@ class RateLimitConfig:
             "DOCMIND_RATE_LIMIT_REQUESTS_PER_MINUTE", 60
         )
     )
+    trusted_proxy_ips: str = field(
+        default_factory=lambda: _env(
+            "DOCMIND_RATE_LIMIT_TRUSTED_PROXY_IPS", ""
+        )
+    )
+
+    @property
+    def trusted_proxy_ip_set(self) -> set[str]:
+        """Parse ``trusted_proxy_ips`` into a set of stripped IPs.
+
+        Returns an empty set when unset (the default), which means
+        ``X-Forwarded-For`` is never trusted and ``request.client.host``
+        is used directly.
+        """
+        if not self.trusted_proxy_ips:
+            return set()
+        return {
+            ip.strip()
+            for ip in self.trusted_proxy_ips.split(",")
+            if ip.strip()
+        }
 
 
 @dataclass
