@@ -24,6 +24,9 @@ dependencies = [
     "aiofiles>=24.0.0",
     "aiosqlite>=0.20.0",
     "python-multipart>=0.0.12",
+    "pytesseract>=0.3.10",
+    "pdf2image>=1.17.0",
+    "Pillow>=10.0.0",
 ]
 
 [project.optional-dependencies]

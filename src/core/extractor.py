@@ -1,8 +1,12 @@
 """Text extraction from various file formats.
 
-Provides synchronous extraction for .txt, .md, .pdf, .docx, .html/.htm.
+Provides synchronous extraction for .txt, .md, .pdf, .docx, .html/.htm,
+and image files (.png, .jpg/.jpeg, .tif/.tiff, .bmp) via Tesseract OCR.
 Includes page-by-page PDF extraction, size-tiered ProcessPoolExecutor routing,
 memory estimation, markdown-to-plaintext conversion, and hash utilities.
+
+Scanned PDFs (image-only, no text layer) are automatically OCR'd via
+Tesseract when pdfplumber returns no text.
 """
 
 import concurrent.futures
@@ -74,6 +78,12 @@ _MEMORY_MULTIPLIER: dict[str, int] = {
     ".docx": 5,
     ".html": 3,
     ".htm": 3,
+    ".png": 5,
+    ".jpg": 5,
+    ".jpeg": 5,
+    ".tif": 5,
+    ".tiff": 5,
+    ".bmp": 5,
 }
 
 
@@ -143,10 +153,19 @@ def _md_to_plaintext(text: str) -> str:
 class Extractor:
     """Extract plain text from supported file types.
 
-    Supported extensions: .txt, .md, .pdf, .docx, .html, .htm
+    Supported extensions: .txt, .md, .pdf, .docx, .html, .htm,
+    .png, .jpg, .jpeg, .tif, .tiff, .bmp
+
+    Image files and scanned (image-only) PDFs are OCR'd via Tesseract.
     """
 
-    SUPPORTED: set[str] = {".txt", ".md", ".pdf", ".docx", ".html", ".htm"}
+    SUPPORTED: set[str] = {
+        ".txt", ".md", ".pdf", ".docx", ".html", ".htm",
+        ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp",
+    }
+
+    # Image extensions that require OCR
+    _IMAGE_EXTS: set[str] = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp"}
 
     # ------------------------------------------------------------------
     # Public API
@@ -172,6 +191,8 @@ class Extractor:
                 return Extractor._extract_html(file_path)
             elif ext == ".md":
                 return Extractor._extract_markdown(file_path)
+            elif ext in Extractor._IMAGE_EXTS:
+                return Extractor._extract_image(file_path)
             else:  # .txt
                 return file_path.read_text(encoding="utf-8", errors="replace")
         except Exception as e:
@@ -224,6 +245,8 @@ class Extractor:
             elif ext == ".md":
                 text = content.decode("utf-8", errors="replace")
                 return _md_to_plaintext(text)
+            elif ext in Extractor._IMAGE_EXTS:
+                return Extractor._extract_image_bytes(content)
             else:  # .txt
                 return content.decode("utf-8", errors="replace")
         except Exception as e:
@@ -288,7 +311,12 @@ class Extractor:
                 page_text = page.extract_text()
                 if page_text:
                     text_parts.append(page_text)
-        return "\n\n".join(text_parts)
+
+        # If we got text, return it. Otherwise fall back to OCR for scanned PDFs.
+        if text_parts:
+            return "\n\n".join(text_parts)
+
+        return Extractor._ocr_pdf_pages(file_path)
 
     @staticmethod
     def _extract_pdf_bytes(content: bytes) -> str:
@@ -302,7 +330,11 @@ class Extractor:
                 page_text = page.extract_text()
                 if page_text:
                     text_parts.append(page_text)
-        return "\n\n".join(text_parts)
+
+        if text_parts:
+            return "\n\n".join(text_parts)
+
+        return Extractor._ocr_pdf_bytes(content)
 
     # ------------------------------------------------------------------
     # DOCX extraction
@@ -386,3 +418,98 @@ class Extractor:
     def _extract_markdown(file_path: Path) -> str:
         text = file_path.read_text(encoding="utf-8", errors="replace")
         return _md_to_plaintext(text)
+
+    # ------------------------------------------------------------------
+    # Image extraction (OCR via Tesseract)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _extract_image(file_path: Path) -> str:
+        """Open an image file from disk and OCR it with Tesseract."""
+        from PIL import Image
+
+        img = Image.open(file_path)
+        return Extractor._ocr_image(img)
+
+    @staticmethod
+    def _extract_image_bytes(content: bytes) -> str:
+        """OCR an image from in-memory bytes."""
+        import io
+
+        from PIL import Image
+
+        img = Image.open(io.BytesIO(content))
+        return Extractor._ocr_image(img)
+
+    # ------------------------------------------------------------------
+    # OCR helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _ocr_image(img) -> str:
+        """Run Tesseract OCR on a single PIL Image.
+
+        Returns the recognised text, or an empty string if Tesseract is
+        unavailable or produces no output.
+        """
+        import pytesseract
+
+        # Ensure RGB mode — Tesseract works best with RGB or grayscale.
+        if img.mode not in ("RGB", "L"):
+            img = img.convert("RGB")
+
+        try:
+            text = pytesseract.image_to_string(img)
+            return text.strip()
+        except FileNotFoundError:
+            # Tesseract binary not installed — degrade gracefully.
+            print("[Extractor] Tesseract binary not found; skipping OCR")
+            return ""
+        except Exception as e:
+            print(f"[Extractor] OCR failed: {e}")
+            return ""
+
+    @staticmethod
+    def _ocr_images(images: list) -> str:
+        """Run OCR on a list of PIL Images and concatenate the results."""
+        parts: list[str] = []
+        for img in images:
+            text = Extractor._ocr_image(img)
+            if text:
+                parts.append(text)
+        return "\n\n".join(parts)
+
+    @staticmethod
+    def _ocr_pdf_pages(file_path: Path) -> str:
+        """Render each PDF page to an image and OCR it.
+
+        Used as a fallback when pdfplumber finds no text layer (scanned PDF).
+        """
+        try:
+            from pdf2image import convert_from_path
+        except ImportError:
+            print("[Extractor] pdf2image not installed; cannot OCR scanned PDF")
+            return ""
+
+        try:
+            images = convert_from_path(str(file_path), dpi=200)
+            return Extractor._ocr_images(images)
+        except Exception as e:
+            print(f"[Extractor] PDF OCR failed for {file_path}: {e}")
+            return ""
+
+    @staticmethod
+    def _ocr_pdf_bytes(content: bytes) -> str:
+        """Render each PDF page (from bytes) to an image and OCR it."""
+        try:
+            from pdf2image import convert_from_bytes
+        except ImportError:
+            print("[Extractor] pdf2image not installed; cannot OCR scanned PDF")
+            return ""
+
+        try:
+            images = convert_from_bytes(content, dpi=200)
+            return Extractor._ocr_images(images)
+        except Exception as e:
+            print(f"[Extractor] PDF OCR failed (from bytes): {e}")
+            return ""
