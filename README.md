@@ -1,5 +1,11 @@
 # DocMind
 
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://docs.astral.sh/ruff/)
+[![Docker](https://img.shields.io/badge/docker-ready-2496ED.svg)](https://www.docker.com/)
+[![Tests](https://img.shields.io/badge/tests-pytest-0a9edc.svg)](https://docs.pytest.org/)
+
 **AI 驱动的企业级文档知识库** — 把文档、标书、报表、数据库全扔进来，AI 帮你归类整理、提炼摘要、写索引目录。需要的时候用自然语言搜索，AI 替你读文档、找依据、写报告。
 
 ## 核心定位
@@ -15,53 +21,142 @@ WebDAV / 本地目录 / 数据库
           │
     文件发现 & 文本提取
           │
-    SQLite + FTS5 全文索引
+    文档分块 (Chunking)
+          │
+    ┌─────┴─────┐
+    ▼           ▼
+  FTS5 全文   向量语义
+   索引       嵌入索引
+    │           │
+    └─────┬─────┘
+          │
+    混合搜索 (Hybrid Search)
           │
     摘要生成 (LLM)
           │
-   ┌─────────┼─────────┐
-   ▼         ▼         ▼
-Web UI    Hermes Tool   CLI
-(搜索/问答)  (聊天检索)   (命令行)
+   ┌──────┼──────┐
+   ▼      ▼      ▼
+ Web UI  Hermes   CLI
+(搜索/问答) Tool  (命令行)
 ```
 
 ## 功能
 
-- [ ] **多源接入：** WebDAV（群晖等 NAS）、本地目录、PostgreSQL 数据库
-- [ ] **全格式提取：** PDF、DOCX、HTML、Markdown、TXT、图片元信息
-- [ ] **FTS5 全文索引：** 轻量高效，支持 SQLite 内建全文搜索
-- [ ] **LLM 多轮筛选：** 关键词初筛 → LLM 摘要匹配 → 原文返回
-- [ ] **引用溯源：** 每段回答标注来源文档 + 位置
-- [ ] **Web 管理界面：** 上传、搜索、对话、索引导航
+### 数据接入与处理
+
+- [x] **本地目录接入：** 扫描本地目录，自动发现并索引支持格式的文件
+- [ ] **WebDAV 接入：** WebDAV（群晖等 NAS）远程目录扫描与索引
+- [ ] **PostgreSQL 接入：** PostgreSQL 数据库查询，逐行索引为文档
+- [x] **全格式提取：** PDF、DOCX、HTML、Markdown、TXT、图片元信息
+- [ ] **增量处理：** 文件 hash 检测变更，只处理新文件（部分实现）
+- [x] **文档分块 (Document Chunking)：** 按语义切分文档，提升搜索粒度与 RAG 检索精度，减少 LLM token 消耗
+- [x] **多文件拖拽上传 (Multi-File Drag-and-Drop Upload)：** 拖拽式批量上传界面，支持多文件选择、逐文件进度条、拖放区域，无 JS 时自动回退到传统表单
+
+### 搜索与检索
+
+- [x] **FTS5 全文搜索：** 轻量高效，支持 SQLite 内建全文搜索
+- [x] **向量语义搜索 (Vector/Semantic Search)：** 基于 sentence-transformers 嵌入，支持本地 / Ollama / OpenAI 多种 embedding 后端
+- [x] **混合搜索 (Hybrid Search)：** FTS5 关键词 + 向量语义双路融合排序，可调节权重，无嵌入时自动回退到纯 FTS5
+- [x] **LLM 多轮筛选：** FTS5 + 向量混合搜索初筛 → LLM 摘要匹配 → 原文返回
+- [x] **引用溯源 (Citation/Source Tracking)：** 每段回答标注来源文档 + 位置
+
+### Web 管理界面
+
+- [x] **Web 管理界面：** 上传、搜索、对话、文档管理、分析仪表盘、设置、任务状态
+- [x] **分析仪表盘 (Analytics Dashboard)：** 使用统计与可视化图表，支持日期范围筛选、文档增长趋势、搜索热度、标签分布
+- [x] **文档查看器 (Document Viewer)：** 格式化内容渲染、分页浏览 (Pagination)、目录侧边栏、文档内搜索、阅读模式
+- [x] **文档标签与元数据 (Document Tags & Metadata)：** 标签云、按标签筛选、文档分类管理
+- [x] **聊天历史 (Chat History)：** 持久化多轮对话记录，会话管理 (Session Management)，会话回放，历史查询
+- [x] **任务状态页 (Job Processing Status Page)：** 异步任务队列可视化，处理进度跟踪
+- [x] **深色模式 (Dark Mode Toggle)：** 一键切换明暗主题，自动记忆用户偏好，全页面适配
+- [x] **批量文档删除 (Bulk Document Delete)：** 多选复选框 + API 端点，一键清理
+
+### 导出与摘要
+
+- [x] **答案导出 (Answer Export)：** 聊天记录导出（Markdown / JSON / TXT）、搜索结果导出（CSV / JSON）、文档摘要导出（Markdown / TXT）
+- [x] **自动摘要 (Auto-Summarization)：** LLM 驱动的 map-reduce 分块摘要，长文档自动切分、逐段摘要再合并，带重试与抽取式回退
+
+### 安全与集成
+
+- [x] **API Key 认证 (API Key Authentication)：** 可选的会话 + API Key 双模式认证，HMAC-SHA256 签名 Cookie，支持 `X-API-Key` 头部
 - [ ] **Hermes Tool 接入：** `kb_search`、`kb_list`、`kb_read`、`kb_ingest`
-- [ ] **增量处理：** 文件 hash 检测变更，只处理新文件
 - [ ] **TPM 限速：** 控制 LLM 调用频率，不炸 API
+
+### LLM 与部署
+
+- [x] **多 LLM 支持 (Multi-LLM Support)：** OpenAI 兼容 API + Ollama 双后端，支持 OpenAI / vLLM / LM Studio 等任意 OpenAI 格式接口
+- [x] **Docker 支持：** 多阶段 Dockerfile（builder + runtime，python:3.11-slim），docker-compose 一键编排，volume 挂载持久化数据，健康检查
 
 ## 项目结构
 
 ```
 docmind/
 ├── src/
-│   ├── core/          # 核心引擎
-│   │   ├── storage.py     # WebDAV / 目录 / DB 接入
-│   │   ├── extractor.py   # 文本提取（PDF/DOCX/HTML...）
-│   │   ├── indexer.py     # SQLite + FTS5 管理
-│   │   ├── summarizer.py  # LLM 摘要管道
-│   │   └── search.py      # 多轮搜索引擎
-│   ├── web/           # Web 前端 (FastAPI + Jinja2 / Vue)
-│   │   ├── server.py
-│   │   └── templates/
-│   ├── cli/           # 命令行工具
-│   │   └── main.py
-│   └── hermes_plugin.py  # Hermes Tool 注册
-├── tests/
+│   ├── core/                  # 核心引擎
+│   │   ├── storage.py             # WebDAV / 目录 / DB 接入
+│   │   ├── extractor.py           # 文本提取（PDF/DOCX/HTML...）
+│   │   ├── indexer.py             # SQLite + FTS5 管理
+│   │   ├── chunking.py            # 文档分块
+│   │   ├── embeddings.py          # 向量嵌入（本地/Ollama/OpenAI）
+│   │   ├── search.py              # 多轮搜索引擎 + 混合搜索
+│   │   ├── search_backend.py      # 搜索后端抽象
+│   │   ├── summarizer.py          # LLM 摘要管道（map-reduce）
+│   │   ├── llm_client.py          # OpenAI + Ollama LLM 客户端
+│   │   ├── job_queue.py           # 异步任务队列
+│   │   ├── db.py / db_sqlite.py   # 数据库适配层
+│   │   └── config.py              # 配置管理
+│   ├── web/                   # Web 前端 (FastAPI + Jinja2)
+│   │   ├── server.py              # FastAPI 应用与路由
+│   │   ├── auth.py                # API Key 认证
+│   │   ├── chat.py                # WebSocket 聊天
+│   │   ├── document_viewer.py     # 文档查看器
+│   │   ├── rendering.py           # Jinja2 模板渲染
+│   │   ├── services.py            # 业务服务（导出、摘要）
+│   │   └── templates/             # Jinja2 模板
+│   │       ├── _partials/             # 分页等可复用组件
+│   │       └── documents/             # 文档列表与详情页
+│   ├── cli/                   # 命令行工具
+│   │   ├── main.py
+│   │   ├── services.py
+│   │   └── formatters.py
+│   ├── docmind/               # 平台层（API / 认证 / 可观测性）
+│   │   ├── api/                   # REST API 路由
+│   │   ├── auth/                  # 权限控制
+│   │   ├── observability/         # 审计 / 熔断 / 健康检查 / 遥测
+│   │   └── storage/               # 内容寻址存储 (CAS)
+│   └── hermes_plugin.py       # Hermes Tool 注册
+├── tests/                     # 测试套件（pytest）
 ├── config/
 │   └── config.example.yaml
-├── data/              # SQLite 数据库存储
-└── docs/
+├── data/                      # SQLite 数据库存储
+├── docs/
+│   └── openapi.yaml           # OpenAPI 规范
+├── Dockerfile                 # 多阶段 Docker 构建
+├── docker-compose.yml         # 一键容器编排
+├── pyproject.toml             # 依赖与项目元数据
+└── AGENTS.md
 ```
 
-## 开始使用
+## 快速开始
+
+### 方式一：Docker（推荐）
+
+```bash
+# 克隆仓库
+git clone https://github.com/yzy806806/docmind.git
+cd docmind
+
+# 复制配置模板并填入 LLM API Key
+cp config/config.example.yaml config/config.yaml
+# 编辑 config.yaml：填入 LLM API key、数据源
+
+# 启动容器
+docker compose up -d
+```
+
+访问 `http://localhost:8080` 进入管理界面。
+
+### 方式二：本地运行
 
 ```bash
 # 安装
@@ -71,13 +166,10 @@ uv sync
 
 # 配置
 cp config/config.example.yaml config/config.yaml
-# 编辑 config.yaml：填入 WebDAV 地址、LLM API key
+# 编辑 config.yaml：填入 LLM API key、数据源
 
 # 启动 Web 服务
 uv run python -m src.web.server
-
-# 或 Hermes tool 模式
-hermes plugins install src/hermes_plugin.py
 ```
 
 访问 `http://localhost:8080` 进入管理界面。
@@ -85,10 +177,12 @@ hermes plugins install src/hermes_plugin.py
 ## 技术栈
 
 - **后端：** Python 3.11+, FastAPI, SQLite + FTS5
-- **前端：** Jinja2 / htmx（轻量），后续可选 Vue/React
+- **前端：** Jinja2 模板 + htmx（轻量），后续可选 Vue/React
 - **文档提取：** pdfplumber, python-docx, beautifulsoup4
-- **LLM：** OpenAI 兼容 API（支持任何 OpenAI 格式接口）
+- **向量嵌入：** sentence-transformers（本地），兼容 Ollama / OpenAI
+- **LLM：** OpenAI 兼容 API + Ollama（支持任意 OpenAI 格式接口）
 - **打包：** uv / pip
+- **容器化：** Docker + docker-compose
 
 ## License
 
