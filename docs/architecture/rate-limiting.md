@@ -69,7 +69,8 @@ Content-Type: application/json
 
 The `retry_after` value is always an integer between 1 and 60. It is
 computed from the time remaining until the bucket's oldest entry expires,
-rounded up to the nearest second.
+rounded up to the nearest second. It is expressed as delta-seconds (not
+HTTP-date), which is valid per RFC 7231 §7.1.3.
 
 ### Client guidance
 
@@ -129,7 +130,7 @@ consistent.
 
 ## Configuration reference
 
-Rate limiting is configured through **two environment variables**. There
+Rate limiting is configured through **environment variables**. There
 are no YAML settings for rate limiting — env vars are the canonical config
 source to keep the deployment surface simple.
 
@@ -137,6 +138,7 @@ source to keep the deployment surface simple.
 |-------------------------------------------|---------|--------------------------------------------------------------|
 | `DOCMIND_RATE_LIMIT_ENABLED`              | `false` | Enable or disable the rate limiter.                          |
 | `DOCMIND_RATE_LIMIT_REQUESTS_PER_MINUTE`  | `60`    | Max requests per client IP per sliding 60-second window.     |
+| `DOCMIND_RATE_LIMIT_TRUSTED_PROXY_IPS`    | (empty) | Comma-separated list of trusted reverse proxy IPs.           |
 
 ### Determining the right limit
 
@@ -150,7 +152,7 @@ reference:
 | Small team (2–5 users)           | 60            |
 | Medium team (6–20 users)         | 120           |
 | Large team or public exposure    | 300+          |
-| API behind a reverse proxy       | See proxy note below |
+| API behind a reverse proxy       | See proxy section below |
 
 The rate limiter is per-IP, so in practice each user gets their own
 budget. A setting of 60 RPM means each individual browser or API client
@@ -160,19 +162,92 @@ in rapid succession followed by a cooldown.
 ## Reverse proxy considerations
 
 When DocMind sits behind a reverse proxy (nginx, Caddy, Traefik, etc.),
-the rate limiter sees the proxy's IP address — not the end user's — unless
-the proxy forwards the original client IP.
+the rate limiter sees the proxy's IP address — not the end user's —
+unless you configure trusted proxy IP handling.
 
-Configure your proxy to set the `X-Forwarded-For` header, and ensure
-DocMind's FastAPI/Uvicorn is configured to trust it. For Uvicorn:
+### The problem
+
+By default, `request.client.host` returns the direct TCP peer IP. When
+behind a proxy, this is always the proxy's IP, so all users share a
+single rate-limit bucket. That effectively limits your entire user base
+to the configured RPM combined.
+
+### The solution: trusted_proxy_ips
+
+DocMind's rate limiter does **not** blindly trust the `X-Forwarded-For`
+header (which is trivially spoofable). Instead, it only consults
+`X-Forwarded-For` when the direct peer IP is in the configured
+`trusted_proxy_ips` list. This prevents IP spoofing attacks that could
+bypass rate limiting.
+
+Configure the proxy's IP address(es):
 
 ```bash
-uvicorn src.web.server:app --proxy-headers --forwarded-allow-ips='*'
+# Single proxy
+export DOCMIND_RATE_LIMIT_TRUSTED_PROXY_IPS=10.0.0.1
+
+# Multiple proxies (comma-separated)
+export DOCMIND_RATE_LIMIT_TRUSTED_PROXY_IPS=10.0.0.1,10.0.0.2,192.168.1.1
 ```
 
-Without forwarded headers, all requests appear to come from the proxy and
-share a single rate limit bucket — effectively limiting your entire user
-base to 60 RPM total.
+When a request arrives from a trusted proxy IP, the rate limiter uses
+the **rightmost** entry in the `X-Forwarded-For` header — this is the
+IP appended by the trusted proxy itself and represents the real client.
+The leftmost entries are client-controlled and may be spoofed, so they
+are never used.
+
+### Proxy configuration
+
+Configure your reverse proxy to set `X-Forwarded-For` with the real
+client IP. The proxy should strip or overwrite any incoming
+`X-Forwarded-For` header from the client before appending the real IP.
+
+**nginx:**
+
+```nginx
+location / {
+    proxy_pass http://127.0.0.1:8080;
+    proxy_set_header X-Forwarded-For $remote_addr;
+    # $remote_addr is the real client IP as seen by nginx
+}
+```
+
+**Caddy:**
+
+```
+reverse_proxy 127.0.0.1:8080 {
+    header_up X-Forwarded-For {remote_host}
+}
+```
+
+### Security warning
+
+**Only list IPs you control in `trusted_proxy_ips`.** If you list an
+untrusted IP, any client connecting from that IP can spoof their
+`X-Forwarded-For` header to get a fresh rate-limit bucket on every
+request, effectively bypassing rate limiting.
+
+When `trusted_proxy_ips` is empty (the default), `X-Forwarded-For` is
+never consulted and `request.client.host` is used directly. This is the
+most secure configuration for direct (non-proxied) deployments.
+
+### Uvicorn --proxy-headers
+
+If you use Uvicorn's `--proxy-headers` flag, `request.client.host` will
+reflect the XFF header directly. **Do not use `--proxy-headers` with
+`--forwarded-allow-ips='*'`** — this makes Uvicorn trust XFF from any
+source, which defeats the rate limiter's spoofing protection.
+
+If you use `--proxy-headers`, restrict it to your proxy's IP:
+
+```bash
+uvicorn src.web.server:app --proxy-headers --forwarded-allow-ips='10.0.0.1'
+```
+
+However, the recommended approach is to **not** use `--proxy-headers`
+and instead set `DOCMIND_RATE_LIMIT_TRUSTED_PROXY_IPS`. This keeps the
+spoofing protection in the rate limiter's own code rather than relying
+on Uvicorn's ASGI-level header parsing.
 
 ## Architecture
 
@@ -183,6 +258,10 @@ The rate limiter is implemented in `src/web/rate_limit.py`:
   Prunes expired entries on every check. Thread-safe for the single-worker
   asyncio deployment (no locks needed — FastAPI's event loop is
   single-threaded by default).
+- **`_client_key()`** — Extracts the client identifier from the request.
+  Uses `request.client.host` (the direct TCP peer IP) by default. Only
+  consults `X-Forwarded-For` when the direct peer is a trusted proxy,
+  using the rightmost (proxy-appended) entry for anti-spoofing.
 - **`rate_limit_middleware`** — FastAPI/Starlette ASGI middleware. When
   `config.rate_limit.enabled` is `False`, it's a pass-through with zero
   overhead (one bool check). When enabled, it checks the limiter and
@@ -215,14 +294,16 @@ model:
 
 ## Testing
 
-Rate limiting is tested with 41 tests in `tests/test_rate_limit.py`,
-covering:
+Rate limiting is tested in `tests/test_rate_limit.py`, covering:
 
 - `RateLimiter` unit tests: sliding window logic, pruning, `retry_after`
   computation, per-IP isolation, window expiry, reset, unknown client
   fallback
 - `RateLimitConfig` unit tests: dataclass fields, env var parsing,
-  defaults
+  defaults, `trusted_proxy_ip_set` property
+- `_client_key` X-Forwarded-For tests: trusted proxy validation, rightmost
+  vs leftmost XFF entry, spoofing prevention, empty/malformed XFF fallback
+- Bucket cleanup tests: periodic pruning of empty bucket entries
 - Middleware integration tests (ASGI client): passthrough when disabled,
   429 response shape, `Retry-After` header presence, exempt path behaviour,
   per-test state isolation
