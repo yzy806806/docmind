@@ -910,6 +910,10 @@ class TestDatabaseCacheIntegration:
         Regression test for bug where log_search inserted into search_log
         without invalidating any search analytics caches.
         """
+        # Insert an initial search log so get_search_stats has data to cache
+        # (get_search_stats returns early without caching when total==0).
+        await db.log_search("initial query", 3)
+
         # Populate all search analytics caches
         await db.get_search_stats(30)
         await db.get_search_trend(30)
