@@ -7,6 +7,8 @@ Covers:
 - Key helpers: make_key, hash_params
 - CacheTTLConfig: default values
 - Database integration: cache hit/miss, TTL expiry, invalidation on mutations
+- FakeRedis: swap InMemoryCache for FakeRedis-backed RedisCache
+- Full mutation path coverage: all 14+ mutation paths verified
 """
 
 from __future__ import annotations
@@ -52,6 +54,45 @@ async def db(tmp_db_path: str):
     await database.connect()
     # Provide access to the cache for assertions
     database._test_cache = test_cache
+    yield database
+    await database.disconnect()
+
+
+@pytest.fixture
+async def fake_redis():
+    """Create a RedisCache backed by FakeRedis for integration testing."""
+    pytest.importorskip("fakeredis")
+    import fakeredis
+
+    from src.core.cache import RedisCache
+
+    fake_client = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    rc = RedisCache.__new__(RedisCache)
+    rc._url = "fakeredis://"
+    rc._client = fake_client
+    rc._fallback = None
+    yield rc
+    await rc.flush()
+
+
+@pytest.fixture
+async def db_with_fake_redis(tmp_db_path: str):
+    """Create a connected Database using FakeRedis-backed RedisCache."""
+    pytest.importorskip("fakeredis")
+    import fakeredis
+
+    from src.core.cache import RedisCache
+    from src.core.db_sqlite import Database
+
+    fake_client = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    rc = RedisCache.__new__(RedisCache)
+    rc._url = "fakeredis://"
+    rc._client = fake_client
+    rc._fallback = None
+
+    database = Database(db_path=tmp_db_path, cache=rc)
+    await database.connect()
+    database._test_cache = rc
     yield database
     await database.disconnect()
 
@@ -161,6 +202,66 @@ class TestInMemoryCache:
         # First get returns None and cleans up
         result = await cache.get("temp")
         assert result is None
+
+    async def test_ttl_expiry_with_sleep_clock(self, cache):
+        """TTL expiry using time.sleep (sync clock) instead of asyncio.sleep."""
+        # Set with 1-second TTL
+        await cache.set("sleep_expire", "data", ttl=1)
+        assert await cache.get("sleep_expire") == "data"
+        # Use time.sleep for deterministic clock advancement
+        time.sleep(1.1)
+        result = await cache.get("sleep_expire")
+        assert result is None
+
+    async def test_ttl_zero_means_no_expiry(self, cache):
+        """ttl=0 is treated as no TTL (per InMemoryCache implementation)."""
+        await cache.set("zero_ttl", "data", ttl=0)
+        # ttl=0 means no expiry set
+        assert await cache.get("zero_ttl") == "data"
+        await asyncio.sleep(0.1)
+        assert await cache.get("zero_ttl") == "data"
+
+    async def test_ttl_negative_expires_immediately(self, cache):
+        """Negative TTL creates an immediately expired key."""
+        # Starting with a clean assertion: negative TTL sets expiry in the past
+        await cache.set("neg_ttl", "data", ttl=-1)
+        # Since time.time() + (-1) < time.time(), the key is already expired
+        result = await cache.get("neg_ttl")
+        assert result is None
+
+    async def test_size_tracks_entries(self, cache):
+        """size() reports the current number of entries."""
+        assert await cache.size() == 0
+        await cache.set("a", 1)
+        await cache.set("b", 2)
+        assert await cache.size() == 2
+        await cache.delete("a")
+        assert await cache.size() == 1
+
+    async def test_set_many_keys(self, cache):
+        """Setting many keys works correctly."""
+        for i in range(50):
+            await cache.set(f"key_{i}", f"value_{i}")
+        assert await cache.size() == 50
+        assert await cache.get("key_0") == "value_0"
+        assert await cache.get("key_49") == "value_49"
+
+    async def test_none_value(self, cache):
+        """None can be stored and retrieved."""
+        await cache.set("none_key", None)
+        result = await cache.get("none_key")
+        assert result is None
+
+    async def test_empty_string_key(self, cache):
+        """Empty string key works."""
+        await cache.set("", "empty")
+        assert await cache.get("") == "empty"
+
+    async def test_special_characters_in_key(self, cache):
+        """Keys with special characters work."""
+        special_key = "key:with/special?chars&test=1#frag"
+        await cache.set(special_key, "value")
+        assert await cache.get(special_key) == "value"
 
 
 # ── NoopCache Tests ──────────────────────────────────────────────
@@ -356,6 +457,12 @@ class TestCacheTTLConfig:
             if isinstance(val, int) and not attr.startswith("__"):
                 assert 30 <= val <= 600, f"{attr}={val} not in [30, 600]"
 
+    def test_ttl_singleton(self):
+        """TTL singleton is a CacheTTLConfig instance."""
+        from src.core.cache import CacheTTLConfig, TTL
+
+        assert isinstance(TTL, CacheTTLConfig)
+
 
 # ── Database Cache Integration Tests ─────────────────────────────
 
@@ -388,6 +495,42 @@ class TestDatabaseCacheIntegration:
         doc2 = await db.get_document(doc_id)
         assert doc2 is not None
         assert doc2["title"] == "Test Doc"
+
+    async def test_document_cache_miss(self, db):
+        """get_document returns None for non-existent doc, cache stays empty."""
+        result = await db.get_document(99999)
+        assert result is None
+        # Cache should not have an entry for this
+        assert await db._test_cache.get("docmind:doc:get:99999") is None
+
+    async def test_cache_hit_avoids_db_query(self, db):
+        """Cache hit serves from cache without re-querying the DB.
+
+        We verify this by checking that the cached value equals the DB value
+        and that the cache key is present after the first fetch.
+        """
+        doc_id = await db.save_document(
+            path="/test/cachehit.txt",
+            source_type="local",
+            source_name="test",
+            title="Cache Hit Test",
+            ext=".txt",
+            mime_type="text/plain",
+            body="Cache hit body",
+        )
+        # First fetch populates cache
+        doc1 = await db.get_document(doc_id)
+        assert doc1["body"] == "Cache hit body"
+
+        # Verify cache was set
+        cache_key = f"docmind:doc:get:{doc_id}"
+        cached = await db._test_cache.get(cache_key)
+        assert cached is not None
+        assert cached["body"] == "Cache hit body"
+
+        # Second fetch returns same data
+        doc2 = await db.get_document(doc_id)
+        assert doc2["body"] == "Cache hit body"
 
     async def test_document_cache_invalidation_on_delete(self, db):
         """delete_document invalidates the cache."""
@@ -478,7 +621,6 @@ class TestDatabaseCacheIntegration:
         )
         await db.search_documents("unique")
         # Check that some search key was cached
-        # (We can't predict the exact key due to hashing, so check store size)
         assert await db._test_cache.size() > 0
 
     async def test_tag_cache_invalidation(self, db):
@@ -705,6 +847,346 @@ class TestDatabaseCacheIntegration:
         await db.get_chat_activity(30)
         assert await db._test_cache.get("docmind:analytics:chat_activity:30") is not None
 
+    # ── Cache invalidation bug regression tests ──────────────
+
+    async def test_document_path_cache_invalidation(self, db):
+        """get_document_by_path cache is invalidated after update_summary.
+
+        Regression test for bug where _invalidate_document_mutations used
+        doc_id as the by_path cache key, but the key is actually
+        hash_params(path=path). The keys never matched, so stale path-based
+        cache entries survived until TTL expiry.
+        """
+        doc_id = await db.save_document(
+            path="/test/path_cache.txt",
+            source_type="local",
+            source_name="test",
+            title="Path Cache Test",
+            ext=".txt",
+            mime_type="text/plain",
+            body="Original content",
+        )
+        # Populate the by_path cache
+        doc = await db.get_document_by_path("/test/path_cache.txt")
+        assert doc is not None
+        assert doc["title"] == "Path Cache Test"
+
+        # Verify the by_path cache key was set (key is hashed, so check size)
+        assert await db._test_cache.size() > 0
+
+        # Mutate the document via update_summary — should invalidate by_path cache
+        await db.update_summary(doc_id, "New summary")
+
+        # The by_path cache entry should be gone — verify by fetching again
+        # and confirming it re-queries the DB (cache miss repopulates with
+        # fresh data). We check that after the mutation, no by_path key remains.
+        # Since the key is hashed, we verify by checking that the cache was
+        # invalidated by confirming a fresh fetch returns updated data.
+        doc_after = await db.get_document_by_path("/test/path_cache.txt")
+        assert doc_after is not None
+        assert doc_after.get("summary") == "New summary"
+
+    async def test_chat_activity_cache_invalidation_on_message(self, db):
+        """save_chat_message invalidates chat_activity cache (key has days suffix).
+
+        Regression test for bug where _invalidate_chat_mutations deleted the
+        bare key 'docmind:analytics:chat_activity' but the actual stored key
+        includes a days suffix (e.g. ':30'), so the delete never matched.
+        """
+        session = await db.create_chat_session()
+        await db.save_chat_message(session["id"], "user", "first message")
+
+        # Populate chat_activity cache
+        await db.get_chat_activity(30)
+        assert await db._test_cache.get("docmind:analytics:chat_activity:30") is not None
+
+        # Another message should invalidate the chat_activity cache
+        await db.save_chat_message(session["id"], "user", "second message")
+        assert await db._test_cache.get("docmind:analytics:chat_activity:30") is None
+
+    async def test_log_search_invalidates_search_analytics(self, db):
+        """log_search invalidates search_stats, search_trend, and popular_queries caches.
+
+        Regression test for bug where log_search inserted into search_log
+        without invalidating any search analytics caches.
+        """
+        # Populate all search analytics caches
+        await db.get_search_stats(30)
+        await db.get_search_trend(30)
+        await db.get_popular_queries(10)
+
+        assert await db._test_cache.get("docmind:analytics:search_stats:30") is not None
+        assert await db._test_cache.get("docmind:analytics:search_trend:30") is not None
+        assert await db._test_cache.get("docmind:analytics:popular:10") is not None
+
+        # Log a new search — should invalidate all search analytics caches
+        await db.log_search("test query", 5)
+
+        assert await db._test_cache.get("docmind:analytics:search_stats:30") is None
+        assert await db._test_cache.get("docmind:analytics:search_trend:30") is None
+        assert await db._test_cache.get("docmind:analytics:popular:10") is None
+
+    # ── Missing mutation path tests ──────────────────────────
+
+    async def test_complete_job_invalidates(self, db):
+        """complete_job invalidates job and document caches."""
+        doc_id = await db.save_document(
+            path="/test/complete.txt",
+            source_type="local",
+            source_name="test",
+            title="CompleteJob",
+            ext=".txt",
+            mime_type="text/plain",
+            body="x",
+        )
+        job = await db.enqueue_job("/test/complete.txt", document_title="CompleteJob")
+        # Populate caches
+        await db.get_job(job.id)
+        await db.get_document(doc_id)
+        assert await db._test_cache.get(f"docmind:job:get:{job.id}") is not None
+        assert await db._test_cache.get(f"docmind:doc:get:{doc_id}") is not None
+
+        await db.complete_job(job.id, doc_id)
+        assert await db._test_cache.get(f"docmind:job:get:{job.id}") is None
+        assert await db._test_cache.get(f"docmind:doc:get:{doc_id}") is None
+
+    async def test_fail_job_invalidates(self, db):
+        """fail_job invalidates job caches."""
+        job = await db.enqueue_job("/test/fail.txt", document_title="FailJob")
+        await db.get_job(job.id)
+        assert await db._test_cache.get(f"docmind:job:get:{job.id}") is not None
+
+        await db.fail_job(job.id, "Test error")
+        assert await db._test_cache.get(f"docmind:job:get:{job.id}") is None
+
+    async def test_dequeue_job_invalidates(self, db):
+        """dequeue_job invalidates job caches."""
+        job = await db.enqueue_job("/test/dequeue.txt", document_title="DequeueJob")
+        await db.get_job(job.id)
+        assert await db._test_cache.get(f"docmind:job:get:{job.id}") is not None
+
+        dequeued = await db.dequeue_job()
+        assert dequeued is not None
+        assert await db._test_cache.get(f"docmind:job:get:{job.id}") is None
+
+    async def test_update_chat_session_title_invalidates(self, db):
+        """update_chat_session_title invalidates chat session caches."""
+        session = await db.create_chat_session()
+        await db.list_chat_sessions()
+        assert await db._test_cache.get("docmind:chat:sessions:50") is not None
+
+        await db.update_chat_session_title(session["id"], "New Title")
+        assert await db._test_cache.get("docmind:chat:sessions:50") is None
+
+    async def test_update_document_type_invalidates(self, db):
+        """update_document_type invalidates document caches."""
+        doc_id = await db.save_document(
+            path="/test/type.txt",
+            source_type="local",
+            source_name="test",
+            title="Type Doc",
+            ext=".txt",
+            mime_type="text/plain",
+            body="content",
+        )
+        await db.get_document(doc_id)
+        assert await db._test_cache.get(f"docmind:doc:get:{doc_id}") is not None
+
+        await db.update_document_type(doc_id, "report")
+        assert await db._test_cache.get(f"docmind:doc:get:{doc_id}") is None
+
+    async def test_enqueue_job_invalidates_job_stats(self, db):
+        """enqueue_job (create_job) invalidates job stats cache."""
+        await db.get_job_stats()
+        assert await db._test_cache.get("docmind:analytics:job_stats") is not None
+
+        await db.enqueue_job("/test/enqueue.txt", document_title="EnqueueJob")
+        assert await db._test_cache.get("docmind:analytics:job_stats") is None
+
+
+# ── FakeRedis Integration Tests ──────────────────────────────────
+
+
+@pytest.mark.skipif_not_redis
+class TestFakeRedisCache:
+    """Tests using FakeRedis as a drop-in for RedisCache.
+
+    Requires: pip install fakeredis
+    """
+
+    async def test_fake_redis_set_and_get(self, fake_redis):
+        """Basic set/get round-trip via FakeRedis."""
+        await fake_redis.set("fr_key", "fr_value")
+        result = await fake_redis.get("fr_key")
+        assert result == "fr_value"
+
+    async def test_fake_redis_get_missing(self, fake_redis):
+        """get returns None for missing keys."""
+        result = await fake_redis.get("fr_nonexistent")
+        assert result is None
+
+    async def test_fake_redis_set_with_ttl(self, fake_redis):
+        """TTL-based expiry works with FakeRedis."""
+        await fake_redis.set("fr_temp", "data", ttl=1)
+        assert await fake_redis.get("fr_temp") == "data"
+        time.sleep(1.1)
+        result = await fake_redis.get("fr_temp")
+        assert result is None
+
+    async def test_fake_redis_delete(self, fake_redis):
+        """delete removes a key."""
+        await fake_redis.set("fr_del", "value")
+        await fake_redis.delete("fr_del")
+        assert await fake_redis.get("fr_del") is None
+
+    async def test_fake_redis_delete_pattern(self, fake_redis):
+        """delete_pattern removes matching keys."""
+        await fake_redis.set("fr:list:1", "a")
+        await fake_redis.set("fr:list:2", "b")
+        await fake_redis.set("fr:other:1", "c")
+        await fake_redis.delete_pattern("fr:list:*")
+        assert await fake_redis.get("fr:list:1") is None
+        assert await fake_redis.get("fr:list:2") is None
+        assert await fake_redis.get("fr:other:1") == "c"
+
+    async def test_fake_redis_flush(self, fake_redis):
+        """flush clears all keys."""
+        await fake_redis.set("fr_a", 1)
+        await fake_redis.set("fr_b", 2)
+        await fake_redis.flush()
+        assert await fake_redis.get("fr_a") is None
+        assert await fake_redis.get("fr_b") is None
+
+    async def test_fake_redis_complex_values(self, fake_redis):
+        """FakeRedis stores complex Python objects via JSON serialization."""
+        data = {"nested": {"list": [1, 2, 3], "str": "hello"}}
+        await fake_redis.set("fr_complex", data)
+        result = await fake_redis.get("fr_complex")
+        assert result == data
+
+    async def test_fake_redis_set_overwrites(self, fake_redis):
+        """Setting existing key overwrites."""
+        await fake_redis.set("fr_over", "v1")
+        await fake_redis.set("fr_over", "v2")
+        assert await fake_redis.get("fr_over") == "v2"
+
+    async def test_fake_redis_none_value(self, fake_redis):
+        """None can be stored via FakeRedis."""
+        await fake_redis.set("fr_none", None)
+        result = await fake_redis.get("fr_none")
+        assert result is None
+
+    async def test_fake_redis_integer_value(self, fake_redis):
+        """Integer values round-trip correctly."""
+        await fake_redis.set("fr_int", 42)
+        assert await fake_redis.get("fr_int") == 42
+
+    async def test_fake_redis_list_value(self, fake_redis):
+        """List values round-trip correctly."""
+        await fake_redis.set("fr_list", [1, "two", 3.0])
+        assert await fake_redis.get("fr_list") == [1, "two", 3.0]
+
+
+@pytest.mark.skipif_not_redis
+class TestFakeRedisDatabaseIntegration:
+    """Database integration tests using FakeRedis-backed cache."""
+
+    async def test_document_cache_hit_fake_redis(self, db_with_fake_redis):
+        """Cache hit works with FakeRedis backend."""
+        db = db_with_fake_redis
+        doc_id = await db.save_document(
+            path="/test/fr_doc.txt",
+            source_type="local",
+            source_name="test",
+            title="FakeRedis Doc",
+            ext=".txt",
+            mime_type="text/plain",
+            body="FakeRedis body",
+        )
+        doc1 = await db.get_document(doc_id)
+        assert doc1 is not None
+        assert doc1["title"] == "FakeRedis Doc"
+
+        cached = await db._test_cache.get(f"docmind:doc:get:{doc_id}")
+        assert cached is not None
+
+        doc2 = await db.get_document(doc_id)
+        assert doc2["title"] == "FakeRedis Doc"
+
+    async def test_document_delete_invalidates_fake_redis(self, db_with_fake_redis):
+        """Cache invalidation on delete works with FakeRedis."""
+        db = db_with_fake_redis
+        doc_id = await db.save_document(
+            path="/test/fr_del.txt",
+            source_type="local",
+            source_name="test",
+            title="FR Delete",
+            ext=".txt",
+            mime_type="text/plain",
+            body="x",
+        )
+        await db.get_document(doc_id)
+        assert await db._test_cache.get(f"docmind:doc:get:{doc_id}") is not None
+
+        await db.delete_document(doc_id)
+        assert await db._test_cache.get(f"docmind:doc:get:{doc_id}") is None
+
+    async def test_job_invalidation_fake_redis(self, db_with_fake_redis):
+        """Job cache invalidation works with FakeRedis."""
+        db = db_with_fake_redis
+        job = await db.create_job("/test/fr_job.txt", document_title="FR Job")
+        await db.get_job(job.id)
+        assert await db._test_cache.get(f"docmind:job:get:{job.id}") is not None
+
+        await db.update_job_status(job.id, "processing")
+        assert await db._test_cache.get(f"docmind:job:get:{job.id}") is None
+
+    async def test_collection_cache_fake_redis(self, db_with_fake_redis):
+        """Collection caching works with FakeRedis."""
+        db = db_with_fake_redis
+        col_id = await db.create_collection("FR Col")
+        await db.get_collection(col_id)
+        assert await db._test_cache.get(f"docmind:collection:get:{col_id}") is not None
+
+        await db.update_collection(col_id, name="FR Updated")
+        assert await db._test_cache.get(f"docmind:collection:get:{col_id}") is None
+
+    async def test_stats_cache_fake_redis(self, db_with_fake_redis):
+        """Stats caching works with FakeRedis."""
+        db = db_with_fake_redis
+        await db.save_document(
+            path="/test/fr_stats.txt",
+            source_type="local",
+            source_name="test",
+            title="FR Stats",
+            ext=".txt",
+            mime_type="text/plain",
+            body="x",
+        )
+        await db.get_stats()
+        assert await db._test_cache.get("docmind:analytics:stats") is not None
+
+        await db.save_document(
+            path="/test/fr_stats2.txt",
+            source_type="local",
+            source_name="test",
+            title="FR Stats2",
+            ext=".txt",
+            mime_type="text/plain",
+            body="y",
+        )
+        assert await db._test_cache.get("docmind:analytics:stats") is None
+
+    async def test_chat_cache_fake_redis(self, db_with_fake_redis):
+        """Chat caching works with FakeRedis."""
+        db = db_with_fake_redis
+        session = await db.create_chat_session()
+        await db.list_chat_sessions()
+        assert await db._test_cache.get("docmind:chat:sessions:50") is not None
+
+        await db.save_chat_message(session["id"], "user", "FR message")
+        assert await db._test_cache.get("docmind:chat:sessions:50") is None
+
 
 # ── Config Integration Tests ─────────────────────────────────────
 
@@ -751,3 +1233,65 @@ class TestCacheConfig:
                     os.environ[k] = v
                 elif k in os.environ:
                     del os.environ[k]
+
+
+# ── RedisCache Fallback Tests ────────────────────────────────────
+
+
+class TestRedisCacheFallback:
+    """Tests for RedisCache fallback to InMemoryCache on connection failure."""
+
+    def test_redis_fallback_on_import_error(self):
+        """RedisCache falls back to InMemoryCache when redis is not importable."""
+        # This is tested by the lazy import in RedisCache._get_client
+        # We verify the fallback mechanism exists by checking the code path
+        from src.core.cache import InMemoryCache, RedisCache
+
+        rc = RedisCache(url="redis://nonexistent:6379/0")
+        # Force fallback by setting _fallback directly (simulating import failure)
+        rc._fallback = InMemoryCache(max_size=100)
+        assert rc._get_client() is None
+
+    async def test_redis_fallback_get(self):
+        """Fallen-back RedisCache delegates get to InMemoryCache."""
+        from src.core.cache import InMemoryCache, RedisCache
+
+        rc = RedisCache(url="redis://nonexistent:6379/0")
+        rc._fallback = InMemoryCache(max_size=100)
+        await rc._fallback.set("fb_key", "fb_value")
+
+        result = await rc.get("fb_key")
+        assert result == "fb_value"
+
+    async def test_redis_fallback_set(self):
+        """Fallen-back RedisCache delegates set to InMemoryCache."""
+        from src.core.cache import InMemoryCache, RedisCache
+
+        rc = RedisCache(url="redis://nonexistent:6379/0")
+        rc._fallback = InMemoryCache(max_size=100)
+
+        await rc.set("fb_set", "data", ttl=60)
+        result = await rc._fallback.get("fb_set")
+        assert result == "data"
+
+    async def test_redis_fallback_delete(self):
+        """Fallen-back RedisCache delegates delete to InMemoryCache."""
+        from src.core.cache import InMemoryCache, RedisCache
+
+        rc = RedisCache(url="redis://nonexistent:6379/0")
+        rc._fallback = InMemoryCache(max_size=100)
+        await rc._fallback.set("fb_del", "x")
+
+        await rc.delete("fb_del")
+        assert await rc._fallback.get("fb_del") is None
+
+    async def test_redis_fallback_flush(self):
+        """Fallen-back RedisCache delegates flush to InMemoryCache."""
+        from src.core.cache import InMemoryCache, RedisCache
+
+        rc = RedisCache(url="redis://nonexistent:6379/0")
+        rc._fallback = InMemoryCache(max_size=100)
+        await rc._fallback.set("fb_flush", "x")
+
+        await rc.flush()
+        assert await rc._fallback.get("fb_flush") is None
