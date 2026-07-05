@@ -168,6 +168,11 @@ from .auth import (
     unauthorized_response,
     auth_enabled,
 )
+from .rate_limit import (
+    rate_limit_middleware,
+    get_rate_limiter,
+    _reinit_rate_limiter,
+)
 
 
 _db: Optional[Database] = None
@@ -316,6 +321,15 @@ def create_app() -> FastAPI:
     @app.middleware("http")
     async def _auth_mw(request: Request, call_next):
         return await auth_middleware(request, call_next)
+
+    # ── Rate-limit middleware ───────────────────────────────
+    # Registered after auth so that rate limiting runs on every request
+    # that survives auth. When config.rate_limit.enabled is False it is a
+    # no-op pass-through. Uses an in-memory sliding window per client IP.
+    _reinit_rate_limiter()  # pick up the current config on (re)creation
+    @app.middleware("http")
+    async def _rate_limit_mw(request: Request, call_next):
+        return await rate_limit_middleware(request, call_next)
 
     # ── Error handlers ──────────────────────────────────────
 

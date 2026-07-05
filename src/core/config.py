@@ -302,6 +302,32 @@ class AuthConfig:
 
 
 @dataclass
+class RateLimitConfig:
+    """API rate limiting settings for the web server.
+
+    A simple in-memory sliding-window rate limiter that caps the number of
+    requests a single client (identified by remote IP) may make per minute.
+    When ``enabled`` is False (the default — matching the open behaviour of
+    the self-hosted deployment), all requests pass through unchecked. When
+    enabled, requests beyond ``requests_per_minute`` receive a ``429 Too
+    Many Requests`` response with a ``Retry-After`` header indicating the
+    seconds until the next slot opens.
+
+    Tunable via ``DOCMIND_RATE_LIMIT_ENABLED`` and
+    ``DOCMIND_RATE_LIMIT_REQUESTS_PER_MINUTE`` environment variables.
+    """
+
+    enabled: bool = field(
+        default_factory=lambda: _env_bool("DOCMIND_RATE_LIMIT_ENABLED", False)
+    )
+    requests_per_minute: int = field(
+        default_factory=lambda: _env_int(
+            "DOCMIND_RATE_LIMIT_REQUESTS_PER_MINUTE", 60
+        )
+    )
+
+
+@dataclass
 class Config:
     """Top-level configuration aggregator."""
 
@@ -316,6 +342,7 @@ class Config:
     auth: AuthConfig = field(default_factory=AuthConfig)
     cache: CacheConfig = field(default_factory=CacheConfig)
     auto_detection: AutoDetectionConfig = field(default_factory=AutoDetectionConfig)
+    rate_limit: RateLimitConfig = field(default_factory=RateLimitConfig)
     debug: bool = field(
         default_factory=lambda: _env_bool("DOCMIND_DEBUG", False)
     )
