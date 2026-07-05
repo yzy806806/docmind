@@ -74,7 +74,7 @@ class StorageConnector:
                             continue
 
                         body = Extractor.extract_from_bytes(content, ext)
-                        if body is None:
+                        if not body:
                             continue
 
                         file_hash = hashlib.sha256(content).hexdigest()
@@ -126,7 +126,7 @@ class StorageConnector:
 
             try:
                 body = Extractor.extract(file_path)
-                if body is None:
+                if not body:
                     continue
 
                 file_hash = self._hash_file(file_path)

@@ -109,6 +109,60 @@ class TestLocalScanner:
             if file_hash:
                 expected = hashlib.sha256(content).hexdigest()
                 assert file_hash == expected
+    def test_scan_directory_skips_empty_body(self) -> None:
+        """Scanned PDFs returning empty-string body must be skipped, not upserted with body=''.
+
+        Regression test for the silent data-loss bug where ``Extractor.extract``
+        returns ``""`` for scanned PDFs (no text layer).  The old ``is None``
+        check let empty strings through, upserting documents with body="".
+        """
+        from src.core.storage import StorageConnector
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            # Create a .txt file with real content
+            (root / "real.txt").write_text("Hello world", encoding="utf-8")
+            # Create a .pdf file — Extractor.extract will return "" for scanned PDF
+            (root / "scanned.pdf").write_bytes(b"%PDF-1.4 fake scanned pdf")
+
+            mock_indexer = MagicMock()
+            mock_indexer.needs_update.return_value = True
+            mock_indexer.upsert_document.return_value = 1
+
+            connector = StorageConnector(mock_indexer)
+
+            # Patch Extractor.extract to simulate scanned PDF returning ""
+            with patch("src.core.storage.Extractor.extract") as mock_extract:
+                mock_extract.side_effect = lambda fp: (
+                    "" if fp.suffix == ".pdf" else "Hello world"
+                )
+                count = connector.scan_directory(str(root), source_name="test")
+
+            # Only the .txt file should be indexed; the scanned PDF is skipped
+            assert count == 1
+            assert mock_indexer.upsert_document.call_count == 1
+            upserted_path = mock_indexer.upsert_document.call_args[1]["path"]
+            assert upserted_path == "real.txt"
+
+    def test_scan_directory_skips_none_body(self) -> None:
+        """Extractor.extract returning None (extraction failure) must still be skipped."""
+        from src.core.storage import StorageConnector
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "broken.pdf").write_bytes(b"%PDF-1.4 broken")
+
+            mock_indexer = MagicMock()
+            mock_indexer.needs_update.return_value = True
+            mock_indexer.upsert_document.return_value = 1
+
+            connector = StorageConnector(mock_indexer)
+
+            with patch("src.core.storage.Extractor.extract", return_value=None):
+                count = connector.scan_directory(str(root))
+
+            assert count == 0
+            assert mock_indexer.upsert_document.call_count == 0
 
 
 # ── Hash helper ────────────────────────────────────────────────
@@ -169,6 +223,45 @@ class TestWebDAV:
 
             # Should have indexed file1.txt and file2.md
             assert count >= 2
+
+    def test_webdav_scan_skips_empty_body(self) -> None:
+        """WebDAV scanner must skip files whose extraction returns empty string.
+
+        Regression test for the silent data-loss bug at the WebDAV path —
+        ``Extractor.extract_from_bytes`` returns ``""`` for scanned PDFs.
+        """
+        from src.core.storage import StorageConnector
+
+        mock_indexer = MagicMock()
+        mock_indexer.needs_update.return_value = True
+        mock_indexer.upsert_document.return_value = 1
+
+        connector = StorageConnector(mock_indexer)
+
+        with patch("webdav3.client.Client") as mock_client_class:
+            mock_client = MagicMock()
+            mock_client_class.return_value = mock_client
+
+            mock_client.list.side_effect = [["scanned.pdf"]]
+
+            mock_resource = MagicMock()
+            mock_resource.read = lambda: b"%PDF-1.4 fake scanned"
+            mock_client.resource.return_value = mock_resource
+
+            with patch(
+                "src.core.storage.Extractor.extract_from_bytes",
+                return_value="",
+            ):
+                count = connector.scan_webdav(
+                    url="https://webdav.example.com",
+                    username="user",
+                    password="pass",
+                    root_path="/",
+                    source_name="test_webdav",
+                )
+
+            assert count == 0
+            assert mock_indexer.upsert_document.call_count == 0
 
 
 # ── PostgreSQL query connector ─────────────────────────────────
