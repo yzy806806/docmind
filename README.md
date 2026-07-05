@@ -47,7 +47,7 @@ WebDAV / 本地目录 / PostgreSQL 数据库
 - [x] **全格式提取：** PDF、DOCX、HTML、Markdown、TXT、图片元信息
 - [x] **增量处理：** 文件 hash (SHA256) 检测变更，`upsert_document` + `ON CONFLICT` 只处理新文件
 - [x] **文档分块 (Document Chunking)：** 按语义切分文档，提升搜索粒度与 RAG 检索精度，减少 LLM token 消耗
-- [ ] **多文件拖拽上传 (Multi-File Drag-and-Drop Upload)：** 拖拽式批量上传界面（开发中，分支 feat/multi-file-upload）
+- [x] **多文件拖拽上传 (Multi-File Drag-and-Drop Upload)：** 拖拽式批量上传界面
 
 ### 搜索与检索
 
@@ -82,7 +82,7 @@ WebDAV / 本地目录 / PostgreSQL 数据库
 ### LLM 与部署
 
 - [x] **多 LLM 支持 (Multi-LLM Support)：** OpenAI 兼容 API + Ollama 双后端，支持 OpenAI / vLLM / LM Studio 等任意 OpenAI 格式接口
-- [ ] **Docker 支持：** 多阶段 Dockerfile + docker-compose 编排（开发中，分支 feat/docker-support）
+- [x] **Docker 支持：** 多阶段 Dockerfile + docker-compose 编排
 
 ## 项目结构
 
@@ -155,6 +155,16 @@ hermes plugins install src/hermes_plugin.py
 ```
 
 访问 `http://localhost:8080` 进入管理界面。
+
+### Docker 一键启动
+
+```bash
+docker-compose up -d
+```
+
+访问 `http://localhost:8000` 进入管理界面。
+
+> **提示：** Docker 模式默认使用端口 8000，本地原生启动默认使用端口 8080。
 
 ## 技术栈
 
