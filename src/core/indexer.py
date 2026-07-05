@@ -32,6 +32,7 @@ class Indexer:
                 summary     TEXT,                     -- LLM-generated summary
                 raw_preview TEXT,                     -- first N chars auto-preview
                 body        TEXT,                     -- full text content
+                document_type TEXT DEFAULT 'other',    -- auto-detected type
                 status      TEXT DEFAULT 'pending',   -- pending, indexed, summarized, error
                 metadata    TEXT DEFAULT '{}',        -- JSON: extra metadata
                 created_at  TEXT DEFAULT (datetime('now')),
@@ -102,8 +103,8 @@ class Indexer:
 
         self.conn.execute("""
             INSERT INTO documents (path, source_type, source_name, file_hash, mtime, size,
-                                   title, ext, mime_type, body, raw_preview, status, metadata, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'indexed', ?, ?)
+                                   title, ext, mime_type, body, raw_preview, document_type, status, metadata, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'other', 'indexed', ?, ?)
             ON CONFLICT(path) DO UPDATE SET
                 file_hash = excluded.file_hash,
                 mtime = excluded.mtime,

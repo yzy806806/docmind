@@ -1,7 +1,8 @@
 """Storage connector — manage WebDAV, local directory, and PostgreSQL sources.
 
 Provides multi-source document ingestion with hash-based change detection,
-size-tiered extraction routing, and structured metadata extraction.
+size-tiered extraction routing, structured metadata extraction, and
+optional LLM-based document type auto-detection.
 """
 
 from __future__ import annotations
@@ -16,15 +17,22 @@ from .extractor import Extractor
 
 
 class StorageConnector:
-    """Connect to and scan various data sources for document ingestion."""
+    """Connect to and scan various data sources for document ingestion.
 
-    def __init__(self, indexer: Any):
-        """Initialise the connector with an indexer that provides:
-        - needs_update(path, file_hash) -> bool
-        - upsert_document(**kwargs) -> int
-        - update_summary(doc_id, summary) -> None
-        """
+    Args:
+        indexer: An object providing:
+            - needs_update(path, file_hash) -> bool
+            - upsert_document(**kwargs) -> int
+            - update_summary(doc_id, summary) -> None
+        detector: Optional DocumentDetector for auto type detection.
+            When provided, each newly indexed document is classified
+            and its type is stored via indexer.update_document_type().
+    """
+
+    def __init__(self, indexer: Any, detector: Any = None):
+        """Initialise the connector with an indexer and optional detector."""
         self.indexer = indexer
+        self.detector = detector
 
     # ── WebDAV connector ───────────────────────────────────────
 
@@ -83,7 +91,7 @@ class StorageConnector:
                             continue
 
                         mime_type, _ = mimetypes.guess_type(item)
-                        self.indexer.upsert_document(
+                        doc_id = self.indexer.upsert_document(
                             path=full_path,
                             source_type="webdav",
                             source_name=source_name,
@@ -94,6 +102,7 @@ class StorageConnector:
                             file_hash=file_hash,
                             size=len(content),
                         )
+                        self._detect_and_update(doc_id, item, body, ext)
                         count += 1
                     except Exception as e:
                         print(f"[WebDAV] Failed to index {full_path}: {e}")
@@ -138,7 +147,7 @@ class StorageConnector:
                 stat = file_path.stat()
                 mime_type, _ = mimetypes.guess_type(str(file_path))
 
-                self.indexer.upsert_document(
+                doc_id = self.indexer.upsert_document(
                     path=rel_path,
                     source_type="local",
                     source_name=source_name,
@@ -150,6 +159,7 @@ class StorageConnector:
                     mtime=stat.st_mtime,
                     size=stat.st_size,
                 )
+                self._detect_and_update(doc_id, file_path.name, body, ext)
                 count += 1
             except Exception as e:
                 print(f"[Local] Failed to index {file_path}: {e}")
@@ -163,6 +173,37 @@ class StorageConnector:
             for chunk in iter(lambda: f.read(65536), b""):
                 sha.update(chunk)
         return sha.hexdigest()
+
+    def _detect_and_update(
+        self, doc_id: int, title: str, body: str, ext: str
+    ) -> None:
+        """Run document type detection and store the result.
+
+        Uses keyword-based heuristic (sync) since the StorageConnector
+        operates in synchronous mode. The async server path handles
+        LLM-based detection separately.
+
+        Silently skips if no detector is configured or the indexer
+        doesn't support update_document_type().
+        """
+        if not self.detector or not doc_id:
+            return
+
+        try:
+            # Use keyword detection (sync path — no async LLM calls here)
+            doc_type = self.detector._detect_keyword(title, body or "")
+
+            if hasattr(self.indexer, "update_document_type"):
+                self.indexer.update_document_type(doc_id, doc_type)
+            elif hasattr(self.indexer, "conn"):
+                # Sync Indexer — direct SQL update
+                self.indexer.conn.execute(
+                    "UPDATE documents SET document_type = ? WHERE id = ?",
+                    (doc_type, doc_id),
+                )
+                self.indexer.conn.commit()
+        except Exception as e:
+            print(f"[Storage] Document type detection failed for doc {doc_id}: {e}")
 
     # ── PostgreSQL query connector ─────────────────────────────
 

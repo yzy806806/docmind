@@ -6,6 +6,7 @@ from .search import CitationConfidence, DualHashCitation
 from .extractor import Extractor
 from .summarizer import Summarizer
 from .storage import StorageConnector
+from .detector import DocumentDetector, DOCUMENT_TYPES
 from .sanitizer import (
     SecureDocumentContext,
     SanitizingSummarizer,
@@ -37,6 +38,8 @@ __all__ = [
     "Extractor",
     "Summarizer",
     "StorageConnector",
+    "DocumentDetector",
+    "DOCUMENT_TYPES",
     "SecureDocumentContext",
     "SanitizingSummarizer",
     "redact_pii",

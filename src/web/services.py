@@ -1,7 +1,8 @@
 """Export and summarization service helpers.
 
 Contains search result export (CSV/JSON), document summary generation,
-and the synchronous LLM adapter used by the summarizer.
+document type auto-detection, and the synchronous LLM adapter used by
+the summarizer.
 """
 
 from __future__ import annotations
@@ -262,6 +263,47 @@ async def _generate_summary_for_doc(doc: dict) -> Optional[str]:
     # Run the sync summarizer in a thread to avoid blocking
     result = await asyncio.to_thread(summarizer.summarize, title, body)
     return result
+
+
+async def _detect_document_type(
+    title: str, body: str, ext: str = ""
+) -> tuple[str, str]:
+    """Detect document type using LLM or keyword fallback.
+
+    Uses the configured LLMClient when available, falling back to
+    keyword-based heuristic.
+
+    Args:
+        title: Document title.
+        body: Document body text.
+        ext: File extension (e.g. '.pdf').
+
+    Returns:
+        Tuple of (type_key, detection_method) where detection_method
+        is 'llm' or 'keyword'.
+    """
+    from ..core.detector import DocumentDetector
+    from ..core.llm_client import LLMClient
+
+    # Build LLM client if configured
+    llm_client = None
+    try:
+        llm_config = config.llm
+        client = LLMClient(llm_config)
+        if client.is_configured:
+            llm_client = client
+    except Exception:
+        pass
+
+    detector = DocumentDetector(
+        llm_client=llm_client,
+        max_body_chars=config.auto_detection.max_body_chars,
+    )
+
+    method = detector.detection_method
+    type_key = await detector.detect(title, body or "", ext=ext)
+
+    return type_key, method
 
 
 class _SyncLLMAdapter:
