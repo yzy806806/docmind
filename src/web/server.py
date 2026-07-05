@@ -14,7 +14,8 @@ REST:
 - GET  /jobs/<job_id>            Job detail page with error and document link
 - GET  /analytics                Full analytics page with charts and date range
 - GET  /api/v1/analytics         Analytics data as JSON
-- POST /upload                   File upload form
+- GET  /upload                   Upload form (drag-and-drop multi-file)
+- POST /upload                   File upload form (single or batch via files[])
 - POST /api/v1/documents/submit  Programmatic document submission
 - POST /api/v1/documents/batch   Batch document submission
 - GET  /api/v1/documents/{id}/status  Document processing status
@@ -35,7 +36,7 @@ import csv
 import io
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
@@ -97,6 +98,7 @@ from .rendering import (
     _render_document_detail,
     _render_upload_form,
     _render_upload_success,
+    _render_upload_batch,
     _render_pagination,
     _render_delete_success,
     _render_chat_page,
@@ -553,80 +555,162 @@ def create_app() -> FastAPI:
         html = _render_document_detail(doc, tags)
         return HTMLResponse(content=html)
 
+    @app.get("/upload", response_class=HTMLResponse, include_in_schema=False)
+    async def upload_form_page(request: Request):
+        """Render the upload form page (GET).
+
+        Supports ``?done=1`` to show a small success banner after the JS
+        batch uploader finishes and redirects here.
+        """
+        done = request.query_params.get("done") == "1"
+        html = _render_upload_form(error="")
+        if done:
+            # Lightweight: inject a success banner at the top of the form.
+            banner = (
+                '<div class="success" style="margin-bottom:12px;">'
+                "✅ Batch upload complete. See "
+                '<a href="/documents">documents</a> and '
+                '<a href="/jobs">jobs</a>.'
+                "</div>"
+            )
+            html = html.replace(
+                '<div class="upload-form">',
+                '<div class="upload-form">' + banner,
+                1,
+            )
+        return HTMLResponse(content=html)
+
     @app.post("/upload", response_class=HTMLResponse, include_in_schema=False)
-    async def upload_page(file: UploadFile = File(None)):
-        """File upload form handler."""
-        if file is None:
+    async def upload_page(
+        file: UploadFile = File(None),
+        files: List[UploadFile] = File(default_factory=list),
+    ):
+        """File upload form handler (single or batch).
+
+        Backward-compat: the original single-file field ``file`` is still
+        honoured. The new drag-and-drop UI sends ``files[]`` (multiple).
+        Both are merged into one batch list so a plain curl with
+        ``-F file=...`` keeps working unchanged.
+        """
+        # Merge legacy single-file field and new multi-file field
+        all_files: List[UploadFile] = list(files)
+        if file is not None and file.filename:
+            # Avoid double-counting if the client sent the same file under
+            # both field names (some browsers do this on legacy fallback).
+            names = {f.filename for f in all_files if f.filename}
+            if file.filename not in names:
+                all_files.insert(0, file)
+
+        if not all_files:
             return HTMLResponse(content=_render_upload_form())
-
-        # Validate and process
-        ext = Path(file.filename or "").suffix.lower()
-        if ext and ext not in config.document_limits.supported_extensions:
-            return HTMLResponse(
-                content=_render_upload_form(
-                    error=f"Unsupported file type: {ext}"
-                ),
-            )
-
-        raw = await file.read()
-        if len(raw) > config.document_limits.max_file_size_bytes:
-            return HTMLResponse(
-                content=_render_upload_form(
-                    error=f"File too large (max {config.document_limits.max_file_size_bytes:,} bytes)"
-                ),
-            )
-
-        display_title = file.filename or "untitled"
-        mime_type = (
-            file.content_type
-            or mimetypes.guess_type(file.filename or "")[0]
-            or "application/octet-stream"
-        )
-
-        body = _extract_body(raw, ext or "", file.filename or "")
 
         db = get_db()
         queue = get_queue()
 
-        try:
-            doc_id = await db.upsert_document(
-                path=f"/uploads/{file.filename or 'unknown'}",
-                source_type="api",
-                source_name="web-upload",
-                title=display_title,
-                ext=ext or "",
-                mime_type=mime_type,
-                body=body,
-                size=len(raw),
-            )
+        results: list[dict] = []
+        errors: list[dict] = []
 
-            # Auto-generate summary on upload (best-effort)
+        for f in all_files:
+            ext = Path(f.filename or "").suffix.lower()
+            if ext and ext not in config.document_limits.supported_extensions:
+                errors.append({
+                    "filename": f.filename or "unknown",
+                    "error": f"Unsupported file type: {ext}",
+                })
+                continue
+
             try:
-                summary = await _generate_summary_for_doc(
-                    {"title": display_title, "body": body}
-                )
-                if summary:
-                    await db.update_summary(doc_id, summary)
-            except Exception:
-                logger.warning(
-                    "Summary generation failed for doc %s, continuing",
-                    doc_id,
+                raw = await f.read()
+            except Exception as e:
+                errors.append({
+                    "filename": f.filename or "unknown",
+                    "error": f"Could not read file: {e}",
+                })
+                continue
+
+            if len(raw) > config.document_limits.max_file_size_bytes:
+                errors.append({
+                    "filename": f.filename or "unknown",
+                    "error": (
+                        f"File too large (max "
+                        f"{config.document_limits.max_file_size_bytes:,} bytes)"
+                    ),
+                })
+                continue
+
+            display_title = f.filename or "untitled"
+            mime_type = (
+                f.content_type
+                or mimetypes.guess_type(f.filename or "")[0]
+                or "application/octet-stream"
+            )
+
+            try:
+                body = _extract_body(raw, ext or "", f.filename or "")
+            except Exception as e:
+                errors.append({
+                    "filename": f.filename or "unknown",
+                    "error": f"Extraction failed: {e}",
+                })
+                continue
+
+            try:
+                doc_id = await db.upsert_document(
+                    path=f"/uploads/{f.filename or 'unknown'}",
+                    source_type="api",
+                    source_name="web-upload",
+                    title=display_title,
+                    ext=ext or "",
+                    mime_type=mime_type,
+                    body=body,
+                    size=len(raw),
                 )
 
-            job = await queue.enqueue(
-                document_path=f"/uploads/{file.filename or 'unknown'}",
-                document_title=display_title,
-                source_name="web-upload",
+                # Auto-generate summary on upload (best-effort)
+                try:
+                    summary = await _generate_summary_for_doc(
+                        {"title": display_title, "body": body}
+                    )
+                    if summary:
+                        await db.update_summary(doc_id, summary)
+                except Exception:
+                    logger.warning(
+                        "Summary generation failed for doc %s, continuing",
+                        doc_id,
+                    )
+
+                job = await queue.enqueue(
+                    document_path=f"/uploads/{f.filename or 'unknown'}",
+                    document_title=display_title,
+                    source_name="web-upload",
+                )
+
+                results.append({
+                    "title": display_title,
+                    "doc_id": doc_id,
+                    "job_id": job.id,
+                })
+            except Exception as e:
+                logger.exception("Upload failed for %s", f.filename)
+                errors.append({
+                    "filename": f.filename or "unknown",
+                    "error": str(e),
+                })
+
+        # Single-file success → keep the original simple success page so
+        # existing scrapers / curl users see the same UX.
+        if len(results) == 1 and not errors:
+            r = results[0]
+            return HTMLResponse(
+                content=_render_upload_success(
+                    r["title"], r["doc_id"], r["job_id"]
+                )
             )
 
-            return HTMLResponse(
-                content=_render_upload_success(display_title, doc_id, job.id)
-            )
-        except Exception as e:
-            logger.exception("Upload failed")
-            return HTMLResponse(
-                content=_render_upload_form(error=str(e)),
-            )
+        # Batch (or partial-failure) → batch results page
+        return HTMLResponse(
+            content=_render_upload_batch(results, errors)
+        )
 
     @app.post(
         "/documents/{doc_id}/delete",
