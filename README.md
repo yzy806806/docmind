@@ -83,6 +83,7 @@ WebDAV / 本地目录 / PostgreSQL 数据库
 
 - [x] **多 LLM 支持 (Multi-LLM Support)：** OpenAI 兼容 API + Ollama 双后端，支持 OpenAI / vLLM / LM Studio 等任意 OpenAI 格式接口
 - [x] **Docker 支持：** 多阶段 Dockerfile + docker-compose 编排
+- [x] **查询结果缓存 (Query Result Caching)：** 读方法自动缓存，写路径精准失效，支持内存（默认）和 Redis 两种后端，可一键关闭
 
 ## 项目结构
 
@@ -100,6 +101,7 @@ docmind/
 │   │   ├── summarizer.py          # LLM 摘要管道（map-reduce + TPM 限速）
 │   │   ├── llm_client.py          # OpenAI + Ollama LLM 客户端
 │   │   ├── job_queue.py           # 异步任务队列
+│   │   ├── cache.py               # 查询结果缓存（内存/Redis，cache-aside）
 │   │   ├── db.py / db_sqlite.py   # 数据库适配层
 │   │   ├── config.py              # 配置管理
 │   │   ├── models.py              # 数据模型
@@ -165,6 +167,21 @@ docker-compose up -d
 访问 `http://localhost:8000` 进入管理界面。
 
 > **提示：** Docker 模式默认使用端口 8000，本地原生启动默认使用端口 8080。
+
+### 缓存配置
+
+DocMind 默认启用内存缓存，无需额外配置即可获得查询加速。对于多进程部署或需要跨实例共享缓存的场景，可切换至 Redis：
+
+```bash
+# 使用 Redis 缓存（需要 pip install redis）
+export DOCMIND_CACHE_BACKEND=redis
+export DOCMIND_CACHE_REDIS_URL=redis://localhost:6379/0
+
+# 关闭缓存（所有查询直接走数据库）
+export DOCMIND_CACHE_ENABLED=false
+```
+
+> **自托管说明：** 内存缓存（默认）是进程内缓存，每个 worker 进程独立维护。若使用 `DOCMIND_WORKERS > 1` 的多进程模式，各进程的缓存不互通 —— 写入操作会通过 SQLite 的 WAL 模式确保数据一致性，但缓存命中率会因进程隔离而降低。如需跨进程共享缓存，请启用 Redis 后端。
 
 ## 技术栈
 

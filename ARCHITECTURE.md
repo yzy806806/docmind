@@ -1,6 +1,6 @@
 # DocMind Architecture
 
-> **Status:** Active — updated 2025-07-05
+> **Status:** Active — updated 2025-07-06
 > **Audience:** All contributors (developer, architect, tester, reviewer, leader)
 
 ---
@@ -30,6 +30,7 @@ Three consumption surfaces sit on top of the core engine:
 src/
 ├── core/           # Engine — no web/CLI dependencies
 │   ├── config.py         # Configuration management
+│   ├── cache.py          # Query result caching (memory/Redis, cache-aside)
 │   ├── db.py             # Database abstraction (DBAP)
 │   ├── db_sqlite.py      # SQLite + FTS5 implementation
 │   ├── storage.py        # Source adapters (WebDAV/dir/PG)
@@ -106,6 +107,37 @@ Storage adapter ──► Extractor ──► Chunker
                      ▼
                Citation-tracked response
 ```
+
+### 3.1 Caching Layer (Phase 5a)
+
+The `Database` class wraps all read operations with a cache-aside layer:
+
+```
+Read request (get_document, list_documents, get_stats, ...)
+  │
+  ├── Cache hit? ──► Return cached result (no DB query)
+  │
+  └── Cache miss
+        │
+        ▼
+      Query SQLite ──► Store result in cache ──► Return result
+```
+
+All 14 mutation paths (upload, delete, tag add/remove, collection CRUD,
+chat mutations, job state changes) call centralized invalidation helpers
+(`_invalidate_document_mutations`, `_invalidate_tag_mutations`, etc.)
+to remove affected cache keys. The cache never serves stale data.
+
+**Backend selection:**
+- `DOCMIND_CACHE_BACKEND=memory` (default): In-process dict with TTL + LRU eviction
+- `DOCMIND_CACHE_BACKEND=redis`: External Redis, suitable for multi-worker deployments
+- `DOCMIND_CACHE_ENABLED=false`: All cache operations become no-ops
+
+**TTL policy:** Dynamic data (document lists, jobs) expire in 30-60 seconds;
+stable metadata (collections, settings, tag cloud) expire in 300-600 seconds.
+See `src/core/cache.py` → `CacheTTLConfig` for the full table.
+
+**Design doc:** `docs/architecture/caching.md`
 
 ---
 
@@ -274,6 +306,75 @@ show why the existing model is insufficient.
 
 ---
 
+### ADR-004: Cache-aside at the Database Layer
+
+**Date:** 2025-07-06
+**Motion:** motion-aaa5420f752c (adopted — unanimous, 7/7 participants)
+**Status:** Active
+
+**Context.** The team needed to reduce redundant SQLite queries for read-heavy
+operations — dashboard stats, document lists, search results — without adding
+external infrastructure requirements or changing the route handler API.
+
+**Decision.** Implement a cache-aside pattern at the `Database` class level with
+a pluggable backend architecture:
+
+1. **Cache-aside at the Database layer, not route handlers.**
+   All 24 read methods check the cache before querying SQLite. Route handlers
+   don't need to know caching exists — the `Database` class is the single
+   integration point. This keeps caching transparent and avoids scattering
+   cache logic across the web layer.
+
+2. **In-memory dict as default backend.**
+   Zero external dependencies, zero configuration. The application works
+   out of the box with TTL + LRU eviction in-process.
+
+3. **Optional Redis backend via lazy import.**
+   The `redis` package is only imported when `DOCMIND_CACHE_BACKEND=redis`.
+   If Redis is unavailable at startup, the backend falls back to in-memory
+   with a warning — the application never fails to start due to cache
+   misconfiguration.
+
+4. **Explicit invalidation on every mutation path.**
+   All 14 write operations call one of five centralized `_invalidate_*`
+   helpers. There is no automatic cache synchronization — consistency is
+   maintained by disciplined invalidation at every mutation site.
+
+5. **Category-aware TTLs.**
+   Each of the 22 cache categories has a purpose-fit TTL ranging from 30
+   seconds (dynamic lists) to 600 seconds (stable metadata). TTLs are
+   defined in a single `CacheTTLConfig` dataclass for discoverability.
+
+6. **NoopCache for graceful disable.**
+   When `DOCMIND_CACHE_ENABLED=false`, all cache operations become no-ops
+   with zero overhead. This is useful for debugging, testing, or deployments
+   where caching is handled externally (e.g. a reverse proxy).
+
+**Rationale.**
+- The Database layer is the natural integration point: every read path
+  passes through `Database`, and every write path already updates the
+  database. Adding cache logic in route handlers would scatter the concern
+  across 20+ endpoints.
+- In-memory default preserves the project's zero-dependency philosophy
+  (no PostgreSQL, no Redis required). Users who want Redis can opt in.
+- Explicit invalidation is simpler and more predictable than TTL-only
+  approaches. It guarantees cache consistency without a distributed
+  invalidation protocol.
+- The design was validated with 96 tests covering both backends, all TTL
+  categories, and cache-miss/hit/invalidation scenarios for every major
+  entity type.
+
+**Implications.**
+1. New read methods added to `Database` should follow the cache-aside
+   pattern: check cache, query DB on miss, store result.
+2. New mutation methods must call the appropriate `_invalidate_*` helper.
+3. The `CacheBackend` ABC is the extension point for future backends.
+4. Redis is optional — the `redis` package must not appear in
+   `pyproject.toml` as a required dependency.
+5. Full architecture spec at `docs/architecture/caching.md`.
+
+---
+
 ## 5. Web UI Architecture (detail)
 
 This section expands ADR-001 with the concrete patterns that implement
@@ -410,6 +511,8 @@ When adding a new feature:
 | New architecture decision | Document as an ADR in this file (section 4)             |
 | Reusable UI fragment      | Place in `src/web/templates/_partials/`                 |
 | SPA framework proposal    | Raise ADR via Agora motion; must meet a trigger in ADR-003 |
+| New Database read method  | Follow cache-aside pattern: get → miss → query → set; add TTL to `CacheTTLConfig` |
+| New Database mutation     | Call the appropriate `_invalidate_*` helper after the write |
 
 ---
 
@@ -419,3 +522,4 @@ When adding a new feature:
 |------------|-----------|----------------------------------------------------|
 | 2025-07-05 | architect | Created. Documented ADR-001 (Jinja2 SSR) and ADR-002 (hand-rolled migrations) per motions motion-d9138a198276 and motion-1a1689af9142. |
 | 2025-07-05 | architect | Added ADR-003 (Hybrid Islands Architecture) per motion-e73dd1dcb0c3. Updated Section 5.3 rules to permit HTMX for partial swaps. Added SPA boundary trigger table and HTMX usage guidelines. Updated conventions table with islands, HTMX, and SPA-proposal rows. |
+| 2025-07-06 | writer    | Added ADR-004 (Cache-aside at the Database Layer) per motion-aaa5420f752c. Updated Section 2 module map with `cache.py`, Section 3 data flow with caching layer diagram and backend/TTL documentation, and Section 8 conventions with cache read/mutation rules. |
