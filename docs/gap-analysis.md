@@ -61,16 +61,17 @@
 | Bulk operations (beyond delete) | ✅ Have | - | Bulk tag, move, export all implemented (Phase 4b done) |
 | Faceted search (filters by type, date, tags) | ✅ Have | - | file_type and source facets with UI, faceted-filters.js (Phase 4c done) |
 | Search relevance tuning / boosting | 🟡 Partial | Medium | BM25 weighting exists but no user-tunable relevance |
-| Document type detection | 🔴 Missing | Medium | No automatic document classification |
+| Document type detection | ✅ Have | - | LLM-based auto-detection with keyword fallback (Phase 5b done) |
 | Workflow automation / rules | 🔴 Missing | Low | Paperless-ngx consumers, Mayan workflows |
-| Redis caching | 🔴 Missing | Medium | No caching layer found |
+| Redis caching | ✅ Have | - | In-memory dict cache with pluggable Redis backend, TTL eviction, invalidation on all mutations (Phase 5a done) |
 | Database query optimization / indexing | 🟡 Partial | Medium | Basic indexes exist, no advanced optimization |
 | Responsive design | 🟡 Partial | Medium | Mobile layout in base.html but not thoroughly tested |
 | Keyboard shortcuts | 🔴 Missing | Low | No keyboard shortcut system found |
 | Lazy loading for large lists | 🟡 Partial | Medium | Pagination exists but no infinite scroll |
 | REST API coverage (complete CRUD) | 🟡 Partial | Medium | Most endpoints exist, some gaps in collection detail route |
-| Rate limiting (API) | 🟡 Partial | Medium | TPM rate limit for LLM only, no API rate limiting |
+| Rate limiting (API) | ✅ Have | - | Per-IP sliding window middleware, 429 + Retry-After, configurable via env vars (Phase 6a done) |
 | Full-text search in document content | ✅ Have | - | Already implemented |
+| Search path architectural disconnect (web search bypasses HybridSearchEngine) | 🔴 Tech Debt | Medium | server.py:511 calls db.fulltext_search() directly, skipping vector semantic search that HybridSearchEngine provides. Chat uses the hybrid engine; the search page does not. |
 
 ---
 
@@ -88,13 +89,17 @@ All three highest-priority gaps from the original analysis have been closed:
 
 ### Medium Priority Gaps (next steps)
 
-4. **Redis/caching layer** — No caching found. Would improve performance for repeated searches and dashboard loads.
+4. **Redis/caching layer** — ✅ Complete (Phase 5a). In-memory dict cache with pluggable Redis backend, TTL eviction, and invalidation on all 14 mutation paths.
 
-5. **Document type auto-detection** — Competitors classify documents (invoice, receipt, contract, etc.) automatically.
+5. **Document type auto-detection** — ✅ Complete (Phase 5b). LLM-based classification with keyword fallback during ingestion.
 
 6. **Responsive design polish** — While base.html has mobile styles, the UX on mobile needs validation and likely improvement.
 
-7. **API rate limiting** — Only LLM TPM rate limiting exists. No API request rate limiting.
+7. **API rate limiting** — ✅ Complete (Phase 6a). Per-IP sliding window middleware. 429 response with Retry-After header. 41 tests.
+
+8. **Search relevance tuning** — BM25 weighting exists but no user-tunable relevance controls.
+
+9. **Search path architectural disconnect** — The web search endpoint (`/search` at server.py:511) calls `db.fulltext_search()` directly, bypassing the `HybridSearchEngine` in `src/core/search.py`. This means the search page only uses FTS5/BM25 keyword search, missing out on the vector semantic search and score fusion that the chat feature (`src/web/chat.py:265`) already uses via `HybridSearchEngine`. The hybrid engine exists and is tested (36 tests in `tests/test_hybrid_search.py`), but it's not wired into the main search UI. Fixing this would give all users the improved ranking quality currently reserved for chat.
 
 ### Lower Priority Gaps
 
@@ -108,13 +113,18 @@ All three highest-priority gaps from the original analysis have been closed:
 
 ## Recommendation
 
-**Phase 4 (Document Processing Pipeline) is now complete.** OCR (4a), bulk operations (4b), and faceted search (4c) are all implemented and tested with 1342 tests passing.
+**Phase 4 (Document Processing Pipeline) is complete.** OCR (4a), bulk operations (4b), and faceted search (4c) are all implemented and tested.
 
-**Next phase should focus on: Performance & Caching (medium-priority gaps)**
+**Phase 5 (Performance & Intelligence) is complete.** Query result caching (5a) and LLM-based document type auto-detection (5b) are both implemented, tested, and committed. 1582 tests pass.
 
-Specifically:
-1. **Redis/caching layer** — add caching for repeated searches and dashboard loads
-2. **Document type auto-detection** — automatic classification of documents (invoice, receipt, contract, etc.)
-3. **Responsive design polish** — validate and improve mobile UX
+**Phase 6a is complete.** API rate limiting is implemented with in-memory per-IP sliding window middleware, returning HTTP 429 with Retry-After header when limits are exceeded. 41 tests cover the sliding-window logic, middleware integration, and 429 response shape.
 
-Lower-priority items (email ingestion, workflow automation, keyboard shortcuts) can be addressed in a later phase.
+**Next phase should focus on: Polish & Feature Parity**
+
+Remaining gaps to close:
+1. **Responsive design polish** — validate and improve mobile UX (medium priority)
+2. **Search relevance tuning** — add user-tunable relevance controls (medium priority)
+3. **Search path architectural disconnect** — wire HybridSearchEngine into the web search endpoint (medium priority, tech debt)
+4. **Email ingestion** — close the feature gap with Paperless-ngx and Docspell (medium priority)
+5. **Keyboard shortcuts** — UX polish (low priority)
+6. **Workflow automation** — advanced rules engine (low priority)
