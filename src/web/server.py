@@ -99,7 +99,9 @@ from fastapi.staticfiles import StaticFiles
 from ..core.config import config
 from ..core.cache import create_cache_backend
 from ..core.db_sqlite import Database
+from ..core.embeddings import EmbeddingClient
 from ..core.job_queue import JobQueue
+from ..core.search import HybridSearchEngine
 from ..core.models import (
     BatchDocumentItem,
     BatchSubmissionRequest,
@@ -230,6 +232,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         config.auth.api_key = generate_api_key()
 
     _queue = JobQueue(_db)
+
+    # ── Hybrid search engine ───────────────────────────────────
+    # Create a single HybridSearchEngine with the DB and an
+    # EmbeddingClient built from config.  When no embedding provider
+    # is configured, the engine gracefully falls back to FTS5-only.
+    embed_client = EmbeddingClient(config.embedding)
+    hybrid_engine = HybridSearchEngine(db=_db, embed_client=embed_client)
+    app.state.hybrid_engine = hybrid_engine
+    logger.info(
+        "HybridSearchEngine ready (embeddings: %s)",
+        "on" if embed_client.is_available() else "off — FTS5-only",
+    )
+
     logger.info(
         "DocMind server started on %s:%d (auth %s)",
         config.server.host,
@@ -508,7 +523,19 @@ def create_app() -> FastAPI:
         db = get_db()
         results: list[dict] = []
         try:
-            results = await db.fulltext_search(validated_q, limit=20)
+            hybrid_engine = getattr(app.state, "hybrid_engine", None)
+            if hybrid_engine is not None:
+                raw_results = await hybrid_engine.search(validated_q, top_k=20)
+                # Adapt hybrid results: map doc_id → id for template/export
+                # compatibility, and ensure snippet is populated.
+                for r in raw_results:
+                    r["id"] = r.get("doc_id", r.get("id"))
+                    if not r.get("snippet"):
+                        r["snippet"] = (r.get("body") or "")[:300]
+                results = raw_results
+            else:
+                # Fallback: direct FTS5 search (no hybrid engine configured)
+                results = await db.fulltext_search(validated_q, limit=20)
         except Exception:
             pass
 
@@ -1853,7 +1880,8 @@ def create_app() -> FastAPI:
     async def chat_endpoint(websocket: WebSocket):
         """Real-time Q&A with citation tracking and persisted history."""
         db = get_db()
-        await handle_chat(websocket, db=db)
+        hybrid_engine = getattr(app.state, "hybrid_engine", None)
+        await handle_chat(websocket, db=db, search_engine=hybrid_engine)
 
     # ── Chat session REST API ───────────────────────────────
 
@@ -3354,7 +3382,18 @@ app = create_app()
 
 
 def main():
-    """Run the server with uvicorn."""
+    """Run the server with uvicorn.
+
+    When deploying behind a reverse proxy (nginx, Caddy, etc.), set
+    ``DOCMIND_RATE_LIMIT_TRUSTED_PROXY_IPS`` to the proxy's IP so the
+    rate limiter can identify real clients from ``X-Forwarded-For``.
+
+    Do NOT pass ``--proxy-headers`` to uvicorn unless you have also
+    configured ``trusted_proxy_ips`` — without trusted proxy validation,
+    Uvicorn will use the client-supplied ``X-Forwarded-For`` value for
+    ``request.client.host``, allowing rate-limit bypass via header
+    spoofing.
+    """
     import uvicorn
     uvicorn.run(
         "src.web.server:app",

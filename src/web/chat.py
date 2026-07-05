@@ -45,7 +45,7 @@ class ConversationContext:
     def __init__(
         self,
         websocket: WebSocket,
-        search_engine: SearchEngine,
+        search_engine: Any,
         llm_client: Optional[LLMClient] = None,
         *,
         db: Optional[Database] = None,
@@ -88,6 +88,7 @@ async def handle_chat(
     search_db_path: str = "data/docmind_fts.db",
     llm_client: Optional[LLMClient] = None,
     db: Optional[Database] = None,
+    search_engine: Any = None,
 ) -> None:
     """Handle a WebSocket chat connection for real-time document Q&A.
 
@@ -107,12 +108,21 @@ async def handle_chat(
             triggering extractive fallback).
         db: Optional Database for persisting chat sessions and messages.
             If None, chat runs without persistence (back-compat behavior).
+        search_engine: Optional pre-built search engine (e.g.
+            HybridSearchEngine).  If provided, it is used instead of
+            creating a plain SearchEngine from ``search_db_path``.
+            When a HybridSearchEngine is supplied, chunk-level search is
+            used for RAG context.
     """
     await websocket.accept()
 
-    # Initialize search backend
-    backend = create_backend("sqlite", db_path=search_db_path)
-    search_engine = SearchEngine(backend=backend)
+    # Initialize search engine — use provided one or create from config
+    backend = None
+    if search_engine is not None:
+        se = search_engine
+    else:
+        backend = create_backend("sqlite", db_path=search_db_path)
+        se = SearchEngine(backend=backend)
 
     # Initialize LLM client — use provided one or create from config
     client = llm_client or LLMClient(config.llm)
@@ -157,7 +167,7 @@ async def handle_chat(
 
     ctx = ConversationContext(
         websocket,
-        search_engine,
+        se,
         client,
         db=db,
         session_id=session_id,
@@ -226,7 +236,8 @@ async def handle_chat(
     except Exception:
         logger.exception("WebSocket handler error")
     finally:
-        backend.close()
+        if backend is not None:
+            backend.close()
         # Close LLM client if we created it
         if llm_client is None and client:
             try:
