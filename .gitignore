@@ -17,6 +17,7 @@ venv/
 data/*.db
 config/config.yaml
 *.log
+.coverage
 
 # OS
 .DS_Store
