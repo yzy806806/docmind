@@ -2,7 +2,7 @@
 
 **Project:** docmind
 **Goal:** 自我进化，持续开发docmind项目
-**Status:** active
+**Status:** completed
 
 ## Description
 
