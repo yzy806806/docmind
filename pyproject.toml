@@ -59,3 +59,7 @@ packages = ["src"]
 testpaths = ["tests"]
 pythonpath = ["."]
 asyncio_mode = "auto"
+markers = [
+    "integration: marks tests as integration tests (require external services, run with --integration)",
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+]
