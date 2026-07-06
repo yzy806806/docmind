@@ -13,7 +13,7 @@
 The project should stop when: 易用性与性能达到最优，对比同类项目，功能无缺失。
 If the stop condition appears to be met, the leader should raise a motion for the team to vote on whether to stop.
 
-**Heartbeat Member:** leader (woken every 30 min)
+**Heartbeat Member:** leader (woken every 60 min)
 
 ## Team Members
 

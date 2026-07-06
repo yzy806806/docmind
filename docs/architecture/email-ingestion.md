@@ -189,28 +189,40 @@ at the gap — account 2 will be ignored if account 1 is missing.
 
 ## Security
 
-### Credential storage — plaintext in MVP
+### Credential storage — Fernet encryption
 
-**IMAP passwords are stored as plaintext in the DocMind database.** This
-is a deliberate MVP trade-off documented transparently here. There is no
-encryption at rest in the current release (Phase 8a).
+**IMAP passwords are encrypted at rest using Fernet symmetric encryption.**
+Passwords are never stored as plaintext in the database — they are
+encrypted before write and decrypted only when needed for IMAP
+authentication.
 
-| Aspect            | Current state (MVP)                | Planned (Phase 8e)              |
-|-------------------|------------------------------------|---------------------------------|
-| Storage           | Plaintext in `email_accounts` table | Fernet symmetric encryption    |
-| Key management    | None                               | Per-instance key in env/config  |
-| DB compromise     | Credentials exposed                 | Credentials encrypted           |
-| Config migration  | Manual                             | Automatic on first decrypt      |
+| Aspect            | Current state                          |
+|-------------------|----------------------------------------|
+| Storage           | Fernet-encrypted in `email_accounts` table |
+| Key management    | `DOCMIND_EMAIL_ENCRYPTION_KEY` env var    |
+| DB compromise     | Credentials are encrypted at rest         |
+| Encryptor design  | Per-Database instance, not module singleton |
+
+**How it works:**
+
+- A Fernet key is derived from the `DOCMIND_EMAIL_ENCRYPTION_KEY`
+  environment variable.
+- Each `Database` instance owns its encryptor (`db._encryptor`),
+  preventing cross-database key leakage in tests (commit 15d6075).
+- All email account CRUD methods encrypt on write, decrypt on read.
+- If `DOCMIND_EMAIL_ENCRYPTION_KEY` is not set, credentials are stored
+  in plaintext with a warning — useful for development and testing.
 
 **What this means in practice:**
 
-- Anyone with filesystem access to `docmind.db` can read your IMAP
-  passwords.
-- Anyone with database access (via the DocMind API or direct SQLite
-  connection) can read your IMAP passwords.
-- Backups of `docmind.db` contain plaintext credentials.
+- Someone with filesystem access to `docmind.db` sees only encrypted
+  password values, not the original passwords.
+- Backups of `docmind.db` do not contain plaintext credentials.
+- The encryption key itself must be protected — treat it like a master
+  password. Store it in a secrets manager or `.env` file with
+  restricted permissions.
 
-**Mitigations you should apply now:**
+**Mitigations you should still apply:**
 
 1. **Use app-specific passwords, not your primary account password.**
    Gmail and Outlook both support app passwords that are scoped to IMAP
@@ -221,31 +233,19 @@ encryption at rest in the current release (Phase 8a).
    chmod 600 docmind.db
    ```
 
-3. **Do not commit `docmind.db` to version control.** Add it to
-   `.gitignore` if you haven't already.
+3. **Protect the encryption key.** Store it in a secure location:
+   ```bash
+   # Generate a strong random key
+   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 
-4. **Run DocMind on a trusted host.** If the host is compromised,
-   encryption at rest provides limited protection — the running process
-   must decrypt credentials to use them.
+   # Store in a restricted .env file
+   echo 'DOCMIND_EMAIL_ENCRYPTION_KEY=...' >> .env
+   chmod 600 .env
+   ```
+
+4. **Do not commit `docmind.db` or `.env` to version control.**
 
 5. **Rotate app passwords periodically.** Treat them like API keys.
-
-### Why plaintext for MVP?
-
-The team reached unanimous consensus (motion-27fbe732fc1b) to ship with
-plaintext credentials in Phase 8a and add Fernet-based encryption in
-Phase 8e. The reasoning:
-
-- Fernet encryption adds a dependency (`cryptography`) and key
-  management complexity (where to store the master key, how to handle
-  rotation).
-- Email ingestion in Phase 8a targets self-hosted single-user
-  deployments where the threat model is primarily the host itself — if
-  the host is compromised, the running process can decrypt credentials
-  anyway.
-- Delaying encryption avoids blocking the core ingestion feature on a
-  security feature that has limited practical benefit in the primary
-  deployment model.
 
 ### IMAP connection security
 

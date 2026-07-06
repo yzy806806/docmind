@@ -8,11 +8,16 @@
 ## 1. Overview
 
 DocMind is an AI-powered document knowledge base. Documents are ingested
-from multiple sources (WebDAV, local directories, PostgreSQL), text is
-extracted and chunked, then indexed via both SQLite FTS5 (full-text) and
-optional vector embeddings (semantic). A hybrid search engine merges both
-indexes. An LLM layer provides summarisation and multi-turn Q&A with
-citation tracking.
+from multiple sources (IMAP email, WebDAV, local directories, PostgreSQL,
+drag-and-drop upload), text is extracted and chunked, then indexed via
+both SQLite FTS5 (full-text) and optional vector embeddings (semantic).
+A hybrid search engine merges both indexes. An LLM layer provides
+summarisation and multi-turn Q&A with citation tracking.
+
+Email ingestion (Phase 8) polls IMAP accounts on a configurable interval,
+deduplicates by Message-ID, extracts bodies and attachments, and creates
+searchable documents. Credentials are protected with Fernet symmetric
+encryption.
 
 Three consumption surfaces sit on top of the core engine:
 
@@ -44,6 +49,8 @@ src/
 │   ├── llm_client.py     # OpenAI-compatible + Ollama client
 │   ├── job_queue.py      # Async job queue
 │   ├── models.py         # Data models
+│   ├── email_ingestor.py  # IMAP polling, MIME parsing, dedup, attachment extraction
+│   ├── crypto.py          # Credential encryption (Fernet symmetric)
 │   ├── parser_sandbox.py # Parser sandboxing
 │   └── sanitizer.py      # Data sanitisation
 ├── web/            # Web layer — depends on core/
@@ -79,10 +86,10 @@ The `core` package must never import from `web`, `cli`, or `hermes_plugin`.
 ## 3. Data Flow
 
 ```
-Source (WebDAV / dir / PG)
+Source (Email / WebDAV / dir / PG / upload)
   │
   ▼
-Storage adapter ──► Extractor ──► Chunker
+Storage adapter / Email Ingestor ──► Extractor ──► Chunker
   │                                   │
   │                                   ▼
   │                              Indexer (upsert by SHA256)
@@ -140,7 +147,40 @@ See `src/core/cache.py` → `CacheTTLConfig` for the full table.
 
 **Design doc:** `docs/architecture/caching.md`
 
-### 3.2 Rate Limiting (Phase 6a)
+### 3.3 Email Ingestion (Phase 8)
+
+Email is polled from IMAP accounts on a configurable interval, running
+in the same process as the web server via FastAPI's `lifespan` context:
+
+```
+Email Ingestor (async background worker)
+  │
+  ├── Poll IMAP account (imaplib, asyncio.to_thread)
+  ├── Deduplicate by Message-ID (3-layer: header hash → UID → content hash)
+  ├── Parse MIME structure (body + attachments)
+  ├── Extract attachments through Extractor pipeline
+  ├── Create documents (source_type="email", shared thread_id)
+  ├── Apply post-fetch action (mark_seen / delete / move)
+  │
+  └── Log to email_ingestion_log table
+```
+
+**Key design decisions:**
+- **In-process polling:** The worker is an async task started in `lifespan()`,
+  not a separate process or external scheduler.
+- **Sequential account polling:** Accounts are polled one at a time.
+  Concurrent polling is deferred until needed.
+- **3-layer deduplication:** Message-ID header hash is the primary key,
+  with account+UID and content hash as fallbacks for edge cases.
+- **Fernet credential encryption:** IMAP passwords are encrypted at rest
+  using a per-instance Fernet key (`DOCMIND_EMAIL_ENCRYPTION_KEY`).
+  The encryptor is a per-Database instance attribute to prevent cross-DB
+  key leakage in tests.
+
+**Configuration:** `docs/architecture/email-ingestion.md`
+**Source:** `src/core/email_ingestor.py` (core IMAP logic), `src/core/crypto.py` (encryption)
+
+### 3.4 Rate Limiting (Phase 6a)
 
 API rate limiting is enforced by a per-IP sliding-window middleware
 registered in `server.py`. It is disabled by default and requires no
@@ -421,6 +461,64 @@ a pluggable backend architecture:
 
 ---
 
+### ADR-005: In-Process IMAP Polling with Fernet Credential Encryption
+
+**Date:** 2025-07-06
+**Motion:** motion-27fbe732fc1b (adopted — unanimous, 7/7 participants)
+**Status:** Active
+
+**Context.** The team needed to add email ingestion — polling IMAP accounts,
+converting emails into documents, and managing credentials securely — without
+adding external dependencies or a separate worker process.
+
+**Decision.** Implement email ingestion as an in-process async background task
+with Fernet symmetric encryption for credential storage:
+
+1. **In-process async worker.** The email polling loop runs as an
+   `asyncio.Task` started in FastAPI's `lifespan` context. No separate
+   process, no Celery/Redis queue, no external scheduler. For the
+   self-hosted single-user deployment model, this is sufficient and
+   avoids operational complexity.
+
+2. **3-layer deduplication.** Message-ID header hash (SHA256) as primary
+   key, with account+folder+UID and content hash as fallbacks. This is
+   more robust than single-key dedup and handles edge cases like missing
+   Message-IDs in forwarded emails.
+
+3. **Attachment extraction reuses Extractor pipeline.** Email attachments
+   go through the same `Extractor` → `Chunker` → `Indexer` pipeline as
+   uploaded files. No separate extraction code path.
+
+4. **Per-instance Fernet encryptor.** Credentials are encrypted at rest
+   with a per-Database Fernet instance (`db._encryptor`), preventing
+   cross-database key leakage in tests. The encryptor is not a
+   module-level singleton — each `Database` instance owns its encryptor,
+   initialized from `DOCMIND_EMAIL_ENCRYPTION_KEY`.
+
+**Rationale.**
+- In-process polling was chosen over a separate worker process to keep
+  the deployment model simple (one process, one binary). This is the
+  same philosophy that chose SQLite over PostgreSQL.
+- Fernet was chosen over bcrypt/scrypt because credentials must be
+  decryptable at runtime (not just verifiable). The key is passed via
+  environment variable, not stored in the database.
+- The per-instance encryptor design (commit 15d6075) fixed a test
+  isolation bug where a module-level singleton caused cross-database key
+  contamination in the test suite.
+
+**Implications.**
+1. Email polling runs in the same process as the web server — a slow
+   IMAP server can delay the event loop. For production multi-user
+   deployments, a separate worker process should be considered.
+2. The encryptor requires `DOCMIND_EMAIL_ENCRYPTION_KEY` to be set.
+   Without it, credentials are stored in plaintext (with a warning).
+3. Full architecture documentation at `docs/architecture/email-ingestion.md`.
+4. Sequential account polling: accounts are polled one at a time.
+   Concurrent polling can be added if needed without changing the
+   architecture.
+
+---
+
 ## 5. Web UI Architecture (detail)
 
 This section expands ADR-001 with the concrete patterns that implement
@@ -519,11 +617,11 @@ same `core/` business logic — the only difference is the response format
 ## 6. Testing Strategy
 
 - **Framework:** pytest with `pytest-asyncio` (async mode auto).
-- **Scope:** 1016 tests across 30 test files.
+- **Scope:** 2138 tests across 30+ test files.
 - **UI tests:** Template structure assertions, route response assertions,
   and integration tests that verify rendered HTML content.
 - **Core tests:** Unit tests for storage, extraction, indexing, search,
-  and summarisation.
+  summarisation, email ingestion, and encryption.
 - **API tests:** REST endpoint contract tests (request/response shapes).
 
 When adding a new feature:
@@ -559,6 +657,8 @@ When adding a new feature:
 | SPA framework proposal    | Raise ADR via Agora motion; must meet a trigger in ADR-003 |
 | New Database read method  | Follow cache-aside pattern: get → miss → query → set; add TTL to `CacheTTLConfig` |
 | New Database mutation     | Call the appropriate `_invalidate_*` helper after the write |
+| New email account config  | Follow the indexed env var pattern (`ACCOUNT_<N>_<FIELD>`) |
+| New credential field      | Use `self._encryptor` on the Database instance, not the module-level singleton |
 
 ---
 
@@ -569,3 +669,4 @@ When adding a new feature:
 | 2025-07-05 | architect | Created. Documented ADR-001 (Jinja2 SSR) and ADR-002 (hand-rolled migrations) per motions motion-d9138a198276 and motion-1a1689af9142. |
 | 2025-07-05 | architect | Added ADR-003 (Hybrid Islands Architecture) per motion-e73dd1dcb0c3. Updated Section 5.3 rules to permit HTMX for partial swaps. Added SPA boundary trigger table and HTMX usage guidelines. Updated conventions table with islands, HTMX, and SPA-proposal rows. |
 | 2025-07-06 | writer    | Added ADR-004 (Cache-aside at the Database Layer) per motion-aaa5420f752c. Updated Section 2 module map with `cache.py`, Section 3 data flow with caching layer diagram and backend/TTL documentation, and Section 8 conventions with cache read/mutation rules. |
+| 2025-07-06 | writer    | Added ADR-005 (In-Process IMAP Polling with Fernet Credential Encryption) per motion-27fbe732fc1b. Updated Section 1 overview with email ingestion, Section 2 module map with `email_ingestor.py` and `crypto.py`, Section 3 data flow with email as ingestion source and new Section 3.3 Email Ingestion pipeline. Updated Section 6 test count (1016 → 2138). Added email-related conventions to Section 8. |

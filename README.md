@@ -5,7 +5,7 @@
 [![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://docs.ruff.sh/)
 [![Tests](https://img.shields.io/badge/tests-pytest-0a9edc.svg)](https://docs.pytest.org/)
 
-**AI 驱动的企业级文档知识库** — 把文档、标书、报表、数据库全扔进来，AI 帮你归类整理、提炼摘要、写索引目录。需要的时候用自然语言搜索，AI 替你读文档、找依据、写报告。
+**AI 驱动的企业级文档知识库** — 把文档、标书、报表、数据库、邮件全扔进来，AI 帮你归类整理、提炼摘要、写索引目录。需要的时候用自然语言搜索，AI 替你读文档、找依据、写报告。
 
 ## 核心定位
 
@@ -16,9 +16,9 @@
 ## 架构概览
 
 ```
-WebDAV / 本地目录 / PostgreSQL 数据库
+IMAP 邮箱 / WebDAV / 本地目录 / PostgreSQL 数据库
           │
-    文件发现 & 文本提取
+    文件发现 & 文本提取 (含 OCR)
           │
     文档分块 (Chunking)
           │
@@ -31,7 +31,7 @@ WebDAV / 本地目录 / PostgreSQL 数据库
           │
     混合搜索 (Hybrid Search)
           │
-    摘要生成 (LLM)
+    摘要生成 (LLM)    ← ─ ─ 查询结果缓存层
           │
    ┌──────┼──────┐
    ▼      ▼      ▼
@@ -43,8 +43,11 @@ WebDAV / 本地目录 / PostgreSQL 数据库
 
 ### 数据接入与处理
 
-- [x] **多源接入：** WebDAV（群晖等 NAS）、本地目录、PostgreSQL 数据库
+- [x] **多源接入：** IMAP 邮箱（Gmail、Outlook、自建服务器）、WebDAV（群晖等 NAS）、本地目录、PostgreSQL 数据库、Web 拖拽上传
+- [x] **邮件自动抓取：** 定时轮询 IMAP 收件箱，自动将邮件正文和附件转为可搜索文档，支持多账户、去重、附件白名单/黑名单过滤
 - [x] **全格式提取：** PDF、DOCX、HTML、Markdown、TXT、图片元信息
+- [x] **OCR 扫描件识别：** Tesseract OCR 自动识别扫描版 PDF 和图片中的文字
+- [x] **文档类型自动检测：** LLM 驱动的文档分类（合同、报告、财报等），无 LLM 时自动回退到关键词启发式
 - [x] **增量处理：** 文件 hash (SHA256) 检测变更，`upsert_document` + `ON CONFLICT` 只处理新文件
 - [x] **文档分块 (Document Chunking)：** 按语义切分文档，提升搜索粒度与 RAG 检索精度，减少 LLM token 消耗
 - [x] **多文件拖拽上传 (Multi-File Drag-and-Drop Upload)：** 拖拽式批量上传界面
@@ -55,6 +58,7 @@ WebDAV / 本地目录 / PostgreSQL 数据库
 - [x] **向量语义搜索 (Vector/Semantic Search)：** 基于 sentence-transformers 嵌入，支持本地 / Ollama / OpenAI 多种 embedding 后端
 - [x] **混合搜索 (Hybrid Search)：** FTS5 关键词 + 向量语义双路融合排序，可调节权重，无嵌入时自动回退到纯 FTS5
 - [x] **搜索权重调节 (Search Relevance Tuning)：** 滑块控制 FTS5 与向量语义的权重比例（`vector_weight`），实时调节搜索结果偏向
+- [x] **分类筛选 (Faceted Search)：** 按文件类型和数据来源侧边栏筛选，实时统计各分类下的文档数量
 - [x] **LLM 多轮筛选：** FTS5 + 向量混合搜索初筛 → LLM 摘要匹配 → 原文返回
 - [x] **引用溯源 (Citation/Source Tracking)：** 每段回答标注来源文档 + 位置
 
@@ -64,10 +68,13 @@ WebDAV / 本地目录 / PostgreSQL 数据库
 - [x] **分析仪表盘 (Analytics Dashboard)：** 使用统计与可视化图表，支持日期范围筛选、文档增长趋势、搜索热度、标签分布
 - [x] **文档查看器 (Document Viewer)：** 格式化内容渲染、分页浏览 (Pagination)、目录侧边栏、文档内搜索、阅读模式
 - [x] **文档标签与元数据 (Document Tags & Metadata)：** 标签云、按标签筛选、文档分类管理
+- [x] **文档集合 (Document Collections)：** 层级树形结构，面包屑导航，支持增删改查和文档批量移入/移出
+- [x] **邮件账户管理：** Web UI 管理 IMAP 账户，支持连接测试、手动触发同步、查看抓取日志
 - [x] **聊天历史 (Chat History)：** 持久化多轮对话记录，会话管理 (Session Management)，会话回放，历史查询
 - [x] **任务状态页 (Job Processing Status Page)：** 异步任务队列可视化，处理进度跟踪
 - [x] **深色模式 (Dark Mode Toggle)：** 一键切换明暗主题，自动记忆用户偏好，全页面适配
-- [x] **批量文档删除 (Bulk Document Delete)：** 多选复选框 + API 端点，一键清理
+- [x] **批量操作 (Bulk Operations)：** 多选复选框，支持批量删除、批量标签、批量移动、批量导出
+- [x] **响应式设计 (Responsive Design)：** 5 个 CSS 断点 (1024/768/640/480px)，适配桌面到手机
 
 ### 导出与摘要
 
@@ -77,14 +84,38 @@ WebDAV / 本地目录 / PostgreSQL 数据库
 ### 安全与集成
 
 - [x] **API Key 认证 (API Key Authentication)：** 可选的会话 + API Key 双模式认证，HMAC-SHA256 签名 Cookie，支持 `X-API-Key` 头部
-- [x] **Hermes Tool 接入：** `kb_search`、`kb_list`、`kb_read`、`kb_ingest` 四个工具，可在 Hermes 聊天中直接检索知识库。搜索后端已整合 HybridSearchEngine，支持 FTS5 + 向量混合搜索与评分融合。
+- [x] **Hermes Tool 接入：** `kb_search`、`kb_list`、`kb_read`、`kb_ingest` 四个工具，可在 Hermes 聊天中直接检索知识库。搜索后端已整合 HybridSearchEngine，支持 FTS5 + 向量混合搜索与评分融合
 - [x] **速率限制 (Rate Limiting)：** LLM 调用频率控制（TPM，默认 5 TPM）+ 基于 IP 的滑动窗口 API 限流（可配置每分钟请求上限，超限返回 429 + `Retry-After` 头部）
+- [x] **凭证加密 (Credential Encryption)：** IMAP 邮箱密码使用 Fernet 对称加密存储，密钥通过环境变量注入
 
-### LLM 与部署
+### 性能与部署
 
 - [x] **多 LLM 支持 (Multi-LLM Support)：** OpenAI 兼容 API + Ollama 双后端，支持 OpenAI / vLLM / LM Studio 等任意 OpenAI 格式接口
 - [x] **Docker 支持：** 多阶段 Dockerfile + docker-compose 编排
 - [x] **查询结果缓存 (Query Result Caching)：** 读方法自动缓存，写路径精准失效，支持内存（默认）和 Redis 两种后端，可一键关闭
+
+## 对比同类项目
+
+| 功能 | DocMind | Paperless-ngx | Teedy | Docspell | Mayan EDMS |
+|------|---------|:---:|:---:|:---:|:---:|
+| 多源接入（邮件/WebDAV/本地/数据库） | ✅ | ✅ | ✅ | ✅ | ✅ |
+| OCR 扫描件 | ✅ | ✅ | ✅ | ✅ | ✅ |
+| 混合搜索（全文+向量） | ✅ | ❌ | ❌ | ❌ | ❌ |
+| 搜索权重调节 | ✅ | ❌ | ❌ | ❌ | ❌ |
+| LLM 问答 + 引用溯源 | ✅ | ❌ | ❌ | ❌ | ❌ |
+| 自动摘要 | ✅ | ❌ | ❌ | ❌ | ❌ |
+| 邮件抓取 | ✅ | ✅ | ⚠️ | ✅ | ⚠️ |
+| 文档类型自动分类 | ✅ | ⚠️ | ❌ | ❌ | ⚠️ |
+| 层级集合 | ✅ | ✅ | ✅ | ✅ | ✅ |
+| 批量操作 | ✅ | ✅ | ✅ | ✅ | ✅ |
+| API 速率限制 | ✅ | ❌ | ❌ | ❌ | ❌ |
+| 查询缓存 | ✅ | ✅ | ⚠️ | ✅ | ✅ |
+| 深色模式 | ✅ | ✅ | ⚠️ | ❌ | ❌ |
+| 响应式设计 | ✅ | ✅ | ✅ | ⚠️ | ❌ |
+| 工作流自动化 | ❌ | ✅ | ⚠️ | ❌ | ✅ |
+| 零外部依赖（开箱即用） | ✅ | ❌ | ❌ | ❌ | ❌ |
+
+> DocMind 的核心优势：零外部依赖（SQLite 单文件数据库，无需 PostgreSQL/Redis/Elasticsearch），AI 原生（混合搜索 + LLM 问答），轻量部署。
 
 ## 项目结构
 
@@ -102,6 +133,8 @@ docmind/
 │   │   ├── summarizer.py          # LLM 摘要管道（map-reduce + TPM 限速）
 │   │   ├── llm_client.py          # OpenAI + Ollama LLM 客户端
 │   │   ├── job_queue.py           # 异步任务队列
+│   │   ├── email_ingestor.py      # IMAP 邮件抓取（轮询、解析、去重、附件提取）
+│   │   ├── crypto.py              # 凭证加密（Fernet 对称加密）
 │   │   ├── cache.py               # 查询结果缓存（内存/Redis，cache-aside）
 │   │   ├── db.py / db_sqlite.py   # 数据库适配层
 │   │   ├── config.py              # 配置管理
@@ -113,6 +146,7 @@ docmind/
 │   │   ├── auth.py                # API Key 认证（HMAC-SHA256）
 │   │   ├── chat.py                # WebSocket 聊天
 │   │   ├── document_viewer.py     # 文档查看器
+│   │   ├── rate_limit.py          # API 速率限制中间件
 │   │   ├── rendering.py           # Jinja2 模板渲染
 │   │   ├── services.py            # 业务服务（导出、摘要）
 │   │   └── templates/             # Jinja2 模板
@@ -122,19 +156,21 @@ docmind/
 │   │   ├── main.py
 │   │   ├── services.py
 │   │   └── formatters.py
-│   ├── docmind/               # 平台层（API / 认证 / 可观测性）
-│   │   ├── api/                   # REST API 路由
-│   │   ├── auth/                  # 权限控制
-│   │   ├── observability/         # 审计 / 熔断 / 健康检查 / 遥测
-│   │   └── storage/               # 内容寻址存储 (CAS)
 │   └── hermes_plugin.py       # Hermes Tool 注册（kb_search/list/read/ingest）
-├── tests/                     # 测试套件（pytest）
+├── tests/                     # 测试套件（pytest，2138+ 测试）
 ├── config/
 │   └── config.example.yaml
 ├── data/                      # SQLite 数据库存储
 ├── docs/
+│   ├── gap-analysis.md            # 竞品对比与差距分析
+│   ├── architecture/
+│   │   ├── caching.md             # 缓存层架构设计
+│   │   ├── rate-limiting.md       # API 速率限制配置指南
+│   │   └── email-ingestion.md     # 邮件抓取配置与安全指南
 │   └── openapi.yaml           # OpenAPI 规范
 ├── pyproject.toml             # 依赖与项目元数据
+├── ARCHITECTURE.md            # 架构决策记录 (ADR)
+├── CHANGELOG.md               # 版本变更日志
 └── AGENTS.md
 ```
 
@@ -168,6 +204,30 @@ docker-compose up -d
 访问 `http://localhost:8000` 进入管理界面。
 
 > **提示：** Docker 模式默认使用端口 8000，本地原生启动默认使用端口 8080。
+
+### 邮件抓取配置
+
+DocMind 可定时轮询 IMAP 邮箱（Gmail、Outlook、自建服务器），自动将邮件和附件转为可搜索文档：
+
+```bash
+# 开启邮件抓取
+export DOCMIND_EMAIL_ENABLED=true
+
+# 配置邮箱（Gmail 需使用应用专用密码）
+export DOCMIND_EMAIL_ACCOUNT_0_NAME="Work Gmail"
+export DOCMIND_EMAIL_ACCOUNT_0_HOST="imap.gmail.com"
+export DOCMIND_EMAIL_ACCOUNT_0_PORT="993"
+export DOCMIND_EMAIL_ACCOUNT_0_USERNAME="you@gmail.com"
+export DOCMIND_EMAIL_ACCOUNT_0_PASSWORD="abcd efgh ijkl mnop"
+
+# 可调整轮询间隔（默认 600 秒 = 10 分钟）
+export DOCMIND_EMAIL_POLL_INTERVAL="300"
+
+# 设置加密密钥保护邮箱密码
+export DOCMIND_EMAIL_ENCRYPTION_KEY="your-generated-key"
+```
+
+> **安全提示：** 请使用应用专用密码而非主密码。Gmail 用户需开启两步验证后在 https://myaccount.google.com/apppasswords 生成。详见 `docs/architecture/email-ingestion.md`。
 
 ### 缓存配置
 
@@ -204,10 +264,18 @@ export DOCMIND_RATE_LIMIT_REQUESTS_PER_MINUTE=120
 
 - **后端：** Python 3.11+, FastAPI, SQLite + FTS5
 - **前端：** Jinja2 模板 + htmx（轻量）
-- **文档提取：** pdfplumber, python-docx, beautifulsoup4
+- **文档提取：** pdfplumber, python-docx, beautifulsoup4, pytesseract (OCR)
 - **向量嵌入：** sentence-transformers（本地），兼容 Ollama / OpenAI
 - **LLM：** OpenAI 兼容 API + Ollama（支持任意 OpenAI 格式接口）
 - **打包：** uv / pip
+
+## 同类项目对比
+
+DocMind 在以下方面区别于 Paperless-ngx、Teedy、Docspell 和 Mayan EDMS：
+
+- **零外部依赖：** 使用 SQLite 单文件数据库，无需部署 PostgreSQL、Redis、Elasticsearch 等外部服务。Docker 一键启动，本地 `uv run` 即可运行。
+- **AI 原生搜索：** 混合搜索（关键词 + 向量语义）融合排序，支持滑块实时调节权重。LLM 驱动的多轮筛选与问答，答案附带原文出处引用。
+- **轻量全栈：** Jinja2 SSR + 零依赖 JavaScript（无 npm 构建步骤），所有功能在一个 Python 进程中完成。
 
 ## License
 

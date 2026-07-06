@@ -3,6 +3,111 @@
 All notable changes to DocMind are documented in this file. The project uses
 calendar-based versioning: each section groups changes by the week they shipped.
 
+## 2026-07-06 — Phase 8: Email Ingestion
+
+### Added — IMAP Email Ingestion
+
+DocMind can now automatically ingest email from IMAP accounts (Gmail,
+Outlook, self-hosted servers). A background worker polls configured
+accounts on a configurable interval, converting email bodies and
+attachments into searchable documents.
+
+- **In-process async worker.** Polling runs as a background task in
+  FastAPI's `lifespan` context — no separate process or external
+  scheduler required. Accounts are polled sequentially on the
+  configured interval.
+- **3-layer deduplication.** Message-ID header hash (SHA256) as primary
+  key, with account+folder+UID and content hash as fallbacks for edge
+  cases. Each ingested email is logged to `email_ingestion_log` for
+  auditability.
+- **Document creation.** Email bodies become documents with
+  `source_type="email"`. Supported attachments (PDF, DOCX, TXT, etc.)
+  become separate documents. All documents from the same email share a
+  `thread_id` for future thread-based grouping.
+- **Post-fetch actions.** `mark_seen` (default), `delete`, or
+  `move_folder` (deferred) after successful ingestion.
+- **Attachment filtering.** Per-account whitelist and blacklist globs
+  control which attachment types are ingested.
+- **Configuration via env vars.** All settings use the
+  `DOCMIND_EMAIL_*` prefix with indexed account pattern
+  (`ACCOUNT_<N>_<FIELD>`). No YAML config needed.
+
+### Added — Email Account Management UI
+
+- Web UI pages for creating, editing, and deleting email accounts
+- Connection test endpoint (`POST /api/v1/email-accounts/{id}/test`)
+- Manual sync trigger (`POST /api/v1/email-accounts/{id}/sync`)
+- Ingestion log viewer (`GET /api/v1/email-accounts/{id}/logs`)
+- Email metadata displayed on document detail pages (From, To, Subject,
+  Date, Message-ID)
+- Email accounts integrated into search results and filtering
+
+### Added — Fernet Credential Encryption
+
+IMAP passwords are encrypted at rest using Fernet symmetric encryption:
+
+- **Per-instance encryptor** — each `Database` instance owns its
+  encryptor, preventing cross-database key leakage in tests
+  (commit 15d6075)
+- Encryption key injected via `DOCMIND_EMAIL_ENCRYPTION_KEY` env var
+- All email account CRUD methods pass `db=self` to use the
+  instance-level encryptor
+- Backward-compatible fallback to module-level singleton for
+  migration paths
+
+### Configuration reference
+
+```bash
+# Enable email ingestion (default: false)
+DOCMIND_EMAIL_ENABLED=true
+
+# Poll interval in seconds (default: 600)
+DOCMIND_EMAIL_POLL_INTERVAL=300
+
+# Encryption key for IMAP passwords (required for encrypted storage)
+DOCMIND_EMAIL_ENCRYPTION_KEY="your-generated-key"
+
+# Account 0 (Gmail example)
+DOCMIND_EMAIL_ACCOUNT_0_NAME="Work Gmail"
+DOCMIND_EMAIL_ACCOUNT_0_HOST="imap.gmail.com"
+DOCMIND_EMAIL_ACCOUNT_0_PORT="993"
+DOCMIND_EMAIL_ACCOUNT_0_USERNAME="you@gmail.com"
+DOCMIND_EMAIL_ACCOUNT_0_PASSWORD="abcd efgh ijkl mnop"
+```
+
+See `docs/architecture/email-ingestion.md` for full documentation
+including provider-specific setup, security guidance, and monitoring.
+
+---
+
+## 2026-07-06 — Phase 7: Search Relevance Tuning
+
+### Added — User-Tunable Search Weights
+
+Users can now adjust the balance between keyword search (FTS5) and
+semantic search (vector embeddings) in real time using a slider control
+in the search interface. The `vector_weight` parameter ranges from 0
+(pure keyword) to 1 (pure semantic), defaulting to 0.5 (balanced).
+
+- **Engine level:** `HybridSearchEngine.search()` accepts `vector_weight`
+  parameter and applies it to the score fusion formula (commit fbaae79)
+- **API level:** `/search` endpoint parses, clamps, and validates
+  `vector_weight` query parameter with 400 on invalid input
+  (commits 6df8293, 9ad75e8)
+- **UI level:** Slider control on search page and dashboard, with
+  ARIA accessibility attributes (commits 50b5af5, a3ff4fa)
+- **Search path fix:** Both the search page and chat now use the
+  hybrid engine with vector semantic search and score fusion
+  (commits 3b0ca0e, 0633cb3)
+
+### Added — Competitive Landscape Research
+
+Created `docs/research-phase7-competitive-landscape.md` documenting
+competitive positioning across Paperless-ngx, Teedy, Docspell, and
+Mayan EDMS.
+
+---
+
 ## 2026-07-06 — Phase 6: Security & Hardening
 
 ### Added — API Rate Limiting (Phase 6a)
