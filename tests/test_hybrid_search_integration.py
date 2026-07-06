@@ -679,6 +679,236 @@ class TestVectorWeightParsing:
 # ── Chat WebSocket hybrid engine tests ──────────────────────────
 
 
+class TestVectorWeightUIControl:
+    """Tests that the vector_weight slider/control is present in the search UI.
+
+    These tests verify that:
+    - The search form page contains a vector_weight slider
+    - The search results page contains a vector_weight slider
+    - The slider reflects the provided vector_weight value on results page
+    - The slider defaults to 0.6 when no vector_weight is provided
+    - Export links on the results page carry the vector_weight parameter
+    - The dashboard quick search form contains a vector_weight slider
+    """
+
+    @pytest.mark.asyncio
+    async def test_search_form_has_vector_weight_slider(
+        self, asgi_client_with_hybrid
+    ) -> None:
+        """GET /search (empty query → form) should contain a vector_weight slider."""
+        client, app, hybrid_engine = asgi_client_with_hybrid
+
+        resp = await client.get("/search?q=")
+        assert resp.status_code == 200
+        assert "vector_weight" in resp.text
+        assert "vw-slider" in resp.text
+        assert 'name="vector_weight"' in resp.text
+        assert 'type="range"' in resp.text
+        assert 'min="0"' in resp.text
+        assert 'max="1"' in resp.text
+        assert 'step="0.05"' in resp.text
+
+    @pytest.mark.asyncio
+    async def test_search_results_has_vector_weight_slider(
+        self, asgi_client_with_hybrid
+    ) -> None:
+        """GET /search?q=... should show the vector_weight slider on results page."""
+        client, app, hybrid_engine = asgi_client_with_hybrid
+
+        resp = await client.get("/search?q=machine")
+        assert resp.status_code == 200
+        assert "vector_weight" in resp.text
+        assert "vw-slider" in resp.text
+        assert 'name="vector_weight"' in resp.text
+
+    @pytest.mark.asyncio
+    async def test_search_results_slider_shows_provided_value(
+        self, asgi_client_with_hybrid
+    ) -> None:
+        """When vector_weight=0.8 is provided, the slider value should reflect it."""
+        client, app, hybrid_engine = asgi_client_with_hybrid
+
+        resp = await client.get("/search?q=machine&vector_weight=0.8")
+        assert resp.status_code == 200
+        # The slider should have value="0.80"
+        assert 'value="0.80"' in resp.text
+
+    @pytest.mark.asyncio
+    async def test_search_results_slider_shows_default_when_not_provided(
+        self, asgi_client_with_hybrid
+    ) -> None:
+        """When vector_weight is not provided, the slider should default to 0.60."""
+        client, app, hybrid_engine = asgi_client_with_hybrid
+
+        resp = await client.get("/search?q=machine")
+        assert resp.status_code == 200
+        assert 'value="0.60"' in resp.text
+
+    @pytest.mark.asyncio
+    async def test_search_results_slider_shows_zero_value(
+        self, asgi_client_with_hybrid
+    ) -> None:
+        """When vector_weight=0.0 is provided, the slider should show 0.00."""
+        client, app, hybrid_engine = asgi_client_with_hybrid
+
+        resp = await client.get("/search?q=machine&vector_weight=0.0")
+        assert resp.status_code == 200
+        assert 'value="0.00"' in resp.text
+
+    @pytest.mark.asyncio
+    async def test_search_results_slider_shows_one_value(
+        self, asgi_client_with_hybrid
+    ) -> None:
+        """When vector_weight=1.0 is provided, the slider should show 1.00."""
+        client, app, hybrid_engine = asgi_client_with_hybrid
+
+        resp = await client.get("/search?q=machine&vector_weight=1.0")
+        assert resp.status_code == 200
+        assert 'value="1.00"' in resp.text
+
+    @pytest.mark.asyncio
+    async def test_export_links_carry_vector_weight(
+        self, asgi_client_with_hybrid
+    ) -> None:
+        """Export CSV/JSON links should include the vector_weight parameter."""
+        client, app, hybrid_engine = asgi_client_with_hybrid
+
+        resp = await client.get("/search?q=machine&vector_weight=0.7")
+        assert resp.status_code == 200
+        assert "vector_weight=0.70" in resp.text
+        # Both export links should carry the param
+        assert "vector_weight=0.70&export=csv" in resp.text
+        assert "vector_weight=0.70&export=json" in resp.text
+
+    @pytest.mark.asyncio
+    async def test_export_links_carry_default_vector_weight(
+        self, asgi_client_with_hybrid
+    ) -> None:
+        """When no vector_weight is provided, export links should carry default 0.60."""
+        client, app, hybrid_engine = asgi_client_with_hybrid
+
+        resp = await client.get("/search?q=machine")
+        assert resp.status_code == 200
+        assert "vector_weight=0.60" in resp.text
+
+    @pytest.mark.asyncio
+    async def test_dashboard_has_vector_weight_slider(
+        self, asgi_client_with_hybrid
+    ) -> None:
+        """The dashboard quick search form should contain a vector_weight slider."""
+        client, app, hybrid_engine = asgi_client_with_hybrid
+
+        resp = await client.get("/")
+        assert resp.status_code == 200
+        assert "vector_weight" in resp.text
+        assert "vw-slider" in resp.text
+        assert 'name="vector_weight"' in resp.text
+
+    @pytest.mark.asyncio
+    async def test_slider_has_hint_text(
+        self, asgi_client_with_hybrid
+    ) -> None:
+        """The slider should have a hint explaining the meaning of 0 and 1."""
+        client, app, hybrid_engine = asgi_client_with_hybrid
+
+        resp = await client.get("/search?q=")
+        assert resp.status_code == 200
+        assert "keyword only" in resp.text
+        assert "semantic only" in resp.text
+
+    @pytest.mark.asyncio
+    async def test_slider_js_loaded_on_page(
+        self, asgi_client_with_hybrid
+    ) -> None:
+        """The vector-weight-slider.js script should be loaded on search pages."""
+        client, app, hybrid_engine = asgi_client_with_hybrid
+
+        resp = await client.get("/search?q=")
+        assert resp.status_code == 200
+        assert "vector-weight-slider.js" in resp.text
+
+    @pytest.mark.asyncio
+    async def test_slider_css_class_present(
+        self, asgi_client_with_hybrid
+    ) -> None:
+        """The vector-weight-control CSS class should be present in the page."""
+        client, app, hybrid_engine = asgi_client_with_hybrid
+
+        resp = await client.get("/search?q=")
+        assert resp.status_code == 200
+        assert "vector-weight-control" in resp.text
+        assert "vw-slider" in resp.text
+
+    @pytest.mark.asyncio
+    async def test_clamped_value_shown_in_slider(
+        self, asgi_client_with_hybrid
+    ) -> None:
+        """When vector_weight=1.5 is clamped to 1.0, slider should show 1.00."""
+        client, app, hybrid_engine = asgi_client_with_hybrid
+
+        resp = await client.get("/search?q=machine&vector_weight=1.5")
+        assert resp.status_code == 200
+        assert 'value="1.00"' in resp.text
+
+    @pytest.mark.asyncio
+    async def test_clamped_negative_value_shown_in_slider(
+        self, asgi_client_with_hybrid
+    ) -> None:
+        """When vector_weight=-0.3 is clamped to 0.0, slider should show 0.00."""
+        client, app, hybrid_engine = asgi_client_with_hybrid
+
+        resp = await client.get("/search?q=machine&vector_weight=-0.3")
+        assert resp.status_code == 200
+        assert 'value="0.00"' in resp.text
+
+
+class TestVectorWeightRenderingUnit:
+    """Unit tests for _render_search_results vector_weight passthrough."""
+
+    def test_render_search_results_default_vw(self) -> None:
+        """_render_search_results with no vw should show default 0.60 in slider."""
+        from src.web.rendering import _render_search_results
+
+        html = _render_search_results("test query", [])
+        assert 'value="0.60"' in html
+        assert "vector_weight" in html
+
+    def test_render_search_results_custom_vw(self) -> None:
+        """_render_search_results with vw=0.3 should show 0.30 in slider."""
+        from src.web.rendering import _render_search_results
+
+        html = _render_search_results("test query", [], vector_weight=0.3)
+        assert 'value="0.30"' in html
+
+    def test_render_search_results_zero_vw(self) -> None:
+        """_render_search_results with vw=0.0 should show 0.00 in slider."""
+        from src.web.rendering import _render_search_results
+
+        html = _render_search_results("test query", [], vector_weight=0.0)
+        assert 'value="0.00"' in html
+
+    def test_render_search_results_one_vw(self) -> None:
+        """_render_search_results with vw=1.0 should show 1.00 in slider."""
+        from src.web.rendering import _render_search_results
+
+        html = _render_search_results("test query", [], vector_weight=1.0)
+        assert 'value="1.00"' in html
+
+    def test_render_search_results_export_links_have_vw(self) -> None:
+        """Export links in rendered results should carry the vector_weight."""
+        from src.web.rendering import _render_search_results
+
+        # With results so export links are rendered
+        results = [{"id": 1, "title": "Test", "snippet": "x", "status": "indexed"}]
+        html = _render_search_results("q", results, vector_weight=0.8)
+        assert "vector_weight=0.80" in html
+        assert "export=csv" in html
+        assert "export=json" in html
+
+
+# ── Chat WebSocket hybrid engine tests ──────────────────────────
+
+
 class TestChatHybridEngineIntegration:
     """Tests that the chat WebSocket passes the hybrid engine to handle_chat."""
 

@@ -442,7 +442,11 @@ def _render_search_form(error: str = "") -> str:
     return _render_template("search_form.html", error=error)
 
 
-def _render_search_results(query: str, results: list[dict]) -> str:
+def _render_search_results(
+    query: str,
+    results: list[dict],
+    vector_weight: float | None = None,
+) -> str:
     # Prepare results with escaped fields for template
     prepared = []
     for r in results:
@@ -454,7 +458,17 @@ def _render_search_results(query: str, results: list[dict]) -> str:
             "status": r.get("status", "pending"),
             "rank": r.get("rank", 0),
         })
-    return _render_template("search_results.html", query=query, results=prepared)
+    # Determine the vector_weight to display in the UI slider.
+    # When the user provided a value, show it back; otherwise show the
+    # engine default (0.6) so the slider starts at a sensible position.
+    vw_current = vector_weight if vector_weight is not None else 0.6
+    return _render_template(
+        "search_results.html",
+        query=query,
+        results=prepared,
+        vw_current=f"{vw_current:.2f}",
+        vw_default="0.60",
+    )
 
 
 def _find_collection_name(

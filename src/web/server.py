@@ -598,7 +598,7 @@ def create_app() -> FastAPI:
         if fmt in ("csv", "json"):
             return _export_search_results(validated_q, results, fmt)
 
-        html = _render_search_results(validated_q, results)
+        html = _render_search_results(validated_q, results, vector_weight=resolved_vw)
         return HTMLResponse(content=html)
 
     @app.get("/documents", response_class=HTMLResponse, include_in_schema=False)

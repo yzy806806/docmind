@@ -60,7 +60,7 @@
 | Email ingestion | 🔴 Missing | Medium | Paperless-ngx, Docspell have this |
 | Bulk operations (beyond delete) | ✅ Have | - | Bulk tag, move, export all implemented (Phase 4b done) |
 | Faceted search (filters by type, date, tags) | ✅ Have | - | file_type and source facets with UI, faceted-filters.js (Phase 4c done) |
-| Search relevance tuning / boosting | 🟡 Partial | Medium | BM25 weighting exists but no user-tunable relevance |
+| Search relevance tuning / boosting | 🟡 Partial | Medium | Phase 7: vector_weight parameter implemented at engine and API level (fbaae79, 6df8293, 9ad75e8); UI control in progress |
 | Document type detection | ✅ Have | - | LLM-based auto-detection with keyword fallback (Phase 5b done) |
 | Workflow automation / rules | 🔴 Missing | Low | Paperless-ngx consumers, Mayan workflows |
 | Redis caching | ✅ Have | - | In-memory dict cache with pluggable Redis backend, TTL eviction, invalidation on all mutations (Phase 5a done) |
@@ -71,7 +71,7 @@
 | REST API coverage (complete CRUD) | 🟡 Partial | Medium | Most endpoints exist, some gaps in collection detail route |
 | Rate limiting (API) | ✅ Have | - | Per-IP sliding window middleware, 429 + Retry-After, configurable via env vars (Phase 6a done) |
 | Full-text search in document content | ✅ Have | - | Already implemented |
-| Search path architectural disconnect (web search bypasses HybridSearchEngine) | 🔴 Tech Debt | Medium | server.py:511 calls db.fulltext_search() directly, skipping vector semantic search that HybridSearchEngine provides. Chat uses the hybrid engine; the search page does not. |
+| Search path architectural disconnect (web search bypasses HybridSearchEngine) | ✅ Fixed | - | HybridSearchEngine is now wired into the web search endpoint (commits 3b0ca0e, 0633cb3). The search page and chat both use the hybrid engine with vector semantic search and score fusion. |
 
 ---
 
@@ -97,9 +97,9 @@ All three highest-priority gaps from the original analysis have been closed:
 
 7. **API rate limiting** — ✅ Complete (Phase 6a). Per-IP sliding window middleware. 429 response with Retry-After header. 41 tests.
 
-8. **Search relevance tuning** — BM25 weighting exists but no user-tunable relevance controls.
+8. **Search relevance tuning** — Phase 7 in progress. The `vector_weight` query parameter is implemented at the engine and API levels (commits fbaae79, 6df8293, 9ad75e8), giving users tunable control over FTS5 vs. vector score weighting. UI control is the remaining piece.
 
-9. **Search path architectural disconnect** — The web search endpoint (`/search` at server.py:511) calls `db.fulltext_search()` directly, bypassing the `HybridSearchEngine` in `src/core/search.py`. This means the search page only uses FTS5/BM25 keyword search, missing out on the vector semantic search and score fusion that the chat feature (`src/web/chat.py:265`) already uses via `HybridSearchEngine`. The hybrid engine exists and is tested (36 tests in `tests/test_hybrid_search.py`), but it's not wired into the main search UI. Fixing this would give all users the improved ranking quality currently reserved for chat.
+9. **Search path architectural disconnect** — ✅ Fixed (Phase 7). HybridSearchEngine is now wired into the web search endpoint (commits 3b0ca0e, 0633cb3). Both the search page and chat use the hybrid engine with vector semantic search and score fusion.
 
 ### Lower Priority Gaps
 
@@ -115,16 +115,15 @@ All three highest-priority gaps from the original analysis have been closed:
 
 **Phase 4 (Document Processing Pipeline) is complete.** OCR (4a), bulk operations (4b), and faceted search (4c) are all implemented and tested.
 
-**Phase 5 (Performance & Intelligence) is complete.** Query result caching (5a) and LLM-based document type auto-detection (5b) are both implemented, tested, and committed. 1582 tests pass.
+**Phase 5 (Performance & Intelligence) is complete.** Query result caching (5a) and LLM-based document type auto-detection (5b) are both implemented, tested, and committed. 1823 tests pass.
 
 **Phase 6a is complete.** API rate limiting is implemented with in-memory per-IP sliding window middleware, returning HTTP 429 with Retry-After header when limits are exceeded. 41 tests cover the sliding-window logic, middleware integration, and 429 response shape.
 
-**Next phase should focus on: Polish & Feature Parity**
+**Phase 7 (Search Relevance) is in progress.** The `vector_weight` query parameter is implemented at the engine level (`HybridSearchEngine.search()`) and exposed via the `/search` API endpoint, giving users tunable control over FTS5 vs. vector score weighting. The UI slider control is the next deliverable.
 
-Remaining gaps to close:
+**Remaining gaps to close:**
 1. **Responsive design polish** — validate and improve mobile UX (medium priority)
-2. **Search relevance tuning** — add user-tunable relevance controls (medium priority)
-3. **Search path architectural disconnect** — wire HybridSearchEngine into the web search endpoint (medium priority, tech debt)
-4. **Email ingestion** — close the feature gap with Paperless-ngx and Docspell (medium priority)
-5. **Keyboard shortcuts** — UX polish (low priority)
-6. **Workflow automation** — advanced rules engine (low priority)
+2. **Search relevance tuning** — complete the UI control for `vector_weight` (medium priority, Phase 7 in progress)
+3. **Email ingestion** — close the feature gap with Paperless-ngx and Docspell (medium priority)
+4. **Keyboard shortcuts** — UX polish (low priority)
+5. **Workflow automation** — advanced rules engine (low priority)

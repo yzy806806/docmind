@@ -268,6 +268,62 @@ tr:hover { background: var(--hover-bg); }
     border-radius: 6px;
 }
 
+/* Vector weight slider control — Phase 7 search relevance tuning */
+.vector-weight-control {
+    margin-top: 12px;
+    padding: 8px 0;
+}
+
+.vector-weight-control label {
+    display: block;
+    font-size: 0.9em;
+    color: var(--text-muted);
+    margin-bottom: 6px;
+}
+
+.vector-weight-control .vw-value {
+    font-weight: 700;
+    color: var(--primary);
+}
+
+.vector-weight-control .vw-hint {
+    font-size: 0.8em;
+    color: var(--text-faint);
+    margin-left: 4px;
+}
+
+.vw-slider {
+    width: 100%;
+    max-width: 300px;
+    height: 6px;
+    -webkit-appearance: none;
+    appearance: none;
+    background: var(--input-border);
+    border-radius: 3px;
+    outline: none;
+    cursor: pointer;
+}
+
+.vw-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--primary);
+    cursor: pointer;
+    border: 2px solid var(--surface);
+}
+
+.vw-slider::-moz-range-thumb {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--primary);
+    cursor: pointer;
+    border: 2px solid var(--surface);
+}
+
 /* ================================================================
  * 9. Badges & Tags
  * ================================================================ */

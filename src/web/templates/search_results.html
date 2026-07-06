@@ -7,14 +7,23 @@
             <input type="text" name="q" value="{{ query }}" required>
             <button type="submit">Search</button>
         </form>
+        <div class="vector-weight-control">
+            <label for="vw-slider">
+                Vector Weight: <span class="vw-value" data-default="{{ vw_default }}">0.60</span>
+                <span class="vw-hint">(0 = keyword only, 1 = semantic only)</span>
+            </label>
+            <input type="range" id="vw-slider" name="vector_weight"
+                   min="0" max="1" step="0.05" value="{{ vw_current }}"
+                   class="vw-slider">
+        </div>
     </div>
 
     <div class="search-export-bar">
         <p style="margin:0;">Found {{ results|length }} result(s) for: <strong>{{ query }}</strong></p>
         {% if results %}
         <div class="export-links">
-            <a href="/search?q={{ query }}&export=csv" class="btn-export">⬇ Export CSV</a>
-            <a href="/search?q={{ query }}&export=json" class="btn-export">⬇ Export JSON</a>
+            <a href="/search?q={{ query }}&vector_weight={{ vw_current }}&export=csv" class="btn-export">⬇ Export CSV</a>
+            <a href="/search?q={{ query }}&vector_weight={{ vw_current }}&export=json" class="btn-export">⬇ Export JSON</a>
         </div>
         {% endif %}
     </div>
