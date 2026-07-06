@@ -1535,3 +1535,137 @@ td input[type="checkbox"]:checked::after {
     .chart-slice { transition: none; }
     .drop-zone { transition: none; }
 }
+
+/* ================================================================
+ * 27. Keyboard Shortcuts Modal (Phase 9)
+ *
+ * Overlay modal for the keyboard shortcuts help dialog.
+ * Toggled by pressing "?" (the keyboard-shortcuts.js module
+ * builds the modal DOM dynamically and adds .open to show it).
+ * ================================================================ */
+
+.kbd-modal-overlay {
+    display: none;
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 1000;
+    justify-content: center;
+    align-items: center;
+}
+
+.kbd-modal-overlay.open {
+    display: flex;
+}
+
+.kbd-modal-panel {
+    background: var(--surface, #fff);
+    color: var(--text, #333);
+    border: 1px solid var(--border, #ddd);
+    border-radius: 10px;
+    max-width: 560px;
+    width: 90%;
+    max-height: 80vh;
+    overflow-y: auto;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+    animation: kbd-modal-in 0.15s ease-out;
+}
+
+@keyframes kbd-modal-in {
+    from { transform: scale(0.95); opacity: 0; }
+    to   { transform: scale(1);    opacity: 1; }
+}
+
+.kbd-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border, #ddd);
+}
+
+.kbd-modal-header h2 {
+    margin: 0;
+    font-size: 1.15em;
+}
+
+.kbd-modal-close {
+    background: none;
+    border: none;
+    font-size: 1.3em;
+    cursor: pointer;
+    color: var(--text-muted, #888);
+    padding: 4px 8px;
+    border-radius: 4px;
+    line-height: 1;
+}
+
+.kbd-modal-close:hover {
+    background: var(--surface-alt, rgba(128, 128, 128, 0.1));
+}
+
+.kbd-modal-body {
+    padding: 16px 20px;
+}
+
+.kbd-section {
+    margin-bottom: 20px;
+}
+
+.kbd-section:last-child {
+    margin-bottom: 0;
+}
+
+.kbd-section h3 {
+    font-size: 0.95em;
+    margin: 0 0 8px 0;
+    border-bottom: 1px solid var(--border, #eee);
+    padding-bottom: 4px;
+}
+
+.kbd-hint {
+    font-size: 0.75em;
+    font-weight: normal;
+    color: var(--text-muted, #999);
+    margin-left: 8px;
+}
+
+.kbd-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.kbd-table td {
+    padding: 5px 8px;
+    font-size: 0.9em;
+}
+
+.kbd-table td:first-child {
+    width: 110px;
+    white-space: nowrap;
+}
+
+kbd {
+    display: inline-block;
+    padding: 2px 6px;
+    font-family: monospace;
+    font-size: 0.85em;
+    background: var(--surface-alt, rgba(128, 128, 128, 0.12));
+    border: 1px solid var(--border, #ccc);
+    border-radius: 4px;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+    margin-right: 2px;
+    color: var(--text, inherit);
+}
+
+/* Responsive: full-width modal on small screens */
+@media (max-width: 480px) {
+    .kbd-modal-panel {
+        width: 95%;
+        max-height: 90vh;
+    }
+    .kbd-table td:first-child {
+        width: 90px;
+    }
+}
