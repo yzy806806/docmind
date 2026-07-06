@@ -357,6 +357,83 @@ class RateLimitConfig:
 
 
 @dataclass
+class EmailAccountConfig:
+    """Configuration for a single IMAP email account.
+
+    ``id`` is only set when the account is loaded from the database;
+    env-var-sourced accounts have id=0.
+    """
+    id: int = 0
+    name: str = ""
+    host: str = ""
+    port: int = 993
+    use_ssl: bool = True
+    username: str = ""
+    password: str = ""          # Plaintext for MVP; encrypt in Phase 8e
+    folder: str = "INBOX"
+    action_after_fetch: str = "mark_seen"  # mark_seen, move_folder, delete
+    move_to_folder: Optional[str] = None
+    body_handling: str = "save_with_attachments"
+    attachment_whitelist: str = ""       # comma-separated globs
+    attachment_blacklist: str = ""       # comma-separated globs
+    deduplication_strategy: str = "message_id"
+    enabled: bool = True
+
+
+@dataclass
+class EmailConfig:
+    """Top-level email ingestion settings.
+
+    When ``enabled`` is False (the default), no IMAP polling occurs
+    and the background worker is not started. Accounts are loaded
+    via indexed env vars (DOCMIND_EMAIL_ACCOUNT_0_HOST, etc.) at
+    startup, parsed into ``Config.email.accounts`` list.
+    """
+    enabled: bool = field(
+        default_factory=lambda: _env_bool("DOCMIND_EMAIL_ENABLED", False)
+    )
+    poll_interval_seconds: float = field(
+        default_factory=lambda: float(_env("DOCMIND_EMAIL_POLL_INTERVAL", "600.0"))
+    )
+    accounts: list[EmailAccountConfig] = field(default_factory=list)
+
+
+def _load_email_accounts_from_env() -> list[EmailAccountConfig]:
+    """Parse indexed DOCMIND_EMAIL_ACCOUNT_N_* env vars into account configs.
+
+    Reads DOCMIND_EMAIL_ACCOUNT_0_HOST, _0_USERNAME, _0_PASSWORD, etc.
+    for consecutive indices starting at 0. Stops at the first missing
+    _HOST var.
+    """
+    accounts: list[EmailAccountConfig] = []
+    idx = 0
+    while True:
+        prefix = f"DOCMIND_EMAIL_ACCOUNT_{idx}_"
+        host = os.environ.get(prefix + "HOST", "")
+        if not host:
+            break
+        acct = EmailAccountConfig(
+            name=os.environ.get(prefix + "NAME", f"account-{idx}"),
+            host=host,
+            port=int(os.environ.get(prefix + "PORT", "993")),
+            use_ssl=_env_bool(prefix + "USE_SSL", True),
+            username=os.environ.get(prefix + "USERNAME", ""),
+            password=os.environ.get(prefix + "PASSWORD", ""),
+            folder=os.environ.get(prefix + "FOLDER", "INBOX"),
+            action_after_fetch=os.environ.get(prefix + "ACTION_AFTER_FETCH", "mark_seen"),
+            move_to_folder=os.environ.get(prefix + "MOVE_TO_FOLDER") or None,
+            body_handling=os.environ.get(prefix + "BODY_HANDLING", "save_with_attachments"),
+            attachment_whitelist=os.environ.get(prefix + "ATTACHMENT_WHITELIST", ""),
+            attachment_blacklist=os.environ.get(prefix + "ATTACHMENT_BLACKLIST", ""),
+            deduplication_strategy=os.environ.get(prefix + "DEDUP_STRATEGY", "message_id"),
+            enabled=_env_bool(prefix + "ENABLED", True),
+        )
+        accounts.append(acct)
+        idx += 1
+    return accounts
+
+
+@dataclass
 class Config:
     """Top-level configuration aggregator."""
 
@@ -372,6 +449,11 @@ class Config:
     cache: CacheConfig = field(default_factory=CacheConfig)
     auto_detection: AutoDetectionConfig = field(default_factory=AutoDetectionConfig)
     rate_limit: RateLimitConfig = field(default_factory=RateLimitConfig)
+    email: EmailConfig = field(
+        default_factory=lambda: EmailConfig(
+            accounts=_load_email_accounts_from_env()
+        )
+    )
     debug: bool = field(
         default_factory=lambda: _env_bool("DOCMIND_DEBUG", False)
     )

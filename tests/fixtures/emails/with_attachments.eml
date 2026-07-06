@@ -1,0 +1,30 @@
+From: bob@example.com
+To: alice@example.com
+Subject: Email with PDF and TXT attachments
+Date: Mon, 02 Jul 2026 14:30:00 +0000
+Message-ID: <with-attachments-002@example.com>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="boundary123"
+
+--boundary123
+Content-Type: text/plain; charset=utf-8
+
+Hi Alice,
+
+Please find attached the report and some notes.
+
+Best,
+Bob
+--boundary123
+Content-Type: text/plain; name="notes.txt"
+Content-Disposition: attachment; filename="notes.txt"
+Content-Transfer-Encoding: base64
+
+VGhpcyBpcyBhIHRlc3Qgbm90ZXMgZmlsZS4K
+--boundary123
+Content-Type: application/pdf; name="report.pdf"
+Content-Disposition: attachment; filename="report.pdf"
+Content-Transfer-Encoding: base64
+
+JVBERi0xLjQKJeLjz9MKMSAwIG9iago8PC9UeXBlL0NhdGFsb2c+PgplbmRvYmoK
+--boundary123--

@@ -1,0 +1,16 @@
+From: alice@example.com
+To: bob@example.com
+Subject: Simple text email
+Message-ID: <simple-text-001@example.com>
+Date: Mon, 01 Jul 2026 10:00:00 +0000
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+
+Hello Bob,
+
+This is a simple plain-text email for testing the email ingestion pipeline.
+
+It has multiple paragraphs and some keywords like invoice, report, budget.
+
+Best regards,
+Alice

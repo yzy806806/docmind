@@ -211,6 +211,53 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_collections_root_name
     ON collections(name) WHERE parent_id IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_collections_parent_id ON collections(parent_id);
+
+-- Email account configuration (mirrors EmailAccountConfig dataclass)
+CREATE TABLE IF NOT EXISTS email_accounts (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    name                TEXT NOT NULL UNIQUE,
+    host                TEXT NOT NULL,
+    port                INTEGER DEFAULT 993,
+    use_ssl             BOOLEAN DEFAULT TRUE,
+    username            TEXT NOT NULL,
+    password            TEXT NOT NULL,
+    folder              TEXT DEFAULT 'INBOX',
+    poll_interval_seconds INTEGER DEFAULT 600,
+    action_after_fetch  TEXT DEFAULT 'mark_seen',
+    move_to_folder      TEXT,
+    body_handling       TEXT DEFAULT 'save_with_attachments',
+    attachment_whitelist TEXT,
+    attachment_blacklist TEXT,
+    deduplication_strategy TEXT DEFAULT 'message_id',
+    enabled             BOOLEAN DEFAULT TRUE,
+    last_sync_at        TEXT,
+    last_error          TEXT,
+    created_at          TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at          TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Ingestion log for deduplication + audit
+CREATE TABLE IF NOT EXISTS email_ingestion_log (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_id      INTEGER NOT NULL REFERENCES email_accounts(id) ON DELETE CASCADE,
+    message_id      TEXT,
+    uid             INTEGER,
+    folder          TEXT,
+    subject         TEXT,
+    sender          TEXT,
+    received_at     TEXT,
+    status          TEXT DEFAULT 'pending',
+    error           TEXT,
+    document_ids    TEXT DEFAULT '[]',
+    dedup_key       TEXT,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_email_log_account ON email_ingestion_log(account_id);
+CREATE INDEX IF NOT EXISTS idx_email_log_message_id ON email_ingestion_log(message_id);
+CREATE INDEX IF NOT EXISTS idx_email_log_uid ON email_ingestion_log(account_id, uid);
+CREATE INDEX IF NOT EXISTS idx_email_log_status ON email_ingestion_log(status);
+CREATE INDEX IF NOT EXISTS idx_email_log_dedup ON email_ingestion_log(dedup_key);
 """
 
 # FTS5 virtual table — created separately because some SQLite builds
@@ -2820,7 +2867,287 @@ class Database:
                     pass
         return d
 
+    # ── Email Accounts ───────────────────────────────────────────
+
+    async def create_email_account(self, data: dict[str, Any]) -> dict[str, Any]:
+        """Insert a new email account and return it as a dict."""
+        now = _now_iso()
+        async with self.connection() as conn:
+            await conn.execute(
+                """INSERT INTO email_accounts
+                   (name, host, port, use_ssl, username, password, folder,
+                    poll_interval_seconds, action_after_fetch, move_to_folder,
+                    body_handling, attachment_whitelist, attachment_blacklist,
+                    deduplication_strategy, enabled, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    data["name"], data["host"], data.get("port", 993),
+                    data.get("use_ssl", True), data["username"], data["password"],
+                    data.get("folder", "INBOX"),
+                    data.get("poll_interval_seconds", 600),
+                    data.get("action_after_fetch", "mark_seen"),
+                    data.get("move_to_folder"),
+                    data.get("body_handling", "save_with_attachments"),
+                    data.get("attachment_whitelist", ""),
+                    data.get("attachment_blacklist", ""),
+                    data.get("deduplication_strategy", "message_id"),
+                    data.get("enabled", True), now, now,
+                ),
+            )
+            await conn.commit()
+            cursor = await conn.execute(
+                "SELECT * FROM email_accounts WHERE name = ?", (data["name"],)
+            )
+            row = await cursor.fetchone()
+        return self._row_to_email_account_dict(row)
+
+    async def list_email_accounts(self, enabled_only: bool = False) -> list[dict[str, Any]]:
+        """List all email accounts (optionally only enabled ones)."""
+        async with self.connection() as conn:
+            if enabled_only:
+                cursor = await conn.execute(
+                    "SELECT * FROM email_accounts WHERE enabled = 1 ORDER BY id"
+                )
+            else:
+                cursor = await conn.execute(
+                    "SELECT * FROM email_accounts ORDER BY id"
+                )
+            rows = await cursor.fetchall()
+        return [self._row_to_email_account_dict(r) for r in rows]
+
+    async def get_email_account(self, account_id: int) -> Optional[dict[str, Any]]:
+        """Fetch a single email account by ID."""
+        async with self.connection() as conn:
+            cursor = await conn.execute(
+                "SELECT * FROM email_accounts WHERE id = ?", (account_id,)
+            )
+            row = await cursor.fetchone()
+        return self._row_to_email_account_dict(row) if row else None
+
+    async def update_email_account(
+        self, account_id: int, data: dict[str, Any]
+    ) -> Optional[dict[str, Any]]:
+        """Update an email account. Returns the updated row or None if not found."""
+        now = _now_iso()
+        # Build SET clause dynamically from provided fields
+        allowed = {
+            "name", "host", "port", "use_ssl", "username", "password",
+            "folder", "poll_interval_seconds", "action_after_fetch",
+            "move_to_folder", "body_handling", "attachment_whitelist",
+            "attachment_blacklist", "deduplication_strategy", "enabled",
+        }
+        updates = {k: v for k, v in data.items() if k in allowed}
+        if not updates:
+            return await self.get_email_account(account_id)
+        set_clauses = [f"{k} = ?" for k in updates]
+        values = list(updates.values())
+        set_clauses.append("updated_at = ?")
+        values.append(now)
+        values.append(account_id)
+        sql = f"UPDATE email_accounts SET {', '.join(set_clauses)} WHERE id = ?"
+        async with self.connection() as conn:
+            await conn.execute(sql, values)
+            await conn.commit()
+            cursor = await conn.execute(
+                "SELECT * FROM email_accounts WHERE id = ?", (account_id,)
+            )
+            row = await cursor.fetchone()
+        return self._row_to_email_account_dict(row) if row else None
+
+    async def delete_email_account(self, account_id: int) -> bool:
+        """Delete an email account by ID. Returns True if deleted."""
+        async with self.connection() as conn:
+            cursor = await conn.execute(
+                "DELETE FROM email_accounts WHERE id = ?", (account_id,)
+            )
+            await conn.commit()
+            return cursor.rowcount > 0
+
+    async def update_email_account_sync(
+        self, account_id: int, last_sync_at: str, last_error: Optional[str] = None
+    ) -> None:
+        """Update last_sync_at and optionally last_error for an account."""
+        now = _now_iso()
+        async with self.connection() as conn:
+            await conn.execute(
+                """UPDATE email_accounts
+                   SET last_sync_at = ?, last_error = ?, updated_at = ?
+                   WHERE id = ?""",
+                (last_sync_at, last_error, now, account_id),
+            )
+            await conn.commit()
+
+    async def update_email_account_error(
+        self, account_id: int, error: str
+    ) -> None:
+        """Set last_error on an account (used on poll failure)."""
+        now = _now_iso()
+        async with self.connection() as conn:
+            await conn.execute(
+                """UPDATE email_accounts
+                   SET last_error = ?, updated_at = ?
+                   WHERE id = ?""",
+                (error, now, account_id),
+            )
+            await conn.commit()
+
+    # ── Email Ingestion Log ──────────────────────────────────────
+
+    async def log_email_ingestion(self, data: dict[str, Any]) -> int:
+        """Insert an ingestion log entry. Returns the log row ID."""
+        now = _now_iso()
+        doc_ids_json = json.dumps(data.get("document_ids", []))
+        async with self.connection() as conn:
+            await conn.execute(
+                """INSERT INTO email_ingestion_log
+                   (account_id, message_id, uid, folder, subject, sender,
+                    received_at, status, error, document_ids, dedup_key, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    data["account_id"], data.get("message_id"),
+                    data.get("uid"), data.get("folder"),
+                    data.get("subject"), data.get("sender"),
+                    data.get("received_at"), data.get("status", "pending"),
+                    data.get("error"), doc_ids_json,
+                    data.get("dedup_key"), now,
+                ),
+            )
+            await conn.commit()
+            cursor = await conn.execute(
+                "SELECT last_insert_rowid() as id"
+            )
+            row = await cursor.fetchone()
+        return row["id"] if row else 0
+
+    async def update_email_ingestion_log(
+        self, log_id: int, data: dict[str, Any]
+    ) -> None:
+        """Update an ingestion log entry (e.g. status, document_ids, error)."""
+        allowed = {"status", "error", "document_ids", "dedup_key"}
+        updates = {k: v for k, v in data.items() if k in allowed}
+        if not updates:
+            return
+        if "document_ids" in updates:
+            updates["document_ids"] = json.dumps(updates["document_ids"])
+        set_clauses = [f"{k} = ?" for k in updates]
+        values = list(updates.values())
+        values.append(log_id)
+        sql = f"UPDATE email_ingestion_log SET {', '.join(set_clauses)} WHERE id = ?"
+        async with self.connection() as conn:
+            await conn.execute(sql, values)
+            await conn.commit()
+
+    async def check_email_duplicate(
+        self,
+        account_id: int,
+        message_id: Optional[str],
+        folder: str,
+        uid: Optional[int],
+        dedup_key: Optional[str],
+    ) -> bool:
+        """Check if an email has already been processed (deduplication check).
+
+        Returns True if a matching log entry exists (duplicate).
+
+        The query matches on ``account_id`` AND any of:
+        - ``message_id``
+        - ``folder + uid`` (composite)
+        - ``dedup_key``
+        """
+        async with self.connection() as conn:
+            or_clauses: list[str] = []
+            params: list[Any] = []
+            if message_id:
+                or_clauses.append("message_id = ?")
+                params.append(message_id)
+            if uid is not None:
+                or_clauses.append("(folder = ? AND uid = ?)")
+                params.extend([folder, uid])
+            if dedup_key:
+                or_clauses.append("dedup_key = ?")
+                params.append(dedup_key)
+
+            if not or_clauses:
+                # No dedup criteria — cannot be a duplicate
+                return False
+
+            or_part = " OR ".join(or_clauses)
+            sql = (
+                f"SELECT 1 FROM email_ingestion_log "
+                f"WHERE account_id = ? AND ({or_part}) LIMIT 1"
+            )
+            cursor = await conn.execute(sql, [account_id] + params)
+            row = await cursor.fetchone()
+        return row is not None
+
+    async def list_email_ingestion_logs(
+        self,
+        account_id: int,
+        *,
+        status: Optional[str] = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        """List ingestion logs for an account, optionally filtered by status."""
+        async with self.connection() as conn:
+            if status:
+                cursor = await conn.execute(
+                    """SELECT * FROM email_ingestion_log
+                       WHERE account_id = ? AND status = ?
+                       ORDER BY created_at DESC LIMIT ? OFFSET ?""",
+                    (account_id, status, limit, offset),
+                )
+            else:
+                cursor = await conn.execute(
+                    """SELECT * FROM email_ingestion_log
+                       WHERE account_id = ?
+                       ORDER BY created_at DESC LIMIT ? OFFSET ?""",
+                    (account_id, limit, offset),
+                )
+            rows = await cursor.fetchall()
+        return [self._row_to_email_log_dict(r) for r in rows]
+
+    async def count_email_ingestion_logs(
+        self, account_id: int, *, status: Optional[str] = None
+    ) -> int:
+        """Count ingestion logs for an account, optionally filtered by status."""
+        async with self.connection() as conn:
+            if status:
+                cursor = await conn.execute(
+                    "SELECT COUNT(*) as cnt FROM email_ingestion_log WHERE account_id = ? AND status = ?",
+                    (account_id, status),
+                )
+            else:
+                cursor = await conn.execute(
+                    "SELECT COUNT(*) as cnt FROM email_ingestion_log WHERE account_id = ?",
+                    (account_id,),
+                )
+            row = await cursor.fetchone()
+        return row["cnt"] if row else 0
+
     # ── Helpers ─────────────────────────────────────────────────
+
+    @staticmethod
+    def _row_to_email_account_dict(row: aiosqlite.Row) -> dict[str, Any]:
+        """Convert an email_accounts row to a dict."""
+        d = dict(row)
+        # Convert boolean-like integers
+        for k in ("use_ssl", "enabled"):
+            if k in d and isinstance(d[k], int):
+                d[k] = bool(d[k])
+        return d
+
+    @staticmethod
+    def _row_to_email_log_dict(row: aiosqlite.Row) -> dict[str, Any]:
+        """Convert an email_ingestion_log row to a dict with parsed document_ids."""
+        d = dict(row)
+        doc_ids_raw = d.get("document_ids", "[]")
+        if isinstance(doc_ids_raw, str):
+            try:
+                d["document_ids"] = json.loads(doc_ids_raw)
+            except (json.JSONDecodeError, TypeError):
+                d["document_ids"] = []
+        return d
 
     @staticmethod
     def _row_to_job_record(row: aiosqlite.Row) -> JobRecord:

@@ -34,6 +34,7 @@ class SourceType(str, Enum):
     WEBDAV = "webdav"
     POSTGRESQL = "postgresql"
     API = "api"
+    EMAIL = "email"
 
 
 # ── Document ───────────────────────────────────────────────────

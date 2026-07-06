@@ -54,6 +54,7 @@ WebDAV / 本地目录 / PostgreSQL 数据库
 - [x] **FTS5 全文搜索：** 轻量高效，支持 SQLite 内建全文搜索
 - [x] **向量语义搜索 (Vector/Semantic Search)：** 基于 sentence-transformers 嵌入，支持本地 / Ollama / OpenAI 多种 embedding 后端
 - [x] **混合搜索 (Hybrid Search)：** FTS5 关键词 + 向量语义双路融合排序，可调节权重，无嵌入时自动回退到纯 FTS5
+- [x] **搜索权重调节 (Search Relevance Tuning)：** 滑块控制 FTS5 与向量语义的权重比例（`vector_weight`），实时调节搜索结果偏向
 - [x] **LLM 多轮筛选：** FTS5 + 向量混合搜索初筛 → LLM 摘要匹配 → 原文返回
 - [x] **引用溯源 (Citation/Source Tracking)：** 每段回答标注来源文档 + 位置
 
@@ -76,9 +77,8 @@ WebDAV / 本地目录 / PostgreSQL 数据库
 ### 安全与集成
 
 - [x] **API Key 认证 (API Key Authentication)：** 可选的会话 + API Key 双模式认证，HMAC-SHA256 签名 Cookie，支持 `X-API-Key` 头部
-- [x] **Hermes Tool 接入：** `kb_search`、`kb_list`、`kb_read`、`kb_ingest` 四个工具，可在 Hermes 聊天中直接检索知识库
-- [x] **TPM 限速 (TPM Rate Limiting)：** 控制 LLM 调用频率（默认 5 TPM），可配置，不炸 API
-- [x] **API 速率限制 (API Rate Limiting)：** 基于 IP 的滑动窗口限流，可配置每分钟请求上限，超限返回 429 + `Retry-After` 头部
+- [x] **Hermes Tool 接入：** `kb_search`、`kb_list`、`kb_read`、`kb_ingest` 四个工具，可在 Hermes 聊天中直接检索知识库。搜索后端已整合 HybridSearchEngine，支持 FTS5 + 向量混合搜索与评分融合。
+- [x] **速率限制 (Rate Limiting)：** LLM 调用频率控制（TPM，默认 5 TPM）+ 基于 IP 的滑动窗口 API 限流（可配置每分钟请求上限，超限返回 429 + `Retry-After` 头部）
 
 ### LLM 与部署
 
@@ -189,7 +189,7 @@ export DOCMIND_CACHE_ENABLED=false
 DocMind 内置基于 IP 的滑动窗口速率限制器，无需外部依赖：
 
 ```bash
-# 开启速率限制（默认关闭，匹配自托管单用户场景）
+# 开启速率限制（默认关闭，适合自托管单用户场景）
 export DOCMIND_RATE_LIMIT_ENABLED=true
 
 # 每 IP 每分钟最大请求数（默认 60）

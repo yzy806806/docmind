@@ -1,0 +1,25 @@
+From: eve@example.com
+To: frank@example.com
+Subject: HTML email with inline image
+Message-ID: <html-body-003@example.com>
+Date: Wed, 03 Jul 2026 09:15:00 +0000
+MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary="BOUNDARY003"
+
+--BOUNDARY003
+Content-Type: text/plain; charset=utf-8
+
+This is the plain text alternative.
+
+--BOUNDARY003
+Content-Type: text/html; charset=utf-8
+
+<html>
+<body>
+<h1>HTML Email Test</h1>
+<p>This is an <b>HTML</b> email with formatting.</p>
+<p>It contains keywords like <i>contract</i>, <i>proposal</i>, and <i>deadline</i>.</p>
+</body>
+</html>
+
+--BOUNDARY003--

@@ -1,0 +1,10 @@
+From: irene@example.com
+To: jack@example.com
+Subject: Email without Message-ID
+Date: Fri, 05 Jul 2026 11:45:00 +0000
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+
+This email has no Message-ID header, which tests the fallback dedup path.
+
+The system should fall back to UID-based or content-hash deduplication.

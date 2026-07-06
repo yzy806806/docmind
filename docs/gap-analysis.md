@@ -60,11 +60,11 @@
 | Email ingestion | 🔴 Missing | Medium | Paperless-ngx, Docspell have this |
 | Bulk operations (beyond delete) | ✅ Have | - | Bulk tag, move, export all implemented (Phase 4b done) |
 | Faceted search (filters by type, date, tags) | ✅ Have | - | file_type and source facets with UI, faceted-filters.js (Phase 4c done) |
-| Search relevance tuning / boosting | 🟡 Partial | Medium | Phase 7: vector_weight parameter implemented at engine and API level (fbaae79, 6df8293, 9ad75e8); UI control in progress |
+| Search relevance tuning / boosting | ✅ Have | - | Phase 7 complete: vector_weight parameter at engine, API, and UI levels (fbaae79, 6df8293, 9ad75e8, 50b5af5) |
 | Document type detection | ✅ Have | - | LLM-based auto-detection with keyword fallback (Phase 5b done) |
 | Workflow automation / rules | 🔴 Missing | Low | Paperless-ngx consumers, Mayan workflows |
 | Redis caching | ✅ Have | - | In-memory dict cache with pluggable Redis backend, TTL eviction, invalidation on all mutations (Phase 5a done) |
-| Database query optimization / indexing | 🟡 Partial | Medium | Basic indexes exist, no advanced optimization |
+| Database query optimization / indexing | 🟡 Partial | Medium | Composite indexes added for filter query patterns (Phase 8a, 70eda58); further optimization possible |
 | Responsive design | 🟡 Partial | Medium | Mobile layout in base.html but not thoroughly tested |
 | Keyboard shortcuts | 🔴 Missing | Low | No keyboard shortcut system found |
 | Lazy loading for large lists | 🟡 Partial | Medium | Pagination exists but no infinite scroll |
@@ -97,17 +97,17 @@ All three highest-priority gaps from the original analysis have been closed:
 
 7. **API rate limiting** — ✅ Complete (Phase 6a). Per-IP sliding window middleware. 429 response with Retry-After header. 41 tests.
 
-8. **Search relevance tuning** — Phase 7 in progress. The `vector_weight` query parameter is implemented at the engine and API levels (commits fbaae79, 6df8293, 9ad75e8), giving users tunable control over FTS5 vs. vector score weighting. UI control is the remaining piece.
+8. **Search relevance tuning** — ✅ Complete (Phase 7). The `vector_weight` query parameter is implemented at the engine, API, and UI levels (commits fbaae79, 6df8293, 9ad75e8, 50b5af5). Users can tune FTS5 vs. vector score weighting via a slider in the search interface.
 
 9. **Search path architectural disconnect** — ✅ Fixed (Phase 7). HybridSearchEngine is now wired into the web search endpoint (commits 3b0ca0e, 0633cb3). Both the search page and chat use the hybrid engine with vector semantic search and score fusion.
 
 ### Lower Priority Gaps
 
-8. **Email ingestion** — Nice to have but not critical for initial parity.
+10. **Email ingestion** — Nice to have but not critical for initial parity.
 
-9. **Workflow automation** — Advanced feature, not required for basic parity.
+11. **Workflow automation** — Advanced feature, not required for basic parity.
 
-10. **Keyboard shortcuts** — UX polish, not competitive-critical.
+12. **Keyboard shortcuts** — UX polish, not competitive-critical.
 
 ---
 
@@ -119,11 +119,13 @@ All three highest-priority gaps from the original analysis have been closed:
 
 **Phase 6a is complete.** API rate limiting is implemented with in-memory per-IP sliding window middleware, returning HTTP 429 with Retry-After header when limits are exceeded. 41 tests cover the sliding-window logic, middleware integration, and 429 response shape.
 
-**Phase 7 (Search Relevance) is in progress.** The `vector_weight` query parameter is implemented at the engine level (`HybridSearchEngine.search()`) and exposed via the `/search` API endpoint, giving users tunable control over FTS5 vs. vector score weighting. The UI slider control is the next deliverable.
+**Phase 7 (Search Relevance) is complete.** The `vector_weight` query parameter is implemented at all three levels: engine (`HybridSearchEngine.search()`), API (`/search` endpoint), and UI (slider control in search interface). Users can tune FTS5 vs. vector score weighting interactively. The search path architectural disconnect has also been fixed — both the search page and chat now use the hybrid engine with vector semantic search and score fusion.
+
+**Phase 8a (DB Query Optimization) is complete.** Composite indexes have been added for the `_build_filter_clause()` query patterns, covering the most common filter combinations used by document listing and search. This is a quick win with low regression risk (commit 70eda58).
 
 **Remaining gaps to close:**
-1. **Responsive design polish** — validate and improve mobile UX (medium priority)
-2. **Search relevance tuning** — complete the UI control for `vector_weight` (medium priority, Phase 7 in progress)
-3. **Email ingestion** — close the feature gap with Paperless-ngx and Docspell (medium priority)
+1. **Email ingestion** — close the feature gap with Paperless-ngx and Docspell (medium priority, Phase 8b candidate)
+2. **Responsive design polish** — validate and improve mobile UX (medium priority)
+3. **Lazy loading / infinite scroll** — improve UX for large document lists (medium priority)
 4. **Keyboard shortcuts** — UX polish (low priority)
 5. **Workflow automation** — advanced rules engine (low priority)

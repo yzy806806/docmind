@@ -1,0 +1,27 @@
+From: carol@example.com
+To: dave@example.com
+Subject: Report with PDF attachment
+Message-ID: <with-pdf-002@example.com>
+Date: Tue, 02 Jul 2026 14:30:00 +0000
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="BOUNDARY002"
+
+--BOUNDARY002
+Content-Type: text/plain; charset=utf-8
+
+Hi Dave,
+
+Please find the quarterly report attached.
+
+--Carol
+
+--BOUNDARY002
+Content-Type: application/pdf; name="report.pdf"
+Content-Disposition: attachment; filename="report.pdf"
+Content-Transfer-Encoding: base64
+
+JVBERi0xLjQKJeLjz9MKMiAwIG9iago8PC9UeXBlL1BhZ2UvTWVkaWFCb3ggWzAgMCA2MTIgNzky
+XT0+DWVuZG9iag0xIDAgb2JqCjw8L1R5cGUvQ2F0YWxvZy9QYWdlcyAyIDAgUj4NZW5kb2JqDTIg
+MCBSCjw8L0NvdW50IDEvS2lkcyBbMyAwIFJdPj4NZW5kb2JqDTMgMCBSCjw8L1R5cGUvUGFnZS9Q
+YXJlbnQgMiAwIFI+Pg1lbmRvYmoNdHJhaWxlcjw8L1Jvb3QgMSAwIFIvU2l6ZSA0Pj4Nc3RhcnRy
+ZWYNCjU4MDYNJSVFT0Y=

@@ -1,0 +1,16 @@
+From: greg@example.com
+To: helen@example.com
+Subject: Re: Project update discussion
+Message-ID: <threaded-reply-004@example.com>
+In-Reply-To: <original-003@example.com>
+References: <original-001@example.com> <original-002@example.com> <original-003@example.com>
+Date: Thu, 04 Jul 2026 16:00:00 +0000
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+
+Hi Helen,
+
+Following up on the project discussion. This email has threading headers
+so we can test thread ID computation.
+
+Greg

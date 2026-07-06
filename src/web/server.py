@@ -58,6 +58,7 @@ WebSocket:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import math
@@ -99,7 +100,9 @@ from fastapi.staticfiles import StaticFiles
 from ..core.config import config
 from ..core.cache import create_cache_backend
 from ..core.db_sqlite import Database
+from ..core.email_ingestor import email_polling_worker
 from ..core.embeddings import EmbeddingClient
+from ..core.extractor import Extractor
 from ..core.job_queue import JobQueue
 from ..core.search import HybridSearchEngine
 from ..core.models import (
@@ -251,7 +254,35 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         config.server.port,
         "enabled" if config.auth.enabled else "disabled",
     )
+
+    # ── Email ingestion worker ──────────────────────────────────
+    # Start the background IMAP poller when email ingestion is enabled.
+    # The worker polls all enabled email_accounts at the configured interval.
+    email_task = None
+    if config.email.enabled:
+        email_task = asyncio.create_task(
+            email_polling_worker(
+                _db,
+                extractor=Extractor(),
+                poll_interval=config.email.poll_interval_seconds,
+            )
+        )
+        logger.info(
+            "Email polling worker started (interval=%ss, accounts=%d)",
+            config.email.poll_interval_seconds,
+            len(config.email.accounts),
+        )
+
     yield
+
+    # Cancel email worker on shutdown
+    if email_task is not None:
+        email_task.cancel()
+        try:
+            await email_task
+        except asyncio.CancelledError:
+            pass
+
     if _db:
         await _db.disconnect()
         _db = None
@@ -3344,6 +3375,184 @@ def create_app() -> FastAPI:
         return RedirectResponse(
             url=f"/documents/{doc_id}", status_code=303,
         )
+
+    # ── Email Account API ────────────────────────────────────────
+
+    @app.get(
+        "/api/v1/email-accounts",
+        tags=["email"],
+        summary="List all email accounts",
+    )
+    async def list_email_accounts_api(
+        api_key: str = Security(api_key_header),
+    ):
+        db = get_db()
+        accounts = await db.list_email_accounts(enabled_only=False)
+        # Strip passwords from response
+        for a in accounts:
+            a.pop("password", None)
+        return {"accounts": accounts}
+
+    @app.post(
+        "/api/v1/email-accounts",
+        tags=["email"],
+        summary="Create a new email account",
+        status_code=201,
+    )
+    async def create_email_account_api(
+        request: Request,
+        api_key: str = Security(api_key_header),
+    ):
+        db = get_db()
+        body = await request.json()
+        # Validate required fields
+        for field in ("name", "host", "username", "password"):
+            if not body.get(field):
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Field '{field}' is required",
+                )
+        try:
+            account = await db.create_email_account(body)
+        except Exception as e:
+            raise HTTPException(status_code=409, detail=str(e))
+        account.pop("password", None)
+        return account
+
+    @app.get(
+        "/api/v1/email-accounts/{account_id}",
+        tags=["email"],
+        summary="Get email account details",
+    )
+    async def get_email_account_api(
+        account_id: int,
+        api_key: str = Security(api_key_header),
+    ):
+        db = get_db()
+        account = await db.get_email_account(account_id)
+        if not account:
+            raise HTTPException(status_code=404, detail="Email account not found")
+        account.pop("password", None)
+        return account
+
+    @app.put(
+        "/api/v1/email-accounts/{account_id}",
+        tags=["email"],
+        summary="Update an email account",
+    )
+    async def update_email_account_api(
+        account_id: int,
+        request: Request,
+        api_key: str = Security(api_key_header),
+    ):
+        db = get_db()
+        body = await request.json()
+        account = await db.update_email_account(account_id, body)
+        if not account:
+            raise HTTPException(status_code=404, detail="Email account not found")
+        account.pop("password", None)
+        return account
+
+    @app.delete(
+        "/api/v1/email-accounts/{account_id}",
+        tags=["email"],
+        summary="Delete an email account",
+    )
+    async def delete_email_account_api(
+        account_id: int,
+        api_key: str = Security(api_key_header),
+    ):
+        db = get_db()
+        deleted = await db.delete_email_account(account_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Email account not found")
+        return {"deleted": True, "id": account_id}
+
+    @app.post(
+        "/api/v1/email-accounts/{account_id}/sync",
+        tags=["email"],
+        summary="Trigger manual sync for an email account",
+    )
+    async def sync_email_account_api(
+        account_id: int,
+        api_key: str = Security(api_key_header),
+    ):
+        db = get_db()
+        account_dict = await db.get_email_account(account_id)
+        if not account_dict:
+            raise HTTPException(status_code=404, detail="Email account not found")
+
+        from ..core.email_ingestor import EmailIngestor
+        from ..core.config import EmailAccountConfig
+
+        acct = EmailAccountConfig(
+            name=account_dict.get("name", ""),
+            host=account_dict.get("host", ""),
+            port=account_dict.get("port", 993),
+            use_ssl=account_dict.get("use_ssl", True),
+            username=account_dict.get("username", ""),
+            password=account_dict.get("password", ""),
+            folder=account_dict.get("folder", "INBOX"),
+            action_after_fetch=account_dict.get("action_after_fetch", "mark_seen"),
+            move_to_folder=account_dict.get("move_to_folder"),
+            body_handling=account_dict.get("body_handling", "save_with_attachments"),
+            attachment_whitelist=account_dict.get("attachment_whitelist", ""),
+            attachment_blacklist=account_dict.get("attachment_blacklist", ""),
+            deduplication_strategy=account_dict.get("deduplication_strategy", "message_id"),
+            enabled=account_dict.get("enabled", True),
+        )
+        ingestor = EmailIngestor(db, Extractor())
+        doc_ids = await ingestor.poll_account(acct, account_id=account_id)
+        return {"synced": True, "created_documents": doc_ids}
+
+    @app.get(
+        "/api/v1/email-accounts/{account_id}/logs",
+        tags=["email"],
+        summary="Get ingestion logs for an email account",
+    )
+    async def get_email_logs_api(
+        account_id: int,
+        status: Optional[str] = Query(None),
+        limit: int = Query(50, ge=1, le=500),
+        offset: int = Query(0, ge=0),
+        api_key: str = Security(api_key_header),
+    ):
+        db = get_db()
+        logs = await db.list_email_ingestion_logs(
+            account_id, status=status, limit=limit, offset=offset
+        )
+        total = await db.count_email_ingestion_logs(account_id, status=status)
+        return {"logs": logs, "total": total, "limit": limit, "offset": offset}
+
+    @app.get(
+        "/api/v1/email-accounts/{account_id}/test",
+        tags=["email"],
+        summary="Test IMAP connection for an email account",
+    )
+    async def test_email_connection_api(
+        account_id: int,
+        api_key: str = Security(api_key_header),
+    ):
+        db = get_db()
+        account_dict = await db.get_email_account(account_id)
+        if not account_dict:
+            raise HTTPException(status_code=404, detail="Email account not found")
+
+        from ..core.email_ingestor import EmailIngestor
+        from ..core.config import EmailAccountConfig
+
+        acct = EmailAccountConfig(
+            name=account_dict.get("name", ""),
+            host=account_dict.get("host", ""),
+            port=account_dict.get("port", 993),
+            use_ssl=account_dict.get("use_ssl", True),
+            username=account_dict.get("username", ""),
+            password=account_dict.get("password", ""),
+            folder=account_dict.get("folder", "INBOX"),
+        )
+        ingestor = EmailIngestor(db, Extractor())
+        success, message = await ingestor.test_connection(acct)
+        return {"success": success, "message": message}
 
     return app
 
