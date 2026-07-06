@@ -506,12 +506,13 @@ def create_app() -> FastAPI:
         export: str = Query(
             default="", description="Export format: csv or json (empty = HTML page)"
         ),
-        vector_weight: Optional[float] = Query(
+        vector_weight: Optional[str] = Query(
             default=None,
-            ge=0.0,
-            le=1.0,
-            description="Hybrid search vector weight (0.0=FTS only, 1.0=vector only). "
-            "Overrides the engine default for this query only.",
+            description=(
+                "Hybrid search vector weight (0.0=FTS only, 1.0=vector only). "
+                "Overrides the engine default for this query only. "
+                "Out-of-range values are clamped to [0.0, 1.0]."
+            ),
         ),
     ):
         """Search page with results and citations.
@@ -519,9 +520,11 @@ def create_app() -> FastAPI:
         When ``export`` is ``csv`` or ``json``, returns a downloadable
         file instead of the HTML results page.
 
-        When ``vector_weight`` is provided (0.0–1.0), it is passed to
+        When ``vector_weight`` is provided, it is parsed as a float,
+        clamped to [0.0, 1.0], and passed to
         ``HybridSearchEngine.search()`` to tune the FTS/vector balance
         for this query without re-instantiating the engine.
+        Non-numeric input returns a 400 error.
         """
         if not q.strip():
             return HTMLResponse(content=_render_search_form())
@@ -531,6 +534,36 @@ def create_app() -> FastAPI:
         except ValidationError as e:
             return HTMLResponse(content=_render_search_form(error=e.message))
 
+        # ── Parse and validate vector_weight ─────────────────────
+        # Accept the param as a string so we can produce a clear 400
+        # error (not FastAPI's default 422) for non-numeric input, and
+        # silently clamp out-of-range values instead of rejecting them.
+        resolved_vw: float | None = None
+        if vector_weight is not None:
+            try:
+                resolved_vw = float(vector_weight)
+            except (ValueError, TypeError):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        f"vector_weight must be a numeric value between 0.0 and 1.0, "
+                        f"got: {vector_weight!r}"
+                    ),
+                )
+            # Reject NaN and Infinity — they parse as floats but are
+            # not meaningful weight values.
+            import math
+            if math.isnan(resolved_vw) or math.isinf(resolved_vw):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        f"vector_weight must be a numeric value between 0.0 and 1.0, "
+                        f"got: {vector_weight!r}"
+                    ),
+                )
+            # Clamp to valid range
+            resolved_vw = max(0.0, min(1.0, resolved_vw))
+
         db = get_db()
         results: list[dict] = []
         try:
@@ -539,7 +572,7 @@ def create_app() -> FastAPI:
                 raw_results = await hybrid_engine.search(
                     validated_q,
                     top_k=20,
-                    vector_weight=vector_weight,
+                    vector_weight=resolved_vw,
                 )
                 # Adapt hybrid results: map doc_id → id for template/export
                 # compatibility, and ensure snippet is populated.

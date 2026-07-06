@@ -292,34 +292,44 @@ class TestSearchVectorWeightParam:
             assert spy.call_args.kwargs.get("vector_weight") == 1.0
 
     @pytest.mark.asyncio
-    async def test_vector_weight_above_one_rejected(
+    async def test_vector_weight_above_one_clamped(
         self, asgi_client_with_hybrid
     ) -> None:
-        """vector_weight=1.5 should be rejected with 422 validation error."""
+        """vector_weight=1.5 should be clamped to 1.0, not rejected."""
         client, app, hybrid_engine = asgi_client_with_hybrid
 
-        resp = await client.get("/search?q=machine&vector_weight=1.5")
-        assert resp.status_code == 422
+        with patch.object(
+            hybrid_engine, "search", wraps=hybrid_engine.search
+        ) as spy:
+            resp = await client.get("/search?q=machine&vector_weight=1.5")
+            assert resp.status_code == 200
+            assert spy.called
+            assert spy.call_args.kwargs.get("vector_weight") == 1.0
 
     @pytest.mark.asyncio
-    async def test_vector_weight_below_zero_rejected(
+    async def test_vector_weight_below_zero_clamped(
         self, asgi_client_with_hybrid
     ) -> None:
-        """vector_weight=-0.1 should be rejected with 422 validation error."""
+        """vector_weight=-0.3 should be clamped to 0.0, not rejected."""
         client, app, hybrid_engine = asgi_client_with_hybrid
 
-        resp = await client.get("/search?q=machine&vector_weight=-0.1")
-        assert resp.status_code == 422
+        with patch.object(
+            hybrid_engine, "search", wraps=hybrid_engine.search
+        ) as spy:
+            resp = await client.get("/search?q=machine&vector_weight=-0.3")
+            assert resp.status_code == 200
+            assert spy.called
+            assert spy.call_args.kwargs.get("vector_weight") == 0.0
 
     @pytest.mark.asyncio
     async def test_vector_weight_invalid_string_rejected(
         self, asgi_client_with_hybrid
     ) -> None:
-        """Non-numeric vector_weight should be rejected with 422."""
+        """Non-numeric vector_weight should be rejected with 400."""
         client, app, hybrid_engine = asgi_client_with_hybrid
 
         resp = await client.get("/search?q=machine&vector_weight=abc")
-        assert resp.status_code == 422
+        assert resp.status_code == 400
 
     @pytest.mark.asyncio
     async def test_vector_weight_works_with_export_json(
@@ -353,6 +363,317 @@ class TestSearchVectorWeightParam:
 
         resp = await client.get("/search?q=&vector_weight=0.5")
         assert resp.status_code == 200
+
+    # ── Additional edge case tests ─────────────────────────────
+
+    @pytest.mark.asyncio
+    async def test_vector_weight_empty_string_rejected_with_400(
+        self, asgi_client_with_hybrid
+    ) -> None:
+        """Empty string vector_weight should return HTTP 400."""
+        client, app, hybrid_engine = asgi_client_with_hybrid
+
+        resp = await client.get("/search?q=machine&vector_weight=")
+        assert resp.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_vector_weight_nan_rejected_with_400(
+        self, asgi_client_with_hybrid
+    ) -> None:
+        """NaN vector_weight should return HTTP 400."""
+        client, app, hybrid_engine = asgi_client_with_hybrid
+
+        resp = await client.get("/search?q=machine&vector_weight=NaN")
+        assert resp.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_vector_weight_infinity_rejected_with_400(
+        self, asgi_client_with_hybrid
+    ) -> None:
+        """Infinity vector_weight should return HTTP 400."""
+        client, app, hybrid_engine = asgi_client_with_hybrid
+
+        resp = await client.get("/search?q=machine&vector_weight=inf")
+        assert resp.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_vector_weight_neg_infinity_rejected_with_400(
+        self, asgi_client_with_hybrid
+    ) -> None:
+        """Negative infinity vector_weight should return HTTP 400."""
+        client, app, hybrid_engine = asgi_client_with_hybrid
+
+        resp = await client.get("/search?q=machine&vector_weight=-inf")
+        assert resp.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_vector_weight_whitespace_rejected_with_400(
+        self, asgi_client_with_hybrid
+    ) -> None:
+        """Whitespace-only vector_weight should return HTTP 400."""
+        client, app, hybrid_engine = asgi_client_with_hybrid
+
+        resp = await client.get("/search?q=machine&vector_weight=%20%20")
+        assert resp.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_vector_weight_very_large_value_clamped(
+        self, asgi_client_with_hybrid
+    ) -> None:
+        """Extremely large value (999.9) should be clamped to 1.0, not rejected."""
+        client, app, hybrid_engine = asgi_client_with_hybrid
+
+        with patch.object(
+            hybrid_engine, "search", wraps=hybrid_engine.search
+        ) as spy:
+            resp = await client.get("/search?q=machine&vector_weight=999.9")
+            assert resp.status_code == 200
+            assert spy.called
+            assert spy.call_args.kwargs.get("vector_weight") == 1.0
+
+    @pytest.mark.asyncio
+    async def test_vector_weight_very_negative_clamped(
+        self, asgi_client_with_hybrid
+    ) -> None:
+        """Extremely negative value (-999.9) should be clamped to 0.0."""
+        client, app, hybrid_engine = asgi_client_with_hybrid
+
+        with patch.object(
+            hybrid_engine, "search", wraps=hybrid_engine.search
+        ) as spy:
+            resp = await client.get("/search?q=machine&vector_weight=-999.9")
+            assert resp.status_code == 200
+            assert spy.called
+            assert spy.call_args.kwargs.get("vector_weight") == 0.0
+
+    @pytest.mark.asyncio
+    async def test_vector_weight_just_above_one_clamped(
+        self, asgi_client_with_hybrid
+    ) -> None:
+        """Value just above 1.0 (1.0001) should be clamped to 1.0."""
+        client, app, hybrid_engine = asgi_client_with_hybrid
+
+        with patch.object(
+            hybrid_engine, "search", wraps=hybrid_engine.search
+        ) as spy:
+            resp = await client.get("/search?q=machine&vector_weight=1.0001")
+            assert resp.status_code == 200
+            assert spy.called
+            assert spy.call_args.kwargs.get("vector_weight") == 1.0
+
+    @pytest.mark.asyncio
+    async def test_vector_weight_just_below_zero_clamped(
+        self, asgi_client_with_hybrid
+    ) -> None:
+        """Value just below 0.0 (-0.0001) should be clamped to 0.0."""
+        client, app, hybrid_engine = asgi_client_with_hybrid
+
+        with patch.object(
+            hybrid_engine, "search", wraps=hybrid_engine.search
+        ) as spy:
+            resp = await client.get("/search?q=machine&vector_weight=-0.0001")
+            assert resp.status_code == 200
+            assert spy.called
+            assert spy.call_args.kwargs.get("vector_weight") == 0.0
+
+    @pytest.mark.asyncio
+    async def test_vector_weight_special_characters_rejected(
+        self, asgi_client_with_hybrid
+    ) -> None:
+        """Special character strings should be rejected with 400."""
+        client, app, hybrid_engine = asgi_client_with_hybrid
+
+        resp = await client.get("/search?q=machine&vector_weight=!@#$")
+        assert resp.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_vector_weight_scientific_notation_accepted(
+        self, asgi_client_with_hybrid
+    ) -> None:
+        """Scientific notation (e.g., 5e-1 for 0.5) should be accepted."""
+        client, app, hybrid_engine = asgi_client_with_hybrid
+
+        with patch.object(
+            hybrid_engine, "search", wraps=hybrid_engine.search
+        ) as spy:
+            resp = await client.get("/search?q=machine&vector_weight=5e-1")
+            assert resp.status_code == 200
+            assert spy.called
+            # 5e-1 = 0.5, which is within range, passed as-is
+            assert spy.call_args.kwargs.get("vector_weight") == 0.5
+
+    @pytest.mark.asyncio
+    async def test_vector_weight_scientific_notation_clamped(
+        self, asgi_client_with_hybrid
+    ) -> None:
+        """Scientific notation >1 (e.g., 2e0) should be clamped to 1.0."""
+        client, app, hybrid_engine = asgi_client_with_hybrid
+
+        with patch.object(
+            hybrid_engine, "search", wraps=hybrid_engine.search
+        ) as spy:
+            # 2e0 = 2.0, should be clamped to 1.0
+            resp = await client.get("/search?q=machine&vector_weight=2e0")
+            assert resp.status_code == 200
+            assert spy.called
+            assert spy.call_args.kwargs.get("vector_weight") == 1.0
+
+    @pytest.mark.asyncio
+    async def test_vector_weight_works_with_csv_export(
+        self, asgi_client_with_hybrid
+    ) -> None:
+        """vector_weight should work alongside the csv export path."""
+        client, app, hybrid_engine = asgi_client_with_hybrid
+
+        resp = await client.get("/search?q=machine&vector_weight=0.3&export=csv")
+        assert resp.status_code == 200
+        assert "content-disposition" in {k.lower() for k in resp.headers}
+
+    @pytest.mark.asyncio
+    async def test_vector_weight_400_response_contains_error_detail(
+        self, asgi_client_with_hybrid
+    ) -> None:
+        """400 response for invalid vector_weight should include error detail."""
+        client, app, hybrid_engine = asgi_client_with_hybrid
+
+        resp = await client.get("/search?q=machine&vector_weight=abc")
+        assert resp.status_code == 400
+        # Should contain a descriptive error message in either 'error' or 'detail'
+        body = resp.json()
+        error_msg = (body.get("error") or body.get("detail") or "")
+        assert "vector_weight" in error_msg.lower()
+
+
+# ── Server-level vector_weight parsing unit tests ───────────────
+
+
+class TestVectorWeightParsing:
+    """Unit tests for the vector_weight parsing/clamping logic in server.py.
+
+    These don't go through HTTP — they test the parsing function directly
+    so we cover edge cases that are hard to exercise via URL encoding.
+    """
+
+    def _parse_vector_weight(self, raw_value: str | None) -> float | None:
+        """Mirror the parsing logic from server.py."""
+        import math
+        from fastapi import HTTPException
+
+        if raw_value is None:
+            return None
+        try:
+            resolved = float(raw_value)
+        except (ValueError, TypeError):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"vector_weight must be a numeric value between 0.0 and 1.0, "
+                    f"got: {raw_value!r}"
+                ),
+            )
+        # Reject NaN and Infinity
+        if math.isnan(resolved) or math.isinf(resolved):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"vector_weight must be a numeric value between 0.0 and 1.0, "
+                    f"got: {raw_value!r}"
+                ),
+            )
+        return max(0.0, min(1.0, resolved))
+
+    def test_none_returns_none(self) -> None:
+        """None input should return None (use engine default)."""
+        assert self._parse_vector_weight(None) is None
+
+    def test_exact_float_range(self) -> None:
+        """Floats within [0.0, 1.0] should be returned as-is."""
+        assert self._parse_vector_weight("0.0") == 0.0
+        assert self._parse_vector_weight("0.5") == 0.5
+        assert self._parse_vector_weight("1.0") == 1.0
+        assert self._parse_vector_weight("0.25") == 0.25
+        assert self._parse_vector_weight("0.75") == 0.75
+
+    def test_int_strings_parsed(self) -> None:
+        """Integer strings ('0', '1') should be parsed as floats."""
+        assert self._parse_vector_weight("0") == 0.0
+        assert self._parse_vector_weight("1") == 1.0
+
+    def test_above_one_clamped(self) -> None:
+        """Values >1.0 should be clamped to 1.0."""
+        assert self._parse_vector_weight("1.5") == 1.0
+        assert self._parse_vector_weight("2.0") == 1.0
+        assert self._parse_vector_weight("100") == 1.0
+
+    def test_below_zero_clamped(self) -> None:
+        """Values <0.0 should be clamped to 0.0."""
+        assert self._parse_vector_weight("-0.5") == 0.0
+        assert self._parse_vector_weight("-1.0") == 0.0
+        assert self._parse_vector_weight("-100") == 0.0
+
+    def test_empty_string_raises_400(self) -> None:
+        """Empty string should raise HTTP 400."""
+        from fastapi import HTTPException
+        with pytest.raises(HTTPException) as exc:
+            self._parse_vector_weight("")
+        assert exc.value.status_code == 400
+
+    def test_non_numeric_raises_400(self) -> None:
+        """Non-numeric strings should raise HTTP 400."""
+        from fastapi import HTTPException
+        for bad in ("abc", "!@#", "vector"):
+            with pytest.raises(HTTPException) as exc:
+                self._parse_vector_weight(bad)
+            assert exc.value.status_code == 400
+
+    def test_whitespace_only_raises_400(self) -> None:
+        """Whitespace-only strings should raise HTTP 400."""
+        from fastapi import HTTPException
+        for bad in ("   ", "\t", "\n"):
+            with pytest.raises(HTTPException) as exc:
+                self._parse_vector_weight(bad)
+            assert exc.value.status_code == 400
+
+    def test_nan_raises_400(self) -> None:
+        """'NaN' string should raise HTTP 400."""
+        from fastapi import HTTPException
+        with pytest.raises(HTTPException) as exc:
+            self._parse_vector_weight("NaN")
+        assert exc.value.status_code == 400
+
+    def test_infinity_raises_400(self) -> None:
+        """'inf' and '-inf' strings should raise HTTP 400."""
+        from fastapi import HTTPException
+        for bad in ("inf", "-inf", "Infinity", "-Infinity"):
+            with pytest.raises(HTTPException) as exc:
+                self._parse_vector_weight(bad)
+            assert exc.value.status_code == 400
+
+    def test_float_edge_cases_accepted(self) -> None:
+        """Float edge cases that parse successfully should be clamped."""
+        # These parse as valid floats, then get clamped
+        assert self._parse_vector_weight("1.0000000001") == 1.0
+        assert self._parse_vector_weight("-0.0000000001") == 0.0
+
+    def test_scientific_notation(self) -> None:
+        """Scientific notation should be parsed and clamped."""
+        assert self._parse_vector_weight("5e-1") == 0.5  # 0.5
+        assert self._parse_vector_weight("1e0") == 1.0   # 1.0
+        assert self._parse_vector_weight("2e0") == 1.0   # 2.0 → clamp
+        assert self._parse_vector_weight("-1e0") == 0.0  # -1.0 → clamp
+        assert self._parse_vector_weight("0e0") == 0.0   # 0.0
+
+    def test_leading_trailing_whitespace(self) -> None:
+        """Python float() strips whitespace — should parse and clamp."""
+        assert self._parse_vector_weight(" 0.5 ") == 0.5
+        assert self._parse_vector_weight("\t0.3\n") == 0.3
+
+    def test_error_message_contains_input_value(self) -> None:
+        """400 error detail should mention the invalid input for debugging."""
+        from fastapi import HTTPException
+        with pytest.raises(HTTPException) as exc:
+            self._parse_vector_weight("xyz123")
+        assert "xyz123" in exc.value.detail
 
 
 # ── Chat WebSocket hybrid engine tests ──────────────────────────
