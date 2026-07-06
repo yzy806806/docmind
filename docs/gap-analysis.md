@@ -57,7 +57,7 @@
 | Feature | Status | Priority | Notes |
 |---------|--------|----------|-------|
 | OCR for scanned PDFs/images | ✅ Have | - | Tesseract OCR via pytesseract, scanned PDF fallback, image file support (Phase 4a done) |
-| Email ingestion | 🔴 Missing | Medium | Paperless-ngx, Docspell have this |
+| Email ingestion | ✅ Have | - | Phase 8 complete: IMAP ingestion, Fernet password encryption, email account management UI, email metadata on document detail, search integration |
 | Bulk operations (beyond delete) | ✅ Have | - | Bulk tag, move, export all implemented (Phase 4b done) |
 | Faceted search (filters by type, date, tags) | ✅ Have | - | file_type and source facets with UI, faceted-filters.js (Phase 4c done) |
 | Search relevance tuning / boosting | ✅ Have | - | Phase 7 complete: vector_weight parameter at engine, API, and UI levels (fbaae79, 6df8293, 9ad75e8, 50b5af5) |
@@ -103,7 +103,7 @@ All three highest-priority gaps from the original analysis have been closed:
 
 ### Lower Priority Gaps
 
-10. **Email ingestion** — Nice to have but not critical for initial parity.
+10. **Email ingestion** — ✅ Complete (Phase 8). IMAP ingestion, Fernet password encryption, email account management UI, email metadata on document detail, and search integration all implemented and tested.
 
 11. **Workflow automation** — Advanced feature, not required for basic parity.
 
@@ -121,11 +121,10 @@ All three highest-priority gaps from the original analysis have been closed:
 
 **Phase 7 (Search Relevance) is complete.** The `vector_weight` query parameter is implemented at all three levels: engine (`HybridSearchEngine.search()`), API (`/search` endpoint), and UI (slider control in search interface). Users can tune FTS5 vs. vector score weighting interactively. The search path architectural disconnect has also been fixed — both the search page and chat now use the hybrid engine with vector semantic search and score fusion.
 
-**Phase 8a (DB Query Optimization) is complete.** Composite indexes have been added for the `_build_filter_clause()` query patterns, covering the most common filter combinations used by document listing and search. This is a quick win with low regression risk (commit 70eda58).
+**Phase 8 (Email Ingestion) is complete.** IMAP-based email ingestion is implemented with Fernet password encryption for credential storage, an email account management UI, email metadata displayed on the document detail page, and search integration for ingested emails. 2138 tests pass (commit 087a705).
 
 **Remaining gaps to close:**
-1. **Email ingestion** — close the feature gap with Paperless-ngx and Docspell (medium priority, Phase 8b candidate)
-2. **Responsive design polish** — validate and improve mobile UX (medium priority)
-3. **Lazy loading / infinite scroll** — improve UX for large document lists (medium priority)
-4. **Keyboard shortcuts** — UX polish (low priority)
-5. **Workflow automation** — advanced rules engine (low priority)
+1. **Responsive design polish** — validate and improve mobile UX (medium priority)
+2. **Lazy loading / infinite scroll** — improve UX for large document lists (medium priority)
+3. **Keyboard shortcuts** — UX polish (low priority)
+4. **Workflow automation** — advanced rules engine (low priority)
