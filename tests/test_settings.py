@@ -116,9 +116,12 @@ class TestSettingsCRUD:
 
     @pytest.mark.asyncio
     async def test_get_all_settings_empty(self, db) -> None:
-        """get_all_settings on empty DB should return empty dict."""
+        """get_all_settings on empty DB should return only internal keys."""
         result = await db.get_all_settings()
-        assert result == {}
+        # The encryption key may be auto-generated on connect; filter it out.
+        user_settings = {k: v for k, v in result.items()
+                         if k != "email_encryption_key"}
+        assert user_settings == {}
 
     @pytest.mark.asyncio
     async def test_get_all_settings_multiple(self, db) -> None:
@@ -128,10 +131,13 @@ class TestSettingsCRUD:
         await db.set_setting("llm_api_key", "sk-test123")
 
         result = await db.get_all_settings()
-        assert len(result) == 3
-        assert result["llm_provider"] == "openai"
-        assert result["llm_model"] == "gpt-4o-mini"
-        assert result["llm_api_key"] == "sk-test123"
+        # The encryption key may be auto-generated on connect; filter it out.
+        user_settings = {k: v for k, v in result.items()
+                         if k != "email_encryption_key"}
+        assert len(user_settings) == 3
+        assert user_settings["llm_provider"] == "openai"
+        assert user_settings["llm_model"] == "gpt-4o-mini"
+        assert user_settings["llm_api_key"] == "sk-test123"
 
     @pytest.mark.asyncio
     async def test_set_setting_empty_string(self, db) -> None:

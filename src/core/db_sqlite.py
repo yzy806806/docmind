@@ -38,6 +38,7 @@ from .cache import (
     make_key,
 )
 from .models import JobRecord, JobState
+from .crypto import decrypt_password, encrypt_password
 
 logger = logging.getLogger(__name__)
 
@@ -379,6 +380,10 @@ class Database:
         await self._conn.execute("PRAGMA foreign_keys = ON")
         await self._conn.execute("PRAGMA journal_mode = WAL")
         await self.migrate()
+        # Initialize Fernet encryptor and migrate any plaintext passwords.
+        from .crypto import init_encryptor
+        await init_encryptor(self)
+        await self.migrate_email_passwords()
         logger.info("Database connected: %s", self._db_path)
 
     async def disconnect(self) -> None:
@@ -494,6 +499,42 @@ class Database:
         )
 
         await self._conn.commit()
+
+    async def migrate_email_passwords(self) -> int:
+        """Backfill-encrypt any plaintext email account passwords.
+
+        Called after the encryptor is initialized. Reads all email_accounts
+        rows, and for any whose password does not look like a Fernet token
+        (i.e. is still plaintext), encrypts it in place.
+
+        Returns the number of passwords that were encrypted.
+        """
+        from .crypto import _is_encrypted, encrypt_password
+
+        count = 0
+        async with self.connection() as conn:
+            cursor = await conn.execute(
+                "SELECT id, password FROM email_accounts WHERE password != ''"
+            )
+            rows = await cursor.fetchall()
+
+        for row in rows:
+            raw = row["password"]
+            if not raw or _is_encrypted(raw):
+                continue
+            encrypted = encrypt_password(raw)
+            if encrypted != raw:
+                async with self.connection() as conn:
+                    await conn.execute(
+                        "UPDATE email_accounts SET password = ? WHERE id = ?",
+                        (encrypted, row["id"]),
+                    )
+                    await conn.commit()
+                count += 1
+
+        if count:
+            logger.info("Backfill-encrypted %d plaintext email password(s)", count)
+        return count
 
     @asynccontextmanager
     async def connection(self) -> AsyncIterator[aiosqlite.Connection]:
@@ -2876,8 +2917,14 @@ class Database:
     # ── Email Accounts ───────────────────────────────────────────
 
     async def create_email_account(self, data: dict[str, Any]) -> dict[str, Any]:
-        """Insert a new email account and return it as a dict."""
+        """Insert a new email account and return it as a dict.
+
+        The password is encrypted via Fernet before storage. If the
+        encryptor is not initialized (e.g. during tests), the password
+        is stored as-is for backward compatibility.
+        """
         now = _now_iso()
+        password = encrypt_password(data["password"])
         async with self.connection() as conn:
             await conn.execute(
                 """INSERT INTO email_accounts
@@ -2888,7 +2935,7 @@ class Database:
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     data["name"], data["host"], data.get("port", 993),
-                    data.get("use_ssl", True), data["username"], data["password"],
+                    data.get("use_ssl", True), data["username"], password,
                     data.get("folder", "INBOX"),
                     data.get("poll_interval_seconds", 600),
                     data.get("action_after_fetch", "mark_seen"),
@@ -2933,7 +2980,10 @@ class Database:
     async def update_email_account(
         self, account_id: int, data: dict[str, Any]
     ) -> Optional[dict[str, Any]]:
-        """Update an email account. Returns the updated row or None if not found."""
+        """Update an email account. Returns the updated row or None if not found.
+
+        If a new password is provided, it is encrypted before storage.
+        """
         now = _now_iso()
         # Build SET clause dynamically from provided fields
         allowed = {
@@ -2945,6 +2995,9 @@ class Database:
         updates = {k: v for k, v in data.items() if k in allowed}
         if not updates:
             return await self.get_email_account(account_id)
+        # Encrypt password if it's being updated
+        if "password" in updates:
+            updates["password"] = encrypt_password(updates["password"])
         set_clauses = [f"{k} = ?" for k in updates]
         values = list(updates.values())
         set_clauses.append("updated_at = ?")
@@ -2959,6 +3012,22 @@ class Database:
             )
             row = await cursor.fetchone()
         return self._row_to_email_account_dict(row) if row else None
+
+    async def update_email_account_password(
+        self, account_id: int, encrypted_password: str
+    ) -> None:
+        """Directly set the password column to an already-encrypted value.
+
+        Used by CredentialEncryptor.rotate_key() during key rotation,
+        where the caller has already encrypted the password.
+        """
+        now = _now_iso()
+        async with self.connection() as conn:
+            await conn.execute(
+                "UPDATE email_accounts SET password = ?, updated_at = ? WHERE id = ?",
+                (encrypted_password, now, account_id),
+            )
+            await conn.commit()
 
     async def delete_email_account(self, account_id: int) -> bool:
         """Delete an email account by ID. Returns True if deleted."""
@@ -3135,12 +3204,18 @@ class Database:
 
     @staticmethod
     def _row_to_email_account_dict(row: aiosqlite.Row) -> dict[str, Any]:
-        """Convert an email_accounts row to a dict."""
+        """Convert an email_accounts row to a dict.
+
+        The password is decrypted via Fernet. If the encryptor is not
+        initialized or the value is plaintext, it is returned as-is.
+        """
         d = dict(row)
         # Convert boolean-like integers
         for k in ("use_ssl", "enabled"):
             if k in d and isinstance(d[k], int):
                 d[k] = bool(d[k])
+        # Decrypt password (returns plaintext as-is if not encrypted)
+        d["password"] = decrypt_password(d.get("password", ""))
         return d
 
     @staticmethod
