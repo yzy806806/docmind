@@ -33,16 +33,19 @@
         <form action="/search" method="get" class="search-box">
             <input type="text" name="q" placeholder="Search your documents..." required>
             <button type="submit">Search</button>
+            <div class="vector-weight-control">
+                <label for="vw-slider-dash">
+                    Vector Weight: <span class="vw-value" data-default="0.6">0.60</span>
+                    <span class="vw-hint">(0 = keyword only, 1 = semantic only)</span>
+                </label>
+                <input type="range" id="vw-slider-dash" name="vector_weight"
+                       min="0" max="1" step="0.05" value="0.6"
+                       role="slider"
+                       aria-valuemin="0" aria-valuemax="1"
+                       aria-valuenow="0.60" aria-valuetext="0.60"
+                       class="vw-slider">
+            </div>
         </form>
-        <div class="vector-weight-control">
-            <label for="vw-slider-dash">
-                Vector Weight: <span class="vw-value" data-default="0.6">0.60</span>
-                <span class="vw-hint">(0 = keyword only, 1 = semantic only)</span>
-            </label>
-            <input type="range" id="vw-slider-dash" name="vector_weight"
-                   min="0" max="1" step="0.05" value="0.6"
-                   class="vw-slider">
-        </div>
     </div>
 
     <div class="analytics-grid">

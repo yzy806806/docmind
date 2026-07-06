@@ -27,9 +27,13 @@
 
             function updateDisplay() {
                 var val = parseFloat(slider.value);
+                var valText = val.toFixed(2);
                 if (valueDisplay) {
-                    valueDisplay.textContent = val.toFixed(2);
+                    valueDisplay.textContent = valText;
                 }
+                // Keep ARIA attributes in sync for screen readers
+                slider.setAttribute("aria-valuenow", valText);
+                slider.setAttribute("aria-valuetext", valText);
                 updateExportLinks(val);
             }
 
