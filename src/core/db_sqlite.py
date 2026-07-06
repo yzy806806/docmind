@@ -63,12 +63,50 @@ CREATE TABLE IF NOT EXISTS documents (
                         CHECK (status IN ('pending','indexed','summarized','error')),
     metadata        TEXT DEFAULT '{}',
     created_at      TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+    updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    collection_id   INTEGER REFERENCES collections(id) ON DELETE SET NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_documents_status ON documents(status);
 CREATE INDEX IF NOT EXISTS idx_documents_source ON documents(source_type, source_name);
 CREATE INDEX IF NOT EXISTS idx_documents_type ON documents(document_type);
+
+-- ── Composite indexes for _build_filter_clause() query patterns ──
+-- These cover the common filter combinations used by list_documents,
+-- list_documents_paginated, and get_document_count. Each composite index
+-- ends with created_at so that ORDER BY created_at DESC can be served
+-- from the index without a separate sort step.
+
+-- Filter by collection_id + date range, ordered by created_at.
+-- Also serves standalone collection_id lookups (IS NULL / = ?).
+CREATE INDEX IF NOT EXISTS idx_documents_collection_created
+    ON documents(collection_id, created_at DESC);
+
+-- Filter by file extension (ext) + date range, ordered by created_at.
+-- Also serves standalone ext lookups.
+CREATE INDEX IF NOT EXISTS idx_documents_ext_created
+    ON documents(ext, created_at DESC);
+
+-- Filter by status + date range, ordered by created_at.
+-- Supersedes idx_documents_status for queries that also sort by date.
+CREATE INDEX IF NOT EXISTS idx_documents_status_created
+    ON documents(status, created_at DESC);
+
+-- Filter by source_type + date range, ordered by created_at.
+-- The source param in _build_filter_clause matches source_name OR source_type;
+-- this index covers the source_type branch and standalone source_type lookups.
+CREATE INDEX IF NOT EXISTS idx_documents_source_type_created
+    ON documents(source_type, created_at DESC);
+
+-- Filter by document_type + date range, ordered by created_at.
+-- Supersedes idx_documents_type for queries that also sort by date.
+CREATE INDEX IF NOT EXISTS idx_documents_doc_type_created
+    ON documents(document_type, created_at DESC);
+
+-- Standalone date-range filter and ORDER BY created_at fallback.
+-- Used when the only filter is date_from / date_to.
+CREATE INDEX IF NOT EXISTS idx_documents_created_at
+    ON documents(created_at DESC);
 
 CREATE TABLE IF NOT EXISTS jobs (
     id              TEXT PRIMARY KEY,
