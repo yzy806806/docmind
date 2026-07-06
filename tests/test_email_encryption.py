@@ -46,20 +46,7 @@ def tmp_db_path() -> Generator[str, None, None]:
         os.unlink(path)
 
 
-@pytest.fixture(autouse=True)
-def _reset_encryptor():
-    """Reset the module-level encryptor singleton before each test."""
-    from src.core import crypto
-    crypto._encryptor = None
-    yield
-    crypto._encryptor = None
-
-
-@pytest.fixture(autouse=True)
-def _clean_env(monkeypatch: pytest.MonkeyPatch):
-    """Remove any externally-set encryption key env var."""
-    monkeypatch.delenv("DOCMIND_EMAIL_ENCRYPTION_KEY", raising=False)
-
+# _reset_encryptor and _clean_env fixtures are now in conftest.py (shared across all tests)
 
 # ── Unit tests: _is_encrypted ────────────────────────────────────
 

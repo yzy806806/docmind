@@ -261,37 +261,71 @@ class CredentialEncryptor:
 
 
 # Module-level singleton — initialized by the server on startup.
+# Kept for backward compatibility (e.g., server.py startup, external callers
+# that don't have a Database instance handy). Database instances now hold
+# their own CredentialEncryptor reference at self._encryptor to avoid
+# cross-database leakage in tests.
 _encryptor: Optional[CredentialEncryptor] = None
 
 
-async def init_encryptor(db: "Database") -> CredentialEncryptor:
-    """Initialize and return the module-level encryptor singleton."""
+async def init_encryptor_for_db(db: "Database") -> CredentialEncryptor:
+    """Initialize a per-instance encryptor for a specific Database.
+
+    This is the canonical entry point: it creates a ``CredentialEncryptor``
+    bound to *db*, calls its ``init()`` to load-or-generate the Fernet key,
+    and stores it on ``db._encryptor`` so each Database owns its own
+    encryptor (no cross-database key leakage in tests).
+
+    Also sets the module-level ``_encryptor`` singleton as a
+    backward-compatible default for code that calls the module-level
+    ``encrypt_password`` / ``decrypt_password`` functions without a db ref.
+
+    Returns the newly created ``CredentialEncryptor``.
+    """
     global _encryptor
-    _encryptor = CredentialEncryptor(db)
-    await _encryptor.init()
-    return _encryptor
+    enc = CredentialEncryptor(db)
+    await enc.init()
+    db._encryptor = enc
+    _encryptor = enc
+    return enc
+
+
+# Backward-compatible alias — older code and tests import ``init_encryptor``.
+init_encryptor = init_encryptor_for_db
 
 
 def get_encryptor() -> Optional[CredentialEncryptor]:
-    """Get the initialized encryptor singleton, or None if not yet initialized."""
+    """Get the module-level encryptor singleton, or None if not yet initialized."""
     return _encryptor
 
 
-def encrypt_password(plaintext: str) -> str:
-    """Convenience: encrypt a password using the module-level singleton."""
-    enc = _encryptor
+def encrypt_password(plaintext: str, db: "Optional[Database]" = None) -> str:
+    """Encrypt a password.
+
+    If *db* is provided and has an instance-level encryptor (``db._encryptor``),
+    use that — this avoids cross-database key leakage in tests. Otherwise,
+    fall back to the module-level singleton.
+    """
+    enc = getattr(db, "_encryptor", None) if db is not None else None
+    if enc is None:
+        enc = _encryptor
     if enc is None or not enc.is_initialized:
         return plaintext
     return enc.encrypt(plaintext)
 
 
-def decrypt_password(token: str) -> str:
-    """Convenience: decrypt a password using the module-level singleton.
+def decrypt_password(token: str, db: "Optional[Database]" = None) -> str:
+    """Decrypt a password.
 
-    If the encryptor is not initialized, returns the value as-is
-    (backward compatibility with plaintext storage).
+    If *db* is provided and has an instance-level encryptor (``db._encryptor``),
+    use that. Otherwise, fall back to the module-level singleton.
+
+    If no encryptor is available, returns the value as-is (backward
+    compatibility with plaintext storage).
     """
-    enc = _encryptor
+    enc = getattr(db, "_encryptor", None) if db is not None else None
+    if enc is None:
+        enc = _encryptor
     if enc is None or not enc.is_initialized:
         return token
     return enc.decrypt(token)

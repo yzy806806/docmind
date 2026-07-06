@@ -365,6 +365,11 @@ class Database:
         self._max_size = max_size
         # Cache backend for read-path caching (cache-aside pattern).
         self._cache: CacheBackend = cache or create_cache_backend()
+        # Instance-level credential encryptor (set by init_encryptor
+        # in connect()). Each Database owns its own CredentialEncryptor so
+        # keys don't leak across test databases via the module-level
+        # singleton in crypto.py.
+        self._encryptor: Optional[Any] = None
         # Optional async callback invoked after a document is saved.
         # Signature: async fn(doc_id: int, path: str, title: str, summary: str, body: str)
         # Used by the embedding pipeline to generate vectors on document index.
@@ -380,9 +385,10 @@ class Database:
         await self._conn.execute("PRAGMA foreign_keys = ON")
         await self._conn.execute("PRAGMA journal_mode = WAL")
         await self.migrate()
-        # Initialize Fernet encryptor and migrate any plaintext passwords.
-        from .crypto import init_encryptor
-        await init_encryptor(self)
+        # Initialize Fernet encryptor (sets self._encryptor and the module-level
+        # singleton as backward-compatible default) and migrate plaintext passwords.
+        from .crypto import init_encryptor_for_db
+        await init_encryptor_for_db(self)
         await self.migrate_email_passwords()
         logger.info("Database connected: %s", self._db_path)
 
@@ -391,6 +397,8 @@ class Database:
         if self._conn:
             await self._conn.close()
             self._conn = None
+        # Release the instance-level encryptor so a reconnect creates a fresh one.
+        self._encryptor = None
 
     # ── Cache Helpers ───────────────────────────────────────────
 
@@ -522,7 +530,7 @@ class Database:
             raw = row["password"]
             if not raw or _is_encrypted(raw):
                 continue
-            encrypted = encrypt_password(raw)
+            encrypted = encrypt_password(raw, db=self)
             if encrypted != raw:
                 async with self.connection() as conn:
                     await conn.execute(
@@ -2924,7 +2932,7 @@ class Database:
         is stored as-is for backward compatibility.
         """
         now = _now_iso()
-        password = encrypt_password(data["password"])
+        password = encrypt_password(data["password"], db=self)
         async with self.connection() as conn:
             await conn.execute(
                 """INSERT INTO email_accounts
@@ -2997,7 +3005,7 @@ class Database:
             return await self.get_email_account(account_id)
         # Encrypt password if it's being updated
         if "password" in updates:
-            updates["password"] = encrypt_password(updates["password"])
+            updates["password"] = encrypt_password(updates["password"], db=self)
         set_clauses = [f"{k} = ?" for k in updates]
         values = list(updates.values())
         set_clauses.append("updated_at = ?")
@@ -3202,12 +3210,13 @@ class Database:
 
     # ── Helpers ─────────────────────────────────────────────────
 
-    @staticmethod
-    def _row_to_email_account_dict(row: aiosqlite.Row) -> dict[str, Any]:
+    def _row_to_email_account_dict(self, row: aiosqlite.Row) -> dict[str, Any]:
         """Convert an email_accounts row to a dict.
 
         The password is decrypted via Fernet. If the encryptor is not
         initialized or the value is plaintext, it is returned as-is.
+        Uses the Database's own instance-level encryptor (``self._encryptor``)
+        to avoid cross-database key leakage in tests.
         """
         d = dict(row)
         # Convert boolean-like integers
@@ -3215,7 +3224,7 @@ class Database:
             if k in d and isinstance(d[k], int):
                 d[k] = bool(d[k])
         # Decrypt password (returns plaintext as-is if not encrypted)
-        d["password"] = decrypt_password(d.get("password", ""))
+        d["password"] = decrypt_password(d.get("password", ""), db=self)
         return d
 
     @staticmethod
