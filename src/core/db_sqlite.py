@@ -69,7 +69,6 @@ CREATE TABLE IF NOT EXISTS documents (
 
 CREATE INDEX IF NOT EXISTS idx_documents_status ON documents(status);
 CREATE INDEX IF NOT EXISTS idx_documents_source ON documents(source_type, source_name);
-CREATE INDEX IF NOT EXISTS idx_documents_type ON documents(document_type);
 
 -- ── Composite indexes for _build_filter_clause() query patterns ──
 -- These cover the common filter combinations used by list_documents,
@@ -481,6 +480,10 @@ class Database:
         # These cannot live in SCHEMA_SQL because for databases that pre-date
         # the migration, the columns don't exist when SCHEMA_SQL runs, causing
         # OperationalError: no such column.
+        await self._conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_documents_type "
+            "ON documents(document_type)"
+        )
         await self._conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_documents_collection_created "
             "ON documents(collection_id, created_at DESC)"

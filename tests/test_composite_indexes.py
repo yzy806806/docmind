@@ -416,3 +416,101 @@ class TestNoFullTableScans:
         assert not _is_full_table_scan(plan), (
             f"Full table scan detected!\nPlan:\n  " + "\n  ".join(plan)
         )
+
+
+# ── Migration from pre-Phase-5 databases ─────────────────────────
+
+
+class TestMigrateFromPrePhase5DB:
+    """Regression tests for migration ordering.
+
+    Simulates a database created before Phase 5 (no collection_id or
+    document_type columns) and verifies that migrate() succeeds and
+    creates the dependent indexes.
+    """
+
+    @pytest.fixture
+    async def old_db(self, tmp_db_path: str):
+        """Create a database with a pre-Phase-5 documents table, then migrate."""
+        import aiosqlite
+
+        from src.core.db_sqlite import Database
+
+        # Create a documents table WITHOUT collection_id or document_type
+        # (mimicking a pre-Phase-5 schema).
+        async with aiosqlite.connect(tmp_db_path) as conn:
+            await conn.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS collections (
+                    id    INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name  TEXT NOT NULL,
+                    description TEXT DEFAULT '',
+                    parent_id INTEGER REFERENCES collections(id) ON DELETE CASCADE,
+                    created_at TEXT DEFAULT (datetime('now')),
+                    updated_at TEXT DEFAULT (datetime('now'))
+                );
+                CREATE TABLE IF NOT EXISTS documents (
+                    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                    path         TEXT UNIQUE NOT NULL,
+                    source_type  TEXT NOT NULL DEFAULT 'api',
+                    source_name  TEXT NOT NULL DEFAULT 'api',
+                    file_hash    TEXT,
+                    mtime        REAL DEFAULT 0,
+                    size         INTEGER DEFAULT 0,
+                    title        TEXT NOT NULL,
+                    ext          TEXT DEFAULT '',
+                    mime_type    TEXT DEFAULT 'application/octet-stream',
+                    summary      TEXT,
+                    raw_preview  TEXT DEFAULT '',
+                    body         TEXT DEFAULT '',
+                    status       TEXT NOT NULL DEFAULT 'pending'
+                        CHECK (status IN ('pending','indexed','summarized','error')),
+                    metadata     TEXT DEFAULT '{}',
+                    created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+                    updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
+                );
+                CREATE TABLE IF NOT EXISTS jobs (
+                    id            TEXT PRIMARY KEY,
+                    state         TEXT NOT NULL DEFAULT 'pending'
+                        CHECK (state IN ('pending','processing','completed','failed')),
+                    document_path TEXT NOT NULL,
+                    document_title TEXT,
+                    source_name   TEXT NOT NULL DEFAULT 'api',
+                    document_id   INTEGER REFERENCES documents(id) ON DELETE SET NULL,
+                    error         TEXT,
+                    created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+                    updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
+                );
+                """
+            )
+            await conn.commit()
+
+        # Now connect via Database — migrate() must not raise.
+        database = Database(db_path=tmp_db_path)
+        await database.connect()
+        yield database
+        await database.disconnect()
+
+    @pytest.mark.asyncio
+    async def test_migrate_succeeds_on_old_db(self, old_db) -> None:
+        """migrate() must not raise OperationalError on a pre-Phase-5 DB."""
+        # If we got here, migrate() already ran in the fixture without error.
+        async with old_db.connection() as conn:
+            cursor = await conn.execute("PRAGMA table_info(documents)")
+            columns = {row[1] for row in await cursor.fetchall()}
+        assert "collection_id" in columns
+        assert "document_type" in columns
+
+    @pytest.mark.asyncio
+    async def test_indexes_created_on_old_db(self, old_db) -> None:
+        """The collection_id and document_type indexes must exist after migrate."""
+        async with old_db.connection() as conn:
+            cursor = await conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='index' "
+                "AND tbl_name='documents'"
+            )
+            rows = await cursor.fetchall()
+        index_names = {row[0] for row in rows}
+        assert "idx_documents_collection_created" in index_names
+        assert "idx_documents_doc_type_created" in index_names
+        assert "idx_documents_type" in index_names
