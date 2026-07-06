@@ -227,6 +227,134 @@ class TestSearchEndpointHybridIntegration:
         assert ".csv" in resp.headers.get("content-disposition", "")
 
 
+# ── /search?vector_weight= passthrough tests ─────────────────────
+
+
+class TestSearchVectorWeightParam:
+    """Tests that GET /search?vector_weight= passes through to the hybrid engine."""
+
+    @pytest.mark.asyncio
+    async def test_vector_weight_passed_to_engine(
+        self, asgi_client_with_hybrid
+    ) -> None:
+        """When vector_weight is provided, it should be forwarded to search()."""
+        client, app, hybrid_engine = asgi_client_with_hybrid
+
+        with patch.object(
+            hybrid_engine, "search", wraps=hybrid_engine.search
+        ) as spy:
+            resp = await client.get("/search?q=machine&vector_weight=0.8")
+            assert resp.status_code == 200
+            assert spy.called
+            assert spy.call_args.kwargs.get("vector_weight") == 0.8
+
+    @pytest.mark.asyncio
+    async def test_vector_weight_none_when_not_provided(
+        self, asgi_client_with_hybrid
+    ) -> None:
+        """When vector_weight is omitted, search() should receive None."""
+        client, app, hybrid_engine = asgi_client_with_hybrid
+
+        with patch.object(
+            hybrid_engine, "search", wraps=hybrid_engine.search
+        ) as spy:
+            resp = await client.get("/search?q=machine")
+            assert resp.status_code == 200
+            assert spy.called
+            assert spy.call_args.kwargs.get("vector_weight") is None
+
+    @pytest.mark.asyncio
+    async def test_vector_weight_zero_allowed(
+        self, asgi_client_with_hybrid
+    ) -> None:
+        """vector_weight=0.0 should be accepted (FTS-only search)."""
+        client, app, hybrid_engine = asgi_client_with_hybrid
+
+        with patch.object(
+            hybrid_engine, "search", wraps=hybrid_engine.search
+        ) as spy:
+            resp = await client.get("/search?q=machine&vector_weight=0.0")
+            assert resp.status_code == 200
+            assert spy.call_args.kwargs.get("vector_weight") == 0.0
+
+    @pytest.mark.asyncio
+    async def test_vector_weight_one_allowed(
+        self, asgi_client_with_hybrid
+    ) -> None:
+        """vector_weight=1.0 should be accepted (vector-only search)."""
+        client, app, hybrid_engine = asgi_client_with_hybrid
+
+        with patch.object(
+            hybrid_engine, "search", wraps=hybrid_engine.search
+        ) as spy:
+            resp = await client.get("/search?q=machine&vector_weight=1.0")
+            assert resp.status_code == 200
+            assert spy.call_args.kwargs.get("vector_weight") == 1.0
+
+    @pytest.mark.asyncio
+    async def test_vector_weight_above_one_rejected(
+        self, asgi_client_with_hybrid
+    ) -> None:
+        """vector_weight=1.5 should be rejected with 422 validation error."""
+        client, app, hybrid_engine = asgi_client_with_hybrid
+
+        resp = await client.get("/search?q=machine&vector_weight=1.5")
+        assert resp.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_vector_weight_below_zero_rejected(
+        self, asgi_client_with_hybrid
+    ) -> None:
+        """vector_weight=-0.1 should be rejected with 422 validation error."""
+        client, app, hybrid_engine = asgi_client_with_hybrid
+
+        resp = await client.get("/search?q=machine&vector_weight=-0.1")
+        assert resp.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_vector_weight_invalid_string_rejected(
+        self, asgi_client_with_hybrid
+    ) -> None:
+        """Non-numeric vector_weight should be rejected with 422."""
+        client, app, hybrid_engine = asgi_client_with_hybrid
+
+        resp = await client.get("/search?q=machine&vector_weight=abc")
+        assert resp.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_vector_weight_works_with_export_json(
+        self, asgi_client_with_hybrid
+    ) -> None:
+        """vector_weight should work alongside the json export path."""
+        client, app, hybrid_engine = asgi_client_with_hybrid
+
+        resp = await client.get("/search?q=machine&vector_weight=0.3&export=json")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["result_count"] >= 1
+
+    @pytest.mark.asyncio
+    async def test_vector_weight_ignored_when_no_hybrid_engine(
+        self, asgi_client_no_hybrid
+    ) -> None:
+        """When no hybrid engine is configured, vector_weight should not cause errors."""
+        client, app = asgi_client_no_hybrid
+
+        resp = await client.get("/search?q=machine&vector_weight=0.7")
+        assert resp.status_code == 200
+        assert "text/html" in resp.headers.get("content-type", "")
+
+    @pytest.mark.asyncio
+    async def test_vector_weight_ignored_for_empty_query(
+        self, asgi_client_with_hybrid
+    ) -> None:
+        """When query is empty, vector_weight should not cause errors."""
+        client, app, hybrid_engine = asgi_client_with_hybrid
+
+        resp = await client.get("/search?q=&vector_weight=0.5")
+        assert resp.status_code == 200
+
+
 # ── Chat WebSocket hybrid engine tests ──────────────────────────
 
 

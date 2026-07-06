@@ -506,11 +506,22 @@ def create_app() -> FastAPI:
         export: str = Query(
             default="", description="Export format: csv or json (empty = HTML page)"
         ),
+        vector_weight: Optional[float] = Query(
+            default=None,
+            ge=0.0,
+            le=1.0,
+            description="Hybrid search vector weight (0.0=FTS only, 1.0=vector only). "
+            "Overrides the engine default for this query only.",
+        ),
     ):
         """Search page with results and citations.
 
         When ``export`` is ``csv`` or ``json``, returns a downloadable
         file instead of the HTML results page.
+
+        When ``vector_weight`` is provided (0.0–1.0), it is passed to
+        ``HybridSearchEngine.search()`` to tune the FTS/vector balance
+        for this query without re-instantiating the engine.
         """
         if not q.strip():
             return HTMLResponse(content=_render_search_form())
@@ -525,7 +536,11 @@ def create_app() -> FastAPI:
         try:
             hybrid_engine = getattr(app.state, "hybrid_engine", None)
             if hybrid_engine is not None:
-                raw_results = await hybrid_engine.search(validated_q, top_k=20)
+                raw_results = await hybrid_engine.search(
+                    validated_q,
+                    top_k=20,
+                    vector_weight=vector_weight,
+                )
                 # Adapt hybrid results: map doc_id → id for template/export
                 # compatibility, and ensure snippet is populated.
                 for r in raw_results:
