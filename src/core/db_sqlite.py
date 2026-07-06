@@ -77,11 +77,6 @@ CREATE INDEX IF NOT EXISTS idx_documents_type ON documents(document_type);
 -- ends with created_at so that ORDER BY created_at DESC can be served
 -- from the index without a separate sort step.
 
--- Filter by collection_id + date range, ordered by created_at.
--- Also serves standalone collection_id lookups (IS NULL / = ?).
-CREATE INDEX IF NOT EXISTS idx_documents_collection_created
-    ON documents(collection_id, created_at DESC);
-
 -- Filter by file extension (ext) + date range, ordered by created_at.
 -- Also serves standalone ext lookups.
 CREATE INDEX IF NOT EXISTS idx_documents_ext_created
@@ -97,11 +92,6 @@ CREATE INDEX IF NOT EXISTS idx_documents_status_created
 -- this index covers the source_type branch and standalone source_type lookups.
 CREATE INDEX IF NOT EXISTS idx_documents_source_type_created
     ON documents(source_type, created_at DESC);
-
--- Filter by document_type + date range, ordered by created_at.
--- Supersedes idx_documents_type for queries that also sort by date.
-CREATE INDEX IF NOT EXISTS idx_documents_doc_type_created
-    ON documents(document_type, created_at DESC);
 
 -- Standalone date-range filter and ORDER BY created_at fallback.
 -- Used when the only filter is date_from / date_to.
@@ -486,6 +476,19 @@ class Database:
             await self._conn.execute(
                 "ALTER TABLE documents ADD COLUMN document_type TEXT DEFAULT 'other'"
             )
+
+        # Create indexes that depend on columns added via ALTER TABLE above.
+        # These cannot live in SCHEMA_SQL because for databases that pre-date
+        # the migration, the columns don't exist when SCHEMA_SQL runs, causing
+        # OperationalError: no such column.
+        await self._conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_documents_collection_created "
+            "ON documents(collection_id, created_at DESC)"
+        )
+        await self._conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_documents_doc_type_created "
+            "ON documents(document_type, created_at DESC)"
+        )
 
         await self._conn.commit()
 
