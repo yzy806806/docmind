@@ -22,7 +22,7 @@
     </div>
 
     <div class="search-export-bar">
-        <p style="margin:0;">Found {{ results|length }} result(s) for: <strong>{{ query }}</strong></p>
+        <p style="margin:0;">Found {{ total }} result(s) for: <strong>{{ query }}</strong>{% if total > limit %} (showing first {{ limit }}){% endif %}</p>
         {% if results %}
         <div class="export-links">
             <a href="/search?q={{ query }}&vector_weight={{ "%.2f"|format(vw_current) }}&export=csv" class="btn-export">⬇ Export CSV</a>
@@ -31,6 +31,7 @@
         {% endif %}
     </div>
     {% if results %}
+    <div id="search-results-list">
         {% for r in results %}
         <div class="result">
             <h3><a href="/documents/{{ r.id }}">[{{ r.id }}] {{ r.title }}</a></h3>
@@ -42,6 +43,25 @@
             {% if r.snippet %}<div class="snippet">{{ r.snippet[:300] }}</div>{% endif %}
         </div>
         {% endfor %}
+    </div>
+    {% if total > limit %}
+    {# Lazy-loading sentinel (Phase 9).
+       When this enters the viewport, lazy-load.js fetches more results
+       from /search?partial=1&offset=... and appends them to
+       #search-results-list. A manual "Load More" button is also
+       provided as a fallback for no-JS or no-IntersectionObserver. #}
+    <div id="search-load-more-loading" style="text-align:center;padding:12px;color:var(--text-muted,#888);font-size:0.85em;display:none;">Loading more results…</div>
+    <div style="text-align:center;padding:8px;">
+        <button id="search-load-more-btn" class="btn-export" style="padding:6px 18px;cursor:pointer;border:1px solid var(--border);border-radius:4px;background:var(--surface-alt,transparent);">Load More Results</button>
+    </div>
+    <div id="search-load-more-sentinel"
+         data-query="{{ query }}"
+         data-vector-weight="{{ vw_str }}"
+         data-offset="{{ limit }}"
+         data-total="{{ total }}"
+         data-limit="{{ limit }}"
+         style="height:1px;"></div>
+    {% endif %}
     {% else %}
         <p>No results found. Try different keywords.</p>
     {% endif %}

@@ -10,6 +10,7 @@
         <form id="bulk-delete-form" action="/documents/bulk-delete" method="post" onsubmit="return confirmBulkDelete();">
         <div class="table-scroll">
         <table><tr><th><input type="checkbox" id="select-all" title="Select all" onclick="toggleSelectAll(this);"></th><th>Document</th><th>Status</th><th>Source</th><th>Type</th><th>Date</th>{{ tags_col_header }}<th>View</th></tr>
+        <tbody id="doc-tbody">
         {% for doc in documents %}
         <tr>
             <td><input type="checkbox" name="doc_ids" value="{{ doc.id }}" class="doc-checkbox" onclick="updateDeleteButton();"></td>
@@ -22,7 +23,24 @@
             <td><a href="/documents/{{ doc.id }}/view" class="btn-view-link" title="View document">📖 View</a></td>
         </tr>
         {% endfor %}
+        </tbody>
         </table>
+        {# Infinite-scroll sentinel (Phase 9 lazy loading).
+           When this div enters the viewport, lazy-load.js fetches the
+           next page of rows via /documents/partials/rows and appends
+           them to #doc-tbody. Progressive enhancement: without
+           IntersectionObserver, standard pagination links still work. #}
+        <div id="load-more-sentinel"
+             data-page="{{ page }}"
+             data-total-pages="{{ total_pages }}"
+             data-per-page="{{ per_page }}"
+             data-source="{{ source }}"
+             data-tag="{{ active_tag }}"
+             data-collection-id="{{ active_collection_id if active_collection_id is not none else '' }}"
+             data-date-from="{{ date_from }}"
+             data-date-to="{{ date_to }}"
+             data-file-type="{{ file_type }}"
+             style="height:1px;"></div>
         </div>
         </form>
         <div class="bulk-actions" id="bulk-actions-bar">
@@ -121,6 +139,7 @@
 {% endblock %}
 
 {% block extra_js %}
-    <script src="/static/js/documents-list.js"></script>
-    <script src="/static/js/faceted-filters.js"></script>
+    <script src="/static/js/documents-list.js" defer></script>
+    <script src="/static/js/faceted-filters.js" defer></script>
+    <script src="/static/js/lazy-load.js" defer></script>
 {% endblock %}

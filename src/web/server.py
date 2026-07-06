@@ -136,8 +136,10 @@ from .rendering import (
     _render_analytics_page,
     _render_search_form,
     _render_search_results,
+    _render_search_result_row,
     _render_documents_list,
     _render_documents_table_partial,
+    _render_document_rows_partial,
     _render_collection_detail,
     _render_document_detail,
     _render_upload_form,
@@ -548,6 +550,18 @@ def create_app() -> FastAPI:
                 "Out-of-range values are clamped to [0.0, 1.0]."
             ),
         ),
+        offset: int = Query(
+            default=0, ge=0,
+            description="Pagination offset for lazy loading (partial mode)"
+        ),
+        limit: int = Query(
+            default=20, ge=1, le=100,
+            description="Maximum results to return"
+        ),
+        partial: bool = Query(
+            default=False,
+            description="If true, return only result rows as HTML fragment (for lazy loading)"
+        ),
     ):
         """Search page with results and citations.
 
@@ -603,9 +617,12 @@ def create_app() -> FastAPI:
         try:
             hybrid_engine = getattr(app.state, "hybrid_engine", None)
             if hybrid_engine is not None:
+                # Fetch more than the visible page so we can slice for
+                # offset-based lazy loading (Phase 9).
+                fetch_k = offset + limit
                 raw_results = await hybrid_engine.search(
                     validated_q,
-                    top_k=20,
+                    top_k=fetch_k,
                     vector_weight=resolved_vw,
                 )
                 # Adapt hybrid results: map doc_id → id for template/export
@@ -616,8 +633,10 @@ def create_app() -> FastAPI:
                         r["snippet"] = (r.get("body") or "")[:300]
                 results = raw_results
             else:
-                # Fallback: direct FTS5 search (no hybrid engine configured)
-                results = await db.fulltext_search(validated_q, limit=20)
+                # Fallback: direct FTS5 search (no hybrid engine configured).
+                # Fetch a large batch to determine the true total for the
+                # lazy-loading sentinel, then slice for the current page.
+                results = await db.fulltext_search(validated_q, limit=500)
         except Exception:
             pass
 
@@ -632,7 +651,35 @@ def create_app() -> FastAPI:
         if fmt in ("csv", "json"):
             return _export_search_results(validated_q, results, fmt)
 
-        html = _render_search_results(validated_q, results, vector_weight=resolved_vw)
+        total = len(results)
+
+        # ── Partial (lazy-loading) path ──────────────────────
+        # Return only the result <div> elements for the current offset slice.
+        # The client appends these to #search-results-list.
+        if partial:
+            page_results = results[offset:offset + limit]
+            html_parts = []
+            for r in page_results:
+                prepared = {
+                    "id": r.get("id", "?"),
+                    "title": r.get("title", "Untitled"),
+                    "snippet": r.get("snippet", r.get("raw_preview", "")),
+                    "summary": r.get("summary", ""),
+                    "status": r.get("status", "pending"),
+                    "rank": r.get("rank", 0),
+                }
+                html_parts.append(_render_search_result_row(prepared))
+            return HTMLResponse(content="".join(html_parts))
+
+        # ── Full page ────────────────────────────────────────
+        # For the full page, show the first `limit` results and set up
+        # the lazy-load sentinel for subsequent pages.
+        page_results = results[:limit]
+        html = _render_search_results(
+            validated_q, page_results,
+            vector_weight=resolved_vw,
+            offset=0, limit=limit, total=total,
+        )
         return HTMLResponse(content=html)
 
     @app.get("/documents", response_class=HTMLResponse, include_in_schema=False)
@@ -776,6 +823,69 @@ def create_app() -> FastAPI:
         )
         return HTMLResponse(content=html)
 
+    # ── HTMX Rows-Only Endpoint (Phase 9 lazy loading) ────────────
+    # Returns just the <tr> elements for one page — used by the
+    # infinite-scroll IntersectionObserver in lazy-load.js to append
+    # more rows as the user scrolls. Progressive enhancement: without
+    # JS/IntersectionObserver, the standard pagination links still work.
+    @app.get(
+        "/documents/partials/rows",
+        response_class=HTMLResponse,
+        include_in_schema=False,
+    )
+    async def documents_rows_partial(
+        source: str = Query(default=""),
+        tag: str = Query(default=""),
+        collection_id: Optional[int] = Query(default=None),
+        date_from: str = Query(default=""),
+        date_to: str = Query(default=""),
+        file_type: str = Query(default=""),
+        page: int = Query(default=1, ge=1),
+        per_page: int = Query(default=20, ge=1, le=100),
+    ):
+        """Return document table rows as an HTML fragment for infinite scroll.
+
+        Accepts the same filter/pagination params as GET /documents.
+        Returns ONLY the ``<tr>`` elements (no ``<table>``, ``<tbody>``,
+        or page chrome). The client appends these to ``#doc-tbody`` via
+        ``hx-swap="beforeend"``.
+        """
+        db = get_db()
+        try:
+            result = await db.list_documents_paginated(
+                page=page, per_page=per_page,
+                source=source if source else None,
+                collection_id=collection_id,
+                date_from=date_from if date_from else None,
+                date_to=date_to if date_to else None,
+                file_type=file_type if file_type else None,
+                tag=tag if tag else None,
+            )
+            documents = result["documents"]
+            total = result["total"]
+            total_pages = result["total_pages"]
+        except Exception:
+            documents = []
+            total = 0
+            total_pages = 0
+
+        doc_ids = [d["id"] for d in documents]
+        tags_map = await db.get_tags_for_documents(doc_ids) if doc_ids else {}
+
+        html = _render_document_rows_partial(
+            documents, tags_map=tags_map,
+        )
+        # Include pagination metadata in headers so the client JS knows
+        # whether to keep loading more pages.
+        return HTMLResponse(
+            content=html,
+            headers={
+                "X-Page": str(page),
+                "X-Total-Pages": str(total_pages),
+                "X-Total": str(total),
+            },
+        )
+
     # ── Bulk document export (form/GET) ──────────────────────────
     # Registered BEFORE /documents/{doc_id} to avoid path conflict
     # (FastAPI matches "bulk-export" as a doc_id int parameter otherwise).
@@ -896,6 +1006,43 @@ def create_app() -> FastAPI:
 
         html = render_document_viewer(doc, page=page, per_page=per_page)
         return HTMLResponse(content=html)
+
+    @app.get(
+        "/documents/{doc_id}/partials/excerpt",
+        response_class=HTMLResponse,
+        include_in_schema=False,
+    )
+    async def document_excerpt_partial(doc_id: int):
+        """Return the content excerpt as an HTML fragment for lazy loading.
+
+        Returns just the ``<pre class="doc-excerpt">`` element — the
+        client replaces the placeholder in #doc-excerpt-lazy with this
+        fragment when it scrolls into view.
+        """
+        try:
+            validate_doc_id(doc_id)
+        except ValidationError as e:
+            return HTMLResponse(
+                content=_render_error("Invalid document ID", e.message),
+                status_code=400,
+            )
+
+        db = get_db()
+        doc = await db.get_document(doc_id)
+        if doc is None:
+            return HTMLResponse(
+                content="<em>Document not found.</em>",
+                status_code=404,
+            )
+
+        full_body = doc.get("body", "") or ""
+        excerpt = full_body[:500]
+        if len(full_body) > 500:
+            excerpt = excerpt.rstrip() + "…"
+
+        return HTMLResponse(
+            content=f'<pre class="doc-excerpt">{_escape(excerpt)}</pre>'
+        )
 
     @app.post(
         "/documents/{doc_id}/tags",

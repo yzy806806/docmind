@@ -76,7 +76,13 @@
         </div>
 
         <h3>Content Preview</h3>
-        <pre class="doc-excerpt">{{ escape(excerpt) }}</pre>
+        {# Lazy-load the content preview (Phase 9).
+           The excerpt is loaded via fetch when it scrolls into view,
+           improving initial page render time for document detail pages.
+           Without JS, the excerpt is still rendered server-side below. #}
+        <div id="doc-excerpt-lazy" data-doc-id="{{ doc.id or '?' }}" style="min-height:2em;">
+            <pre class="doc-excerpt">{{ escape(excerpt) }}</pre>
+        </div>
         <p><a href="/documents/{{ doc.id or '?' }}/view" class="btn-read-full">📖 Read Full Document</a></p>
 
         <div class="doc-actions">

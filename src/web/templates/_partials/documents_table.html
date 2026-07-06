@@ -25,6 +25,7 @@
                 <th>Document</th><th>Status</th><th>Source</th><th>Type</th>
                 <th>Date</th>{{ tags_col_header }}<th>View</th>
             </tr>
+            <tbody id="doc-tbody">
             {% for doc in documents %}
             <tr>
                 <td><input type="checkbox" name="doc_ids" value="{{ doc.id }}"
@@ -39,7 +40,19 @@
                        title="View document">📖 View</a></td>
             </tr>
             {% endfor %}
+            </tbody>
         </table>
+        <div id="load-more-sentinel"
+             data-page="{{ page }}"
+             data-total-pages="{{ total_pages }}"
+             data-per-page="{{ per_page }}"
+             data-source="{{ source }}"
+             data-tag="{{ active_tag }}"
+             data-collection-id="{{ active_collection_id if active_collection_id is not none else '' }}"
+             data-date-from="{{ date_from }}"
+             data-date-to="{{ date_to }}"
+             data-file-type="{{ file_type }}"
+             style="height:1px;"></div>
     </form>
     <div class="bulk-actions" id="bulk-actions-bar" style="margin:8px 0;padding:8px;background:var(--bg-secondary,#f5f5f5);border-radius:6px;display:flex;flex-wrap:wrap;gap:12px;align-items:center;">
         <span class="bulk-actions-label" style="font-size:0.85em;font-weight:bold;">Bulk Actions:</span>

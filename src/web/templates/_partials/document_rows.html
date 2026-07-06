@@ -1,0 +1,28 @@
+{# HTMX partial: only the <tr> rows for a single page of the document table.
+   Returned by GET /documents/partials/rows — a fragment endpoint for
+   infinite-scroll lazy loading (Phase 9).
+
+   This fragment is APPENDED to the existing <tbody> by the client-side
+   IntersectionObserver + HTMX swap (hx-swap="beforeend"). Each load
+   increments the page counter until no more pages remain.
+
+   Convention (ADR-003 §HTMX usage guidelines):
+   - Partial endpoints return ONLY the swap fragment (no page chrome)
+   - The wrapping element on the client side is <tbody id="doc-tbody">
+
+   The sentinel + load-more logic lives in lazy-load.js.
+#}
+{% for doc in documents %}
+<tr>
+    <td><input type="checkbox" name="doc_ids" value="{{ doc.id }}"
+               class="doc-checkbox" onclick="updateDeleteButton();"></td>
+    <td><a href="/documents/{{ doc.id }}">[{{ doc.id }}] {{ doc.title or 'Untitled' }}</a></td>
+    <td><span class="badge badge-{{ doc.status or 'pending' }}">{{ doc.status or '' }}</span></td>
+    <td>{{ doc.source_name or doc.source_type or '' }}</td>
+    <td>{{ doc.ext or '' }}</td>
+    <td>{{ fmt_date(doc.created_at) }}</td>
+    <td>{{ doc._tag_badges_html }}</td>
+    <td><a href="/documents/{{ doc.id }}/view" class="btn-view-link"
+           title="View document">📖 View</a></td>
+</tr>
+{% endfor %}

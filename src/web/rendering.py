@@ -442,10 +442,42 @@ def _render_search_form(error: str = "") -> str:
     return _render_template("search_form.html", error=error)
 
 
+def _render_search_result_row(r: dict) -> str:
+    """Render a single search result as an HTML <div> fragment.
+
+    Used by the lazy-loading partial endpoint to return individual result
+    rows that get appended to #search-results-list via fetch + DOM append.
+    """
+    rid = r.get("id", "?")
+    title = r.get("title", "Untitled")
+    snippet = r.get("snippet", r.get("raw_preview", ""))
+    summary = r.get("summary", "")
+    status = r.get("status", "pending")
+    rank = r.get("rank", 0)
+    rank_html = f' | Score: {rank:.2f}' if rank else ''
+    summary_html = f'<div class="snippet"><strong>Summary:</strong> {_escape(summary)}</div>' if summary else ''
+    snippet_html = f'<div class="snippet">{_escape(snippet[:300])}</div>' if snippet else ''
+    return (
+        f'<div class="result">'
+        f'<h3><a href="/documents/{rid}">[{rid}] {_escape(title)}</a></h3>'
+        f'<div class="meta">'
+        f'Status: <span class="badge badge-{_escape(status)}">{_escape(status)}</span>'
+        f'{rank_html}'
+        f'</div>'
+        f'{summary_html}'
+        f'{snippet_html}'
+        f'</div>'
+    )
+
+
 def _render_search_results(
     query: str,
     results: list[dict],
     vector_weight: float | None = None,
+    *,
+    offset: int = 0,
+    limit: int = 20,
+    total: int | None = None,
 ) -> str:
     # Prepare results with escaped fields for template
     prepared = []
@@ -464,12 +496,19 @@ def _render_search_results(
     # Pass as float — the template uses "%.2f"|format() which requires a
     # number, not a string.
     vw_current = vector_weight if vector_weight is not None else 0.6
+    # Total count for lazy-loading sentinel (defaults to results length
+    # when not explicitly provided — e.g. older callers that don't paginate).
+    actual_total = total if total is not None else len(prepared)
     return _render_template(
         "search_results.html",
         query=query,
         results=prepared,
         vw_current=vw_current,
         vw_default=0.6,
+        offset=offset,
+        limit=limit,
+        total=actual_total,
+        vw_str=f"{vw_current:.2f}",
     )
 
 
@@ -842,6 +881,7 @@ def _render_documents_list(
     return _render_template("documents/list.html",
         documents=documents, filter_label=filter_label,
         start=start, end=end, total=total,
+        page=page, per_page=per_page, total_pages=total_pages,
         tags_col_header=tags_col_header,
         tag_cloud_html=tag_cloud_html,
         collection_tree_html=collection_tree_html,
@@ -849,6 +889,7 @@ def _render_documents_list(
         pagination_html=pagination_html,
         date_from=date_from, date_to=date_to, file_type=file_type,
         active_source=source, active_tag=active_tag,
+        active_collection_id=active_collection_id,
         all_collections_list=all_collections_list or [],
         file_type_facets=file_type_facets or [],
         source_facets=source_facets or [],
@@ -928,12 +969,45 @@ def _render_documents_table_partial(
     return _render_template("_partials/documents_table.html",
         documents=documents,
         start=start, end=end, total=total,
+        page=page, per_page=per_page, total_pages=total_pages,
         tags_col_header=tags_col_header,
         pagination_html=pagination_html,
+        active_tag=active_tag, source=source,
+        active_collection_id=active_collection_id,
+        date_from=date_from, date_to=date_to, file_type=file_type,
         file_type_facets=file_type_facets or [],
         source_facets=source_facets or [],
         all_collections_list=all_collections_list or [],
     )
+
+
+def _render_document_rows_partial(
+    documents: list[dict],
+    *,
+    tags_map: dict[int, list[str]] | None = None,
+) -> str:
+    """Render ONLY the <tr> rows for one page of the document table.
+
+    This is the infinite-scroll fragment renderer for Phase 9 lazy loading.
+    Returns just the ``<tr>`` elements (no ``<table>``, ``<tbody>``, or page
+    chrome) so the client can append them via ``hx-swap="beforeend"`` to the
+    existing ``#doc-tbody``.
+
+    Tag-badge preparation mirrors ``_render_documents_list``.
+    """
+    tags_map = tags_map or {}
+    for doc in documents:
+        doc_tags = tags_map.get(doc["id"], [])
+        if doc_tags:
+            tag_badges = '<div class="doc-tags">' + "".join(
+                f'<a href="/documents?tag={_escape(t)}" class="tag-pill">{_escape(t)}</a>'
+                for t in doc_tags
+            ) + "</div>"
+        else:
+            tag_badges = ""
+        doc["_tag_badges_html"] = tag_badges
+
+    return _render_template("_partials/document_rows.html", documents=documents)
 
 
 def _render_document_detail(
