@@ -315,6 +315,154 @@ class TestHybridSearch:
             expected = 0.5 * r["fts_score"] + 0.5 * r["vector_score"]
             assert abs(r["rank"] - expected) < 1e-5
 
+    @pytest.mark.asyncio
+    async def test_search_per_query_vector_weight_override(
+        self, db, mock_embed_client
+    ) -> None:
+        """Per-query vector_weight should override constructor default."""
+        from src.core.search import HybridSearchEngine
+
+        doc_id = await db.save_document(
+            path="/docs/override_test.txt",
+            source_type="local",
+            source_name="test",
+            title="Override Test",
+            ext=".txt",
+            mime_type="text/plain",
+            body="Machine learning test document for weight override.",
+        )
+        await db.save_embedding(doc_id, [1.0, 0.5, 0.3])
+
+        # Engine constructed with vector_weight=0.5
+        engine = HybridSearchEngine(
+            db=db, embed_client=mock_embed_client, vector_weight=0.5
+        )
+
+        # Override to 0.0 → rank should equal fts_score
+        results_fts = await engine.search(
+            "machine learning", top_k=1, vector_weight=0.0
+        )
+        assert len(results_fts) >= 1
+        r = results_fts[0]
+        assert abs(r["rank"] - r["fts_score"]) < 1e-5
+
+        # Override to 1.0 → rank should equal vector_score
+        results_vec = await engine.search(
+            "machine learning", top_k=1, vector_weight=1.0
+        )
+        assert len(results_vec) >= 1
+        r = results_vec[0]
+        assert abs(r["rank"] - r["vector_score"]) < 1e-5
+
+        # Override to 0.3 → rank should be 0.7*fts + 0.3*vec
+        results_custom = await engine.search(
+            "machine learning", top_k=1, vector_weight=0.3
+        )
+        assert len(results_custom) >= 1
+        r = results_custom[0]
+        expected = 0.7 * r["fts_score"] + 0.3 * r["vector_score"]
+        assert abs(r["rank"] - expected) < 1e-5
+
+    @pytest.mark.asyncio
+    async def test_search_per_query_vector_weight_none_uses_default(
+        self, db, mock_embed_client
+    ) -> None:
+        """vector_weight=None should use the constructor default."""
+        from src.core.search import HybridSearchEngine
+
+        doc_id = await db.save_document(
+            path="/docs/default_test.txt",
+            source_type="local",
+            source_name="test",
+            title="Default Test",
+            ext=".txt",
+            mime_type="text/plain",
+            body="Machine learning test for default weight.",
+        )
+        await db.save_embedding(doc_id, [1.0, 0.5, 0.3])
+
+        # Constructor vector_weight=0.8
+        vw = 0.8
+        engine = HybridSearchEngine(
+            db=db, embed_client=mock_embed_client, vector_weight=vw
+        )
+
+        # Calling with vector_weight=None (or omitted) should use 0.8
+        results = await engine.search("machine learning", top_k=1)
+        assert len(results) >= 1
+        r = results[0]
+        expected = (1.0 - vw) * r["fts_score"] + vw * r["vector_score"]
+        assert abs(r["rank"] - expected) < 1e-5
+
+    @pytest.mark.asyncio
+    async def test_search_per_query_vector_weight_clamped(
+        self, db, mock_embed_client
+    ) -> None:
+        """Out-of-range vector_weight should be clamped to [0, 1]."""
+        from src.core.search import HybridSearchEngine
+
+        doc_id = await db.save_document(
+            path="/docs/clamp_test.txt",
+            source_type="local",
+            source_name="test",
+            title="Clamp Test",
+            ext=".txt",
+            mime_type="text/plain",
+            body="Machine learning clamp test document.",
+        )
+        await db.save_embedding(doc_id, [1.0, 0.5, 0.3])
+
+        engine = HybridSearchEngine(
+            db=db, embed_client=mock_embed_client, vector_weight=0.5
+        )
+
+        # 1.5 → clamped to 1.0, so rank == vector_score
+        results_high = await engine.search(
+            "machine learning", top_k=1, vector_weight=1.5
+        )
+        assert len(results_high) >= 1
+        r = results_high[0]
+        assert abs(r["rank"] - r["vector_score"]) < 1e-5
+
+        # -0.5 → clamped to 0.0, so rank == fts_score
+        results_low = await engine.search(
+            "machine learning", top_k=1, vector_weight=-0.5
+        )
+        assert len(results_low) >= 1
+        r = results_low[0]
+        assert abs(r["rank"] - r["fts_score"]) < 1e-5
+
+    @pytest.mark.asyncio
+    async def test_search_per_query_weight_does_not_mutate_engine(
+        self, db, mock_embed_client
+    ) -> None:
+        """A per-query override must not change the engine's stored weights."""
+        from src.core.search import HybridSearchEngine
+
+        doc_id = await db.save_document(
+            path="/docs/mutate_test.txt",
+            source_type="local",
+            source_name="test",
+            title="Mutate Test",
+            ext=".txt",
+            mime_type="text/plain",
+            body="Machine learning mutation test.",
+        )
+        await db.save_embedding(doc_id, [1.0, 0.5, 0.3])
+
+        engine = HybridSearchEngine(
+            db=db, embed_client=mock_embed_client, vector_weight=0.5
+        )
+        original_vw = engine.vector_weight
+        original_fts_w = engine.fts_weight
+
+        # Override per-query
+        await engine.search("machine learning", top_k=1, vector_weight=0.9)
+
+        # Engine's stored weights must be unchanged
+        assert engine.vector_weight == original_vw
+        assert engine.fts_weight == original_fts_w
+
 
 # ── Vector storage in Database tests ────────────────────────────
 
@@ -759,6 +907,55 @@ class TestChunkLevelSearch:
         # The neural network chunk should be in the results
         found = any("neural" in r["chunk_content"].lower() for r in results)
         assert found
+
+    @pytest.mark.asyncio
+    async def test_search_chunks_per_query_vector_weight_override(
+        self, db, mock_embed_client
+    ) -> None:
+        """search_chunks should honour per-query vector_weight override."""
+        from src.core.search import HybridSearchEngine
+
+        doc_id = await db.save_document(
+            path="/docs/chunk_override.txt",
+            source_type="api",
+            source_name="test",
+            title="Chunk Override Doc",
+            ext=".txt",
+            mime_type="text/plain",
+            body="Content",
+        )
+        chunks = [
+            {"text": "Neural networks learn patterns", "start_char": 0,
+             "end_char": 31, "chunk_index": 0, "token_count": 8},
+            {"text": "Weather forecast tomorrow", "start_char": 31,
+             "end_char": 56, "chunk_index": 1, "token_count": 6},
+        ]
+        await db.save_chunks(doc_id, chunks)
+        retrieved = await db.get_chunks(doc_id)
+
+        await db.save_chunk_embedding(retrieved[0]["id"], [1.0, 0.0, 0.0])
+        await db.save_chunk_embedding(retrieved[1]["id"], [0.0, 1.0, 0.0])
+
+        # Engine constructed with vector_weight=0.5
+        engine = HybridSearchEngine(
+            db=db, embed_client=mock_embed_client, vector_weight=0.5
+        )
+
+        # Override to 0.0 → rank should equal fts_score
+        results_fts = await engine.search_chunks(
+            "neural", top_k=5, vector_weight=0.0
+        )
+        assert len(results_fts) >= 1
+        for r in results_fts:
+            assert abs(r["rank"] - r["fts_score"]) < 1e-5
+
+        # Override to 1.0 → rank should equal vector_score
+        results_vec = await engine.search_chunks(
+            "neural", top_k=5, vector_weight=1.0
+        )
+        assert len(results_vec) >= 1
+        for r in results_vec:
+            assert abs(r["rank"] - r["vector_score"]) < 1e-5
 
     @pytest.mark.asyncio
     async def test_index_document_embedding_creates_chunks(

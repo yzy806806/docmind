@@ -379,14 +379,31 @@ class HybridSearchEngine:
         self,
         query: str,
         top_k: int = 5,
+        *,
+        vector_weight: float | None = None,
     ) -> list[dict[str, Any]]:
         """Run hybrid search combining FTS5 and vector similarity.
 
         Returns a list of dicts with keys: doc_id, path, title, summary,
         body, snippet, rank (fused score), fts_score, vector_score.
+
+        Args:
+            query: Search query string.
+            top_k: Maximum number of results to return.
+            vector_weight: Optional per-query override of the vector
+                weight (0.0–1.0).  When ``None`` (default), the weight
+                configured at construction time (``self.vector_weight``)
+                is used.  This allows callers to tune the FTS/vector
+                balance per query without re-instantiating the engine.
         """
         if not query or not query.strip():
             return []
+
+        # Resolve effective weights (per-query override or constructor default)
+        eff_vw = self.vector_weight
+        if vector_weight is not None:
+            eff_vw = max(0.0, min(1.0, vector_weight))
+        eff_fts_w = 1.0 - eff_vw
 
         # Stage 1: FTS5 keyword search (broad recall)
         fts_results = await self.db.search_documents(
@@ -439,7 +456,7 @@ class HybridSearchEngine:
             fts_score = fts_score_map.get(doc_id, 0.0)
             vec_score = vector_scores.get(doc_id, 0.0)
             fused_score = (
-                self.fts_weight * fts_score + self.vector_weight * vec_score
+                eff_fts_w * fts_score + eff_vw * vec_score
             )
             fused.append({
                 "doc_id": doc_id,
@@ -507,6 +524,8 @@ class HybridSearchEngine:
         self,
         query: str,
         top_k: int = 5,
+        *,
+        vector_weight: float | None = None,
     ) -> list[dict[str, Any]]:
         """Hybrid search at the chunk level.
 
@@ -518,9 +537,22 @@ class HybridSearchEngine:
         Returns a list of dicts with keys: doc_id, title, path,
         chunk_id, chunk_index, chunk_content, snippet, rank (fused
         score), fts_score, vector_score.
+
+        Args:
+            query: Search query string.
+            top_k: Maximum number of chunks to return.
+            vector_weight: Optional per-query override of the vector
+                weight (0.0–1.0).  When ``None`` (default), the weight
+                configured at construction time is used.
         """
         if not query or not query.strip():
             return []
+
+        # Resolve effective weights (per-query override or constructor default)
+        eff_vw = self.vector_weight
+        if vector_weight is not None:
+            eff_vw = max(0.0, min(1.0, vector_weight))
+        eff_fts_w = 1.0 - eff_vw
 
         # Stage 1: FTS5 on chunk content
         fts_chunks = await self.db.search_chunks_fts(
@@ -568,7 +600,7 @@ class HybridSearchEngine:
             fts_score = fts_score_map.get(chunk_id, 0.0)
             vec_score = vec_scores.get(chunk_id, 0.0)
             fused_score = (
-                self.fts_weight * fts_score + self.vector_weight * vec_score
+                eff_fts_w * fts_score + eff_vw * vec_score
             )
             fused.append({
                 "chunk_id": chunk_id,
