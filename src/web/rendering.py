@@ -461,13 +461,15 @@ def _render_search_results(
     # Determine the vector_weight to display in the UI slider.
     # When the user provided a value, show it back; otherwise show the
     # engine default (0.6) so the slider starts at a sensible position.
+    # Pass as float — the template uses "%.2f"|format() which requires a
+    # number, not a string.
     vw_current = vector_weight if vector_weight is not None else 0.6
     return _render_template(
         "search_results.html",
         query=query,
         results=prepared,
-        vw_current=f"{vw_current:.2f}",
-        vw_default="0.60",
+        vw_current=vw_current,
+        vw_default=0.6,
     )
 
 
