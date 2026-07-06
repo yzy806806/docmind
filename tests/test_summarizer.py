@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-import time
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -211,14 +210,13 @@ class TestSummarizer:
         llm = FakeLLM()
         s = Summarizer(llm, tpm_limit=10)
 
-        start = time.monotonic()
-        for _ in range(5):
-            s.summarize("T", "Body.", max_input_chars=2000)
-        elapsed = time.monotonic() - start
+        # Patch _rate_limit to avoid real time.sleep (24s of sleeping).
+        # This test only verifies that summarize() makes the expected number
+        # of LLM calls — it does not test timing behavior.
+        with patch.object(s, "_rate_limit"):
+            for _ in range(5):
+                s.summarize("T", "Body.", max_input_chars=2000)
 
-        # With TPM=10, minimum interval = 6s per call. For 5 calls: 4 intervals * 6 = 24s minimum
-        # Actually TPM=10 means 60/10 = 6s between calls, so 4 intervals = 24s
-        # But this test would be too slow. Let's just verify calls happened.
         assert len(llm.calls) >= 5
 
     def test_idempotent_chunk_ids(self) -> None:

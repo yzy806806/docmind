@@ -65,9 +65,9 @@
 | Workflow automation / rules | 🔴 Missing | Low | Paperless-ngx consumers, Mayan workflows |
 | Redis caching | ✅ Have | - | In-memory dict cache with pluggable Redis backend, TTL eviction, invalidation on all mutations (Phase 5a done) |
 | Database query optimization / indexing | 🟡 Partial | Medium | Composite indexes added for filter query patterns (Phase 8a, 70eda58); further optimization possible |
-| Responsive design | 🟡 Partial | Medium | Mobile layout in base.html but not thoroughly tested |
-| Keyboard shortcuts | 🔴 Missing | Low | No keyboard shortcut system found |
-| Lazy loading for large lists | 🟡 Partial | Medium | Pagination exists but no infinite scroll |
+| Responsive design | ✅ Have | - | Phase 9: validated across 4 breakpoints (1024/640/768/480px) on 7 pages + viewer; no layout issues found; prefers-reduced-motion, hamburger nav (e549326, 0771b71) |
+| Keyboard shortcuts | ✅ Have | - | Phase 9: Gmail-style g-prefix navigation, quick actions (/, ?, Esc), document ops (e, t, m, Del); help modal; suppressed in inputs; 53 tests (e549326) |
+| Lazy loading for large lists | ✅ Have | - | Phase 9: infinite scroll via IntersectionObserver for doc list, search results, content previews; Load More fallback; 40 tests (edf5ec5) |
 | REST API coverage (complete CRUD) | 🟡 Partial | Medium | Most endpoints exist, some gaps in collection detail route |
 | Rate limiting (API) | ✅ Have | - | Per-IP sliding window middleware, 429 + Retry-After, configurable via env vars (Phase 6a done) |
 | Full-text search in document content | ✅ Have | - | Already implemented |
@@ -93,7 +93,7 @@ All three highest-priority gaps from the original analysis have been closed:
 
 5. **Document type auto-detection** — ✅ Complete (Phase 5b). LLM-based classification with keyword fallback during ingestion.
 
-6. **Responsive design polish** — While base.html has mobile styles, the UX on mobile needs validation and likely improvement.
+6. **Responsive design polish** — ✅ Complete (Phase 9). Validated across 4 breakpoints on 7 pages + viewer. No layout issues found (see docs/responsive-validation-report.md).
 
 7. **API rate limiting** — ✅ Complete (Phase 6a). Per-IP sliding window middleware. 429 response with Retry-After header. 41 tests.
 
@@ -107,7 +107,7 @@ All three highest-priority gaps from the original analysis have been closed:
 
 11. **Workflow automation** — Advanced feature, not required for basic parity.
 
-12. **Keyboard shortcuts** — UX polish, not competitive-critical.
+12. **Keyboard shortcuts** — ✅ Complete (Phase 9). Gmail-style navigation, quick actions, document ops, help modal. 53 tests.
 
 ---
 
@@ -123,8 +123,9 @@ All three highest-priority gaps from the original analysis have been closed:
 
 **Phase 8 (Email Ingestion) is complete.** IMAP-based email ingestion is implemented with Fernet password encryption for credential storage, an email account management UI, email metadata displayed on the document detail page, and search integration for ingested emails. 2138 tests pass (commit 087a705).
 
+**Phase 9 (UX Polish & Final Gaps) is complete.** Three deliverables shipped: (1) responsive design validated across 4 breakpoints (1024/768/640/480px) on all 7 pages plus the document viewer, with no layout issues found — see docs/responsive-validation-report.md (commits e549326, 0771b71); (2) Gmail-style keyboard shortcuts with g-prefix navigation, quick actions, document operations, and a dynamic help modal — 53 tests (commit e549326); (3) lazy loading via IntersectionObserver for document lists, search results, and content previews with Load More fallback — 40 tests (commit edf5ec5). The crypto._encryptor singleton leak was also fixed with a per-instance encryptor refactor (commit 15d6075). Full suite: 2231 passed, 1 skipped.
+
 **Remaining gaps to close:**
-1. **Responsive design polish** — validate and improve mobile UX (medium priority)
-2. **Lazy loading / infinite scroll** — improve UX for large document lists (medium priority)
-3. **Keyboard shortcuts** — UX polish (low priority)
-4. **Workflow automation** — advanced rules engine (low priority)
+1. **Workflow automation** — advanced rules engine (low priority)
+2. **REST API coverage** — remaining collection detail route gaps (medium priority)
+3. **Database query optimization** — further index tuning beyond Phase 8a composite indexes (medium priority)
