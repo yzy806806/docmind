@@ -7,6 +7,18 @@
         <div class="field"><span class="field-label">Status:</span> <span class="badge badge-{{ doc.status or 'pending' }}">{{ doc.status or '' }}</span></div>
         <div class="field"><span class="field-label">Path:</span> {{ doc.path or '' }}</div>
         <div class="field"><span class="field-label">Source:</span> {{ doc.source_name or doc.source_type or '' }}</div>
+        {% if doc.source_type == 'email' and email_meta %}
+        <div class="email-meta-section" style="margin:8px 0;padding:8px 12px;border-left:3px solid var(--accent,#4a90d9);background:var(--surface-alt,rgba(255,255,255,0.03));">
+            <div class="field"><span class="field-label">📧 Sender:</span> {{ email_meta.email_sender or '' }}</div>
+            <div class="field"><span class="field-label">Subject:</span> {{ email_meta.email_subject or '' }}</div>
+            <div class="field"><span class="field-label">Message-ID:</span> <code>{{ email_meta.email_message_id or '' }}</code></div>
+            <div class="field"><span class="field-label">Received:</span> {{ email_meta.email_received_at or '' }}</div>
+            <div class="field"><span class="field-label">Thread ID:</span> <code>{{ email_meta.email_thread_id or '' }}</code></div>
+            {% if email_meta.email_part %}
+            <div class="field"><span class="field-label">Part:</span> {{ email_meta.email_part }}</div>
+            {% endif %}
+        </div>
+        {% endif %}
         <div class="field"><span class="field-label">Type:</span> {{ doc.ext or '' }} ({{ doc.mime_type or '' }})</div>
         <div class="field"><span class="field-label">Size:</span> {{ fmt_size(doc.size or 0) }}</div>
         <div class="field"><span class="field-label">Created:</span> {{ fmt_date(doc.created_at) }}</div>

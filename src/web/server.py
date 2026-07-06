@@ -101,6 +101,7 @@ from ..core.config import config
 from ..core.cache import create_cache_backend
 from ..core.db_sqlite import Database
 from ..core.email_ingestor import email_polling_worker
+from ..core.crypto import init_encryptor
 from ..core.embeddings import EmbeddingClient
 from ..core.extractor import Extractor
 from ..core.job_queue import JobQueue
@@ -154,6 +155,9 @@ from .rendering import (
     _render_jobs_page,
     _render_job_detail,
     _render_collection_form,
+    _render_email_accounts_list,
+    _render_email_account_form,
+    _render_email_logs,
     _render_error,
     _svg_line_chart,
     _svg_bar_chart,
@@ -3375,6 +3379,123 @@ def create_app() -> FastAPI:
         return RedirectResponse(
             url=f"/documents/{doc_id}", status_code=303,
         )
+
+    # ── Email Account UI Pages ───────────────────────────────────
+
+    @app.get("/email-accounts", response_class=HTMLResponse, include_in_schema=False)
+    async def email_accounts_list_page(api_key: str = Security(api_key_header)):
+        if auth_enabled() and not api_key:
+            return unauthorized_response()
+        db = get_db()
+        accounts = await db.list_email_accounts(enabled_only=False)
+        for a in accounts:
+            a.pop("password", None)
+        return HTMLResponse(content=_render_email_accounts_list(accounts))
+
+    @app.get("/email-accounts/new", response_class=HTMLResponse, include_in_schema=False)
+    async def email_account_new_page(api_key: str = Security(api_key_header)):
+        if auth_enabled() and not api_key:
+            return unauthorized_response()
+        return HTMLResponse(content=_render_email_account_form(mode="create"))
+
+    @app.get("/email-accounts/{account_id}/edit", response_class=HTMLResponse, include_in_schema=False)
+    async def email_account_edit_page(account_id: int, api_key: str = Security(api_key_header)):
+        if auth_enabled() and not api_key:
+            return unauthorized_response()
+        db = get_db()
+        account = await db.get_email_account(account_id)
+        if not account:
+            return HTMLResponse(content=_render_error("Not Found", "Email account not found."), status_code=404)
+        account.pop("password", None)
+        return HTMLResponse(content=_render_email_account_form(mode="edit", account=account))
+
+    @app.get("/email-accounts/{account_id}/logs", response_class=HTMLResponse, include_in_schema=False)
+    async def email_account_logs_page(account_id: int, status: str = Query(default=""), page: int = Query(default=1, ge=1), per_page: int = Query(default=50, ge=1, le=200), api_key: str = Security(api_key_header)):
+        if auth_enabled() and not api_key:
+            return unauthorized_response()
+        db = get_db()
+        account = await db.get_email_account(account_id)
+        if not account:
+            return HTMLResponse(content=_render_error("Not Found", "Email account not found."), status_code=404)
+        account.pop("password", None)
+        offset = (page - 1) * per_page
+        logs = await db.list_email_ingestion_logs(account_id, status=status if status else None, limit=per_page, offset=offset)
+        total = await db.count_email_ingestion_logs(account_id, status=status if status else None)
+        return HTMLResponse(content=_render_email_logs(account=account, logs=logs, total=total, status_filter=status, page=page, per_page=per_page))
+
+    @app.get("/email-accounts/{account_id}/test", response_class=HTMLResponse, include_in_schema=False)
+    async def email_account_test_page(account_id: int, api_key: str = Security(api_key_header)):
+        if auth_enabled() and not api_key:
+            return unauthorized_response()
+        db = get_db()
+        account = await db.get_email_account(account_id)
+        if not account:
+            return HTMLResponse(content=_render_error("Not Found", "Email account not found."), status_code=404)
+        from ..core.email_ingestor import EmailIngestor
+        from ..core.config import EmailAccountConfig
+        acct = EmailAccountConfig(name=account.get("name",""), host=account.get("host",""), port=account.get("port",993), use_ssl=account.get("use_ssl",True), username=account.get("username",""), password=account.get("password",""), folder=account.get("folder","INBOX"))
+        ingestor = EmailIngestor(db, Extractor())
+        success, message = await ingestor.test_connection(acct)
+        account.pop("password", None)
+        error_text = f"Connection successful: {message}" if success else f"Connection test failed: {message}"
+        return HTMLResponse(content=_render_email_account_form(mode="edit", account=account, error=error_text))
+
+    @app.post("/email-accounts/create", response_class=HTMLResponse, include_in_schema=False)
+    async def email_account_create_post(request: Request, api_key: str = Security(api_key_header)):
+        if auth_enabled() and not api_key:
+            return unauthorized_response()
+        db = get_db()
+        form = await request.form()
+        body = {"name": form.get("name",""), "host": form.get("host",""), "port": int(form.get("port",993)), "use_ssl": form.get("use_ssl")=="1", "username": form.get("username",""), "password": form.get("password",""), "folder": form.get("folder","INBOX"), "body_handling": form.get("body_handling","save_with_attachments"), "attachment_whitelist": form.get("attachment_whitelist",""), "attachment_blacklist": form.get("attachment_blacklist",""), "enabled": form.get("enabled")=="1"}
+        try:
+            await db.create_email_account(body)
+        except Exception as e:
+            return HTMLResponse(content=_render_email_account_form(mode="create", error=str(e)), status_code=409)
+        return RedirectResponse(url="/email-accounts", status_code=303)
+
+    @app.post("/email-accounts/{account_id}/edit", response_class=HTMLResponse, include_in_schema=False)
+    async def email_account_edit_post(account_id: int, request: Request, api_key: str = Security(api_key_header)):
+        if auth_enabled() and not api_key:
+            return unauthorized_response()
+        db = get_db()
+        form = await request.form()
+        body = {"name": form.get("name",""), "host": form.get("host",""), "port": int(form.get("port",993)), "use_ssl": form.get("use_ssl")=="1", "username": form.get("username",""), "folder": form.get("folder","INBOX"), "body_handling": form.get("body_handling","save_with_attachments"), "attachment_whitelist": form.get("attachment_whitelist",""), "attachment_blacklist": form.get("attachment_blacklist",""), "enabled": form.get("enabled")=="1"}
+        password = form.get("password", "")
+        if password:
+            body["password"] = password
+        account = await db.update_email_account(account_id, body)
+        if not account:
+            return HTMLResponse(content=_render_error("Not Found", "Email account not found."), status_code=404)
+        return RedirectResponse(url="/email-accounts", status_code=303)
+
+    @app.post("/email-accounts/{account_id}/delete", response_class=HTMLResponse, include_in_schema=False)
+    async def email_account_delete_post(account_id: int, api_key: str = Security(api_key_header)):
+        if auth_enabled() and not api_key:
+            return unauthorized_response()
+        db = get_db()
+        await db.delete_email_account(account_id)
+        return RedirectResponse(url="/email-accounts", status_code=303)
+
+    @app.post("/email-accounts/{account_id}/sync", response_class=HTMLResponse, include_in_schema=False)
+    async def email_account_sync_post(account_id: int, api_key: str = Security(api_key_header)):
+        if auth_enabled() and not api_key:
+            return unauthorized_response()
+        db = get_db()
+        account_dict = await db.get_email_account(account_id)
+        if not account_dict:
+            return HTMLResponse(content=_render_error("Not Found", "Email account not found."), status_code=404)
+        from ..core.email_ingestor import EmailIngestor
+        from ..core.config import EmailAccountConfig
+        acct = EmailAccountConfig(name=account_dict.get("name",""), host=account_dict.get("host",""), port=account_dict.get("port",993), use_ssl=account_dict.get("use_ssl",True), username=account_dict.get("username",""), password=account_dict.get("password",""), folder=account_dict.get("folder","INBOX"), action_after_fetch=account_dict.get("action_after_fetch","mark_seen"), move_to_folder=account_dict.get("move_to_folder"), body_handling=account_dict.get("body_handling","save_with_attachments"), attachment_whitelist=account_dict.get("attachment_whitelist",""), attachment_blacklist=account_dict.get("attachment_blacklist",""), deduplication_strategy=account_dict.get("deduplication_strategy","message_id"), enabled=account_dict.get("enabled",True))
+        ingestor = EmailIngestor(db, Extractor())
+        try:
+            await ingestor.poll_account(acct, account_id=account_id)
+        except Exception:
+            accounts = await db.list_email_accounts(enabled_only=False)
+            for a in accounts:
+                a.pop("password", None)
+            return HTMLResponse(content=_render_email_accounts_list(accounts), status_code=500)
+        return RedirectResponse(url=f"/email-accounts/{account_id}/logs", status_code=303)
 
     # ── Email Account API ────────────────────────────────────────
 
