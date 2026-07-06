@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+
+{% block content %}
+    <div class="card">
+        <h2>📋 Ingestion Logs — {{ account.name if account else 'Unknown' }}</h2>
+        <p class="pagination-info">
+            <a href="/email-accounts">← Back to Email Accounts</a>
+            {% if account %}
+            · <a href="/email-accounts/{{ account.id }}/edit">Edit Account</a>
+            {% endif %}
+        </p>
+
+        {% if account and account.last_error %}
+        <div class="alert" style="padding:8px 12px;margin:8px 0;border:1px solid var(--danger, #e74c3c);border-radius:6px;">
+            <strong>Last Error:</strong> <code>{{ account.last_error }}</code>
+        </div>
+        {% endif %}
+
+        {% if account %}
+        <div style="display:flex;gap:16px;margin:12px 0;font-size:0.9em;">
+            <div><strong>Host:</strong> {{ account.host }}:{{ account.port }}</div>
+            <div><strong>Last Sync:</strong> {{ fmt_date(account.last_sync_at) or 'Never' }}</div>
+            <div><strong>Total Logged:</strong> {{ total }}</div>
+        </div>
+        {% endif %}
+
+        {# Status filter #}
+        <details class="filter-panel" {{ 'open' if status_filter }}>
+            <summary>🔍 Filter</summary>
+            <form id="log-filter-form" method="get" action="/email-accounts/{{ account.id if account else 0 }}/logs"
+                  style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px;">
+                <label>
+                    Status
+                    <select name="status" class="facet-select">
+                        <option value="">All</option>
+                        <option value="completed" {{ 'selected' if status_filter == 'completed' }}>Completed</option>
+                        <option value="failed" {{ 'selected' if status_filter == 'failed' }}>Failed</option>
+                        <option value="skipped" {{ 'selected' if status_filter == 'skipped' }}>Skipped</option>
+                        <option value="pending" {{ 'selected' if status_filter == 'pending' }}>Pending</option>
+                        <option value="processing" {{ 'selected' if status_filter == 'processing' }}>Processing</option>
+                    </select>
+                </label>
+                <button type="submit" style="padding:5px 14px;cursor:pointer;">Apply</button>
+                <a href="/email-accounts/{{ account.id if account else 0 }}/logs" class="facet-clear-btn">Clear</a>
+            </form>
+        </details>
+
+        {% if logs %}
+        <div class="table-scroll" style="margin-top:12px;">
+        <table>
+            <tr>
+                <th>ID</th>
+                <th>Subject</th>
+                <th>Sender</th>
+                <th>Status</th>
+                <th>Docs</th>
+                <th>Error</th>
+                <th>Received</th>
+                <th>Logged</th>
+            </tr>
+            {% for log in logs %}
+            <tr>
+                <td>{{ log.id }}</td>
+                <td>{{ log.subject or '(no subject)' }}</td>
+                <td>{{ log.sender or '' }}</td>
+                <td>
+                    <span class="badge badge-{{ log.status or 'pending' }}">{{ log.status or '' }}</span>
+                </td>
+                <td>
+                    {% if log.document_ids and log.document_ids != '[]' %}
+                        {{ log.document_ids }}
+                    {% else %}
+                        —
+                    {% endif %}
+                </td>
+                <td>
+                    {% if log.error %}
+                        <span title="{{ log.error }}" style="cursor:help;color:var(--danger, #e74c3c);">⚠</span>
+                    {% else %}
+                        —
+                    {% endif %}
+                </td>
+                <td>{{ fmt_date(log.received_at) or '' }}</td>
+                <td>{{ fmt_date(log.created_at) }}</td>
+            </tr>
+            {% endfor %}
+        </table>
+        </div>
+
+        {# Pagination #}
+        {% if total_pages > 1 %}
+        <div class="pagination" style="margin-top:12px;display:flex;gap:4px;justify-content:center;">
+            {% if page > 1 %}
+                <a href="/email-accounts/{{ account.id if account else 0 }}/logs?page={{ page - 1 }}{% if status_filter %}&status={{ status_filter }}{% endif %}" class="btn-view-link">← Prev</a>
+            {% endif %}
+            <span>Page {{ page }} of {{ total_pages }}</span>
+            {% if page < total_pages %}
+                <a href="/email-accounts/{{ account.id if account else 0 }}/logs?page={{ page + 1 }}{% if status_filter %}&status={{ status_filter }}{% endif %}" class="btn-view-link">Next →</a>
+            {% endif %}
+        </div>
+        {% endif %}
+        {% else %}
+        <p>No ingestion logs found. Trigger a <a href="/email-accounts/{{ account.id if account else '' }}">manual sync</a> to start.</p>
+        {% endif %}
+    </div>
+{% endblock %}

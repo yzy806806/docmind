@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+
+{% block content %}
+    <div class="card">
+        <h2>{{ page_title }}</h2>
+        <p class="pagination-info">
+            <a href="/email-accounts">← Back to Email Accounts</a>
+        </p>
+
+        {% if error %}
+        <div class="alert alert-error" style="padding:8px 12px;margin:8px 0;border:1px solid var(--danger, #e74c3c);border-radius:6px;color:var(--danger, #e74c3c);">
+            {{ error }}
+        </div>
+        {% endif %}
+
+        <form method="post" action="{{ form_action }}" class="settings-form" style="margin-top:16px;">
+            <div class="settings-field">
+                <label for="name">Account Name</label>
+                <input type="text" id="name" name="name" required
+                       value="{{ account.name if account else '' }}"
+                       placeholder="e.g. Gmail — Personal"
+                       style="width:100%;padding:8px 12px;border:2px solid var(--input-border);border-radius:6px;font-size:1em;background:var(--surface);color:var(--text);">
+                <p class="settings-hint">A unique label to identify this account.</p>
+            </div>
+
+            <div class="settings-field">
+                <label for="host">IMAP Host</label>
+                <input type="text" id="host" name="host" required
+                       value="{{ account.host if account else '' }}"
+                       placeholder="e.g. imap.gmail.com"
+                       style="width:100%;padding:8px 12px;border:2px solid var(--input-border);border-radius:6px;font-size:1em;background:var(--surface);color:var(--text);">
+            </div>
+
+            <div style="display:flex;gap:16px;">
+                <div class="settings-field" style="flex:1;">
+                    <label for="port">Port</label>
+                    <input type="number" id="port" name="port"
+                           value="{{ account.port if account else 993 }}"
+                           style="width:100%;padding:8px 12px;border:2px solid var(--input-border);border-radius:6px;font-size:1em;background:var(--surface);color:var(--text);">
+                </div>
+                <div class="settings-field" style="flex:1;">
+                    <label for="use_ssl">Use SSL</label>
+                    <select id="use_ssl" name="use_ssl"
+                            style="width:100%;padding:8px 12px;border:2px solid var(--input-border);border-radius:6px;font-size:1em;background:var(--surface);color:var(--text);">
+                        <option value="1" {{ 'selected' if (account and account.use_ssl) or not account }}>Yes (recommended)</option>
+                        <option value="0" {{ 'selected' if account and not account.use_ssl }}>No</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="settings-field">
+                <label for="username">Username</label>
+                <input type="text" id="username" name="username" required
+                       value="{{ account.username if account else '' }}"
+                       placeholder="e.g. user@gmail.com"
+                       style="width:100%;padding:8px 12px;border:2px solid var(--input-border);border-radius:6px;font-size:1em;background:var(--surface);color:var(--text);">
+            </div>
+
+            <div class="settings-field">
+                <label for="password">Password{{ ' (leave blank to keep current)' if mode == 'edit' else '' }}</label>
+                <input type="password" id="password" name="password"
+                       {{ '' if mode == 'edit' else 'required' }}
+                       placeholder="{{ '••••••••' if mode == 'edit' else 'Enter password' }}"
+                       style="width:100%;padding:8px 12px;border:2px solid var(--input-border);border-radius:6px;font-size:1em;background:var(--surface);color:var(--text);">
+                <p class="settings-hint">Stored as plaintext for MVP. Encryption coming in Phase 8e.</p>
+            </div>
+
+            <div class="settings-field">
+                <label for="folder">Folder to Monitor</label>
+                <input type="text" id="folder" name="folder"
+                       value="{{ account.folder if account else 'INBOX' }}"
+                       placeholder="INBOX"
+                       style="width:100%;padding:8px 12px;border:2px solid var(--input-border);border-radius:6px;font-size:1em;background:var(--surface);color:var(--text);">
+            </div>
+
+            <div class="settings-field">
+                <label for="body_handling">Body Handling</label>
+                <select id="body_handling" name="body_handling"
+                        style="width:100%;padding:8px 12px;border:2px solid var(--input-border);border-radius:6px;font-size:1em;background:var(--surface);color:var(--text);">
+                    <option value="save_with_attachments" {{ 'selected' if (account and account.body_handling == 'save_with_attachments') or not account }}>Save body + attachments (default)</option>
+                    <option value="save_as_document" {{ 'selected' if account and account.body_handling == 'save_as_document' }}>Body only</option>
+                    <option value="attachments_only" {{ 'selected' if account and account.body_handling == 'attachments_only' }}>Attachments only</option>
+                </select>
+            </div>
+
+            <div class="settings-field">
+                <label for="attachment_whitelist">Attachment Whitelist (optional)</label>
+                <input type="text" id="attachment_whitelist" name="attachment_whitelist"
+                       value="{{ account.attachment_whitelist if account else '' }}"
+                       placeholder="e.g. *.pdf,*.docx,*.txt"
+                       style="width:100%;padding:8px 12px;border:2px solid var(--input-border);border-radius:6px;font-size:1em;background:var(--surface);color:var(--text);">
+                <p class="settings-hint">Comma-separated glob patterns. Only matching attachments are saved.</p>
+            </div>
+
+            <div class="settings-field">
+                <label for="attachment_blacklist">Attachment Blacklist (optional)</label>
+                <input type="text" id="attachment_blacklist" name="attachment_blacklist"
+                       value="{{ account.attachment_blacklist if account else '' }}"
+                       placeholder="e.g. *.exe,*.zip"
+                       style="width:100%;padding:8px 12px;border:2px solid var(--input-border);border-radius:6px;font-size:1em;background:var(--surface);color:var(--text);">
+                <p class="settings-hint">Comma-separated glob patterns. Matching attachments are skipped.</p>
+            </div>
+
+            <div class="settings-field">
+                <label for="enabled">Enabled</label>
+                <select id="enabled" name="enabled"
+                        style="width:100%;padding:8px 12px;border:2px solid var(--input-border);border-radius:6px;font-size:1em;background:var(--surface);color:var(--text);">
+                    <option value="1" {{ 'selected' if (account and account.enabled) or not account }}>Yes</option>
+                    <option value="0" {{ 'selected' if account and not account.enabled }}>No</option>
+                </select>
+            </div>
+
+            <div class="settings-actions">
+                <button type="submit" class="btn-save">
+                    {{ 'Update Account' if mode == 'edit' else 'Create Account' }}
+                </button>
+                {% if mode == 'edit' %}
+                <a href="/email-accounts/{{ account.id }}/test" class="btn-view-link" style="padding:6px 12px;text-decoration:none;border:1px solid var(--border);border-radius:4px;">🔌 Test Connection</a>
+                {% endif %}
+                <a href="/email-accounts" class="btn-cancel">Cancel</a>
+            </div>
+        </form>
+    </div>
+{% endblock %}
