@@ -27,6 +27,7 @@ dependencies = [
     "pytesseract>=0.3.10",
     "pdf2image>=1.17.0",
     "Pillow>=10.0.0",
+    "cryptography>=42.0.0",
 ]
 
 [project.optional-dependencies]

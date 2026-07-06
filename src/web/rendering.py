@@ -968,11 +968,22 @@ def _render_document_detail(
     wc = word_count(full_body)
     rt = reading_time_minutes(full_body)
 
+    # Extract email metadata for email-sourced documents. The metadata
+    # dict (parsed from the JSON column by db_sqlite) contains keys like
+    # email_sender, email_subject, email_thread_id, etc. when the document
+    # was ingested from an email account.
+    email_meta = None
+    if doc.get("source_type") == "email":
+        meta = doc.get("metadata") or {}
+        if isinstance(meta, dict) and any(k.startswith("email_") for k in meta):
+            email_meta = meta
+
     return _render_template("documents/detail.html",
         doc=doc, tag_badges_html=tag_badges_html,
         excerpt=excerpt, wc=wc, rt=rt,
         current_collection=current_collection,
         all_collections=all_collections,
+        email_meta=email_meta,
     )
 
 
@@ -1271,6 +1282,63 @@ def _render_collection_form(
         parent_choices=parent_choices,
         form_action=form_action,
         delete_action=delete_action,
+    )
+
+
+def _render_email_accounts_list(accounts: list[dict]) -> str:
+    """Render the email accounts list page.
+
+    Expects accounts to be a list of email account dicts (as returned
+    by db.list_email_accounts()) with the password key already
+    stripped by the caller (server.py route handler).
+    """
+    return _render_template("email/accounts_list.html", accounts=accounts)
+
+
+def _render_email_account_form(
+    mode: str = "create",
+    account: dict | None = None,
+    error: str | None = None,
+) -> str:
+    """Render the create/edit email account form."""
+    if mode == "edit":
+        page_title = "Edit Email Account"
+        acct_id = account["id"] if account else 0
+        form_action = f"/email-accounts/{acct_id}/edit"
+    else:
+        page_title = "New Email Account"
+        form_action = "/email-accounts/create"
+
+    return _render_template(
+        "email/account_form.html",
+        mode=mode,
+        page_title=page_title,
+        account=account,
+        error=error,
+        form_action=form_action,
+    )
+
+
+def _render_email_logs(
+    account: dict,
+    logs: list[dict],
+    total: int,
+    status_filter: str = "",
+    page: int = 1,
+    per_page: int = 50,
+) -> str:
+    """Render the ingestion logs page for a single email account."""
+    import math
+    total_pages = max(1, math.ceil(total / per_page)) if per_page > 0 else 1
+    return _render_template(
+        "email/logs.html",
+        account=account,
+        logs=logs,
+        total=total,
+        status_filter=status_filter,
+        page=page,
+        per_page=per_page,
+        total_pages=total_pages,
     )
 
 

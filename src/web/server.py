@@ -101,7 +101,6 @@ from ..core.config import config
 from ..core.cache import create_cache_backend
 from ..core.db_sqlite import Database
 from ..core.email_ingestor import email_polling_worker
-from ..core.crypto import init_encryptor
 from ..core.embeddings import EmbeddingClient
 from ..core.extractor import Extractor
 from ..core.job_queue import JobQueue
@@ -3450,7 +3449,24 @@ def create_app() -> FastAPI:
         try:
             await db.create_email_account(body)
         except Exception as e:
-            return HTMLResponse(content=_render_email_account_form(mode="create", error=str(e)), status_code=409)
+            # Re-render the form with the submitted values so the user
+            # can see what they typed alongside the error message.
+            form_account = {
+                "name": body["name"], "host": body["host"],
+                "port": body["port"], "use_ssl": body["use_ssl"],
+                "username": body["username"],
+                "folder": body["folder"],
+                "body_handling": body["body_handling"],
+                "attachment_whitelist": body["attachment_whitelist"],
+                "attachment_blacklist": body["attachment_blacklist"],
+                "enabled": body["enabled"],
+            }
+            return HTMLResponse(
+                content=_render_email_account_form(
+                    mode="create", account=form_account, error=str(e),
+                ),
+                status_code=409,
+            )
         return RedirectResponse(url="/email-accounts", status_code=303)
 
     @app.post("/email-accounts/{account_id}/edit", response_class=HTMLResponse, include_in_schema=False)
