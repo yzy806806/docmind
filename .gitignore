@@ -22,3 +22,5 @@ config/config.yaml
 # OS
 .DS_Store
 Thumbs.db
+data/docmind.db-shm
+data/docmind.db-wal

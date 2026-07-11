@@ -2,7 +2,7 @@
 
 **Project:** docmind
 **Goal:** 持续开发docmind
-**Status:** active
+**Status:** completed
 
 ## Description
 

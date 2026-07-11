@@ -64,7 +64,7 @@ class ServerConfig:
         default_factory=lambda: _env("DOCMIND_HOST", "0.0.0.0")
     )
     port: int = field(
-        default_factory=lambda: _env_int("DOCMIND_PORT", 8080)
+        default_factory=lambda: _env_int("DOCMIND_PORT", 9980)
     )
     workers: int = field(
         default_factory=lambda: _env_int("DOCMIND_WORKERS", 1)
@@ -189,13 +189,13 @@ class LLMConfig:
         default_factory=lambda: _env("DOCMIND_LLM_BASE_URL", "")
     )
     max_tokens: int = field(
-        default_factory=lambda: _env_int("DOCMIND_LLM_MAX_TOKENS", 1000)
+        default_factory=lambda: _env_int("DOCMIND_LLM_MAX_TOKENS", 8000)
     )
     temperature: float = field(
         default_factory=lambda: float(_env("DOCMIND_LLM_TEMPERATURE", "0.3"))
     )
     timeout_seconds: float = field(
-        default_factory=lambda: float(_env("DOCMIND_LLM_TIMEOUT", "30.0"))
+        default_factory=lambda: float(_env("DOCMIND_LLM_TIMEOUT", "3600.0"))
     )
 
 

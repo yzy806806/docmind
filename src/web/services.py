@@ -256,7 +256,7 @@ async def _generate_summary_for_doc(doc: dict) -> Optional[str]:
     except Exception:
         pass
 
-    summarizer = Summarizer(llm_client=llm_client)
+    summarizer = Summarizer(llm_client=llm_client, max_tokens=config.llm.max_tokens)
     title = doc.get("title", "Untitled")
     body = doc.get("body", "") or ""
 

@@ -263,7 +263,14 @@ class LLMClient:
         )
         resp.raise_for_status()
         data = resp.json()
-        return data["choices"][0]["message"]["content"]
+        message = data["choices"][0]["message"]
+        content = message.get("content", "") or ""
+        # Reasoning models (e.g. Gemma-4) put the answer in reasoning_content
+        # when max_tokens is too small for the reasoning phase to complete.
+        # Fall back to reasoning_content so the caller gets something useful.
+        if not content:
+            content = message.get("reasoning_content", "") or ""
+        return content
 
     async def _stream_openai(
         self, messages: list[dict[str, str]], max_tokens: int
@@ -294,6 +301,9 @@ class LLMClient:
                     chunk = json.loads(data_str)
                     delta = chunk.get("choices", [{}])[0].get("delta", {})
                     content = delta.get("content", "")
+                    if not content:
+                        # Reasoning model fallback
+                        content = delta.get("reasoning_content", "")
                     if content:
                         yield content
                 except (json.JSONDecodeError, IndexError, KeyError):

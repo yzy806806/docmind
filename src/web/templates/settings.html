@@ -41,7 +41,7 @@
 
             <div class="settings-field">
                 <label for="max_tokens"><strong>Max Tokens</strong> <span id="max_tokens_val">{{ max_tokens }}</span></label>
-                <input type="range" name="max_tokens" id="max_tokens" min="100" max="4000" step="100"
+                <input type="range" name="max_tokens" id="max_tokens" min="4000" max="64000" step="500"
                        value="{{ max_tokens }}" oninput="document.getElementById('max_tokens_val').textContent=this.value">
             </div>
 

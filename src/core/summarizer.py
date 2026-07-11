@@ -23,11 +23,13 @@ class ChunkSummarizer:
         chunk_size: int = 4000,
         chunk_overlap: int = 200,
         min_completion_ratio: float = 0.6,
+        max_tokens: int = 8000,
     ):
         self.llm = llm_client
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
         self.min_completion_ratio = min_completion_ratio
+        self.max_tokens = max_tokens
 
     # ── public API ────────────────────────────────────────────────
 
@@ -147,7 +149,7 @@ class ChunkSummarizer:
             f"{chunk}\n\n"
             f"Summary:"
         )
-        response = self.llm.chat(prompt, max_tokens=120)
+        response = self.llm.chat(prompt, max_tokens=self.max_tokens)
         return response.strip() if response else ""
 
     def _reduce_summaries(self, title: str, chunk_summaries: list[str]) -> str:
@@ -163,7 +165,7 @@ class ChunkSummarizer:
             f"{joined}\n\n"
             f"Combined summary:"
         )
-        response = self.llm.chat(prompt, max_tokens=250)
+        response = self.llm.chat(prompt, max_tokens=self.max_tokens)
         return response.strip() if response else " ".join(chunk_summaries)
 
     def _retry_summarize(
@@ -290,6 +292,7 @@ class Summarizer:
         llm_client=None,
         tpm_limit: int = 5,
         chunk_size: int = 4000,
+        max_tokens: int = 8000,
     ):
         self.llm = llm_client
         self.tpm_limit = tpm_limit
@@ -298,6 +301,7 @@ class Summarizer:
         self._chunk_summarizer = ChunkSummarizer(
             llm_client=self.llm,
             chunk_size=chunk_size,
+            max_tokens=max_tokens,
         )
         self._extractive = ExtractiveFallbackSummarizer()
 

@@ -232,8 +232,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         stored = await _db.get_all_settings()
         apply_auth_settings_from_db(stored)
+        _reload_llm_config_from_db(stored)
     except Exception:
-        logger.exception("Failed to hydrate auth config from DB — auth may be misconfigured")
+        logger.exception("Failed to hydrate config from DB — auth/LLM may be misconfigured")
     # Ensure env-var-supplied api_key still wins if no DB value is set.
     if not config.auth.api_key and config.auth.enabled:
         logger.warning("Auth is enabled but no API key is configured — generating one")
@@ -331,7 +332,7 @@ def create_app() -> FastAPI:
             routes=app.routes,
             servers=[
                 {"url": "/api/v1", "description": "API v1 base path"},
-                {"url": "http://localhost:8080", "description": "Local development"},
+                {"url": "http://localhost:9980", "description": "Local development"},
             ],
         )
 
