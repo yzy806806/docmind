@@ -102,7 +102,7 @@ class ChunkSummarizer:
             f"Summary:"
         )
         try:
-            response = self.llm.chat(prompt, max_tokens=150)
+            response = self.llm.chat(prompt, max_tokens=self.max_tokens)
             return response.strip() if response else None
         except Exception as e:
             print(f"[ChunkSummarizer] LLM call failed: {e}")

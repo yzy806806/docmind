@@ -1222,31 +1222,35 @@ def create_app() -> FastAPI:
                     size=len(raw),
                 )
 
-                # Auto-detect document type (best-effort)
-                if config.auto_detection.enabled:
+                # Auto-detect type + generate summary in background
+                async def _post_process_upload(local_db, local_doc_id, local_title, local_body, local_ext):
+                    if config.auto_detection.enabled:
+                        try:
+                            doc_type, method = await _detect_document_type(
+                                local_title, local_body, local_ext
+                            )
+                            await local_db.update_document_type(local_doc_id, doc_type)
+                        except Exception:
+                            logger.warning(
+                                "Type detection failed for doc %s, continuing",
+                                local_doc_id,
+                            )
                     try:
-                        doc_type, method = await _detect_document_type(
-                            display_title, body, ext or ""
+                        summary = await _generate_summary_for_doc(
+                            {"title": local_title, "body": local_body}
                         )
-                        await db.update_document_type(doc_id, doc_type)
+                        if summary:
+                            await local_db.update_summary(local_doc_id, summary)
                     except Exception:
                         logger.warning(
-                            "Type detection failed for doc %s, continuing",
-                            doc_id,
+                            "Summary generation failed for doc %s, continuing",
+                            local_doc_id,
                         )
 
-                # Auto-generate summary on upload (best-effort)
-                try:
-                    summary = await _generate_summary_for_doc(
-                        {"title": display_title, "body": body}
-                    )
-                    if summary:
-                        await db.update_summary(doc_id, summary)
-                except Exception:
-                    logger.warning(
-                        "Summary generation failed for doc %s, continuing",
-                        doc_id,
-                    )
+                import asyncio as _aio
+                _aio.create_task(_post_process_upload(
+                    db, doc_id, display_title, body, ext or ""
+                ))
 
                 job = await queue.enqueue(
                     document_path=f"/uploads/{f.filename or 'unknown'}",
@@ -2545,29 +2549,38 @@ def create_app() -> FastAPI:
             metadata=doc.metadata,
         )
 
-        # Auto-detect document type (best-effort)
-        if config.auto_detection.enabled:
+        # Auto-detect document type and generate summary in background
+        # so the upload endpoint returns immediately (202 Accepted).
+        async def _post_process():
+            doc_title = doc.title
+            doc_body = doc.body
+            doc_ext = doc.ext
+            local_doc_id = doc_id
+            # Type detection (best-effort)
+            if config.auto_detection.enabled:
+                try:
+                    doc_type, method = await _detect_document_type(
+                        doc_title, doc_body, doc_ext
+                    )
+                    await db.update_document_type(local_doc_id, doc_type)
+                except Exception:
+                    logger.warning(
+                        "Type detection failed for doc %s, continuing", local_doc_id
+                    )
+            # Auto-generate summary (best-effort)
             try:
-                doc_type, method = await _detect_document_type(
-                    doc.title, doc.body, doc.ext
+                summary = await _generate_summary_for_doc(
+                    {"title": doc_title, "body": doc_body}
                 )
-                await db.update_document_type(doc_id, doc_type)
+                if summary:
+                    await db.update_summary(local_doc_id, summary)
             except Exception:
                 logger.warning(
-                    "Type detection failed for doc %s, continuing", doc_id
+                    "Summary generation failed for doc %s, continuing", local_doc_id
                 )
 
-        # Auto-generate summary on submit (best-effort)
-        try:
-            summary = await _generate_summary_for_doc(
-                {"title": doc.title, "body": doc.body}
-            )
-            if summary:
-                await db.update_summary(doc_id, summary)
-        except Exception:
-            logger.warning(
-                "Summary generation failed for doc %s, continuing", doc_id
-            )
+        import asyncio as _asyncio
+        _asyncio.create_task(_post_process())
 
         job = await queue.enqueue(
             document_path=doc.path,

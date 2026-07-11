@@ -307,63 +307,71 @@ async def _detect_document_type(
 
 
 class _SyncLLMAdapter:
-    """Synchronous wrapper around the async LLMClient.
+    """Synchronous LLM adapter for the Summarizer.
 
     The Summarizer expects a client with a sync ``chat(prompt, max_tokens)``
-    method. This adapter runs the async LLM call in a separate thread with
-    its own event loop, bridging the sync/async boundary safely.
-
-    This adapter is always called from within ``asyncio.to_thread()`` (in
-    ``_generate_summary_for_doc``), so it runs in a worker thread where no
-    event loop is active. It also handles the edge case of being called
-    directly from within a running event loop by spawning a thread.
+    method. This adapter makes a direct synchronous httpx call to the
+    OpenAI-compatible API, avoiding event-loop conflicts that arise when
+    sharing an AsyncClient across threads.
     """
 
     def __init__(self, async_client) -> None:
         self._async_client = async_client
 
     def chat(self, prompt: str, max_tokens: int = 150) -> str:
-        """Call the LLM synchronously by running the async call in a thread.
+        """Call the LLM synchronously via a direct httpx request.
 
-        Uses a dedicated thread with a fresh event loop to avoid conflicts
-        with any running event loop in the caller's context.
+        Avoids event-loop conflicts by using a plain synchronous httpx.post
+        instead of sharing the async LLMClient across threads/loops.
         """
-        import asyncio
-        import threading
+        import httpx
+
+        llm = self._async_client.config
+        if not llm.api_key:
+            return ""
+
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {llm.api_key}",
+        }
+        payload = {
+            "model": llm.model,
+            "messages": [
+                {"role": "system", "content": "You are a helpful assistant that summarizes documents concisely."},
+                {"role": "user", "content": prompt},
+            ],
+            "max_tokens": max_tokens,
+            "temperature": llm.temperature,
+        }
+        url = llm.base_url.rstrip("/") + "/chat/completions"
 
         try:
-            result_box: list = [None]
-            error_box: list = [None]
-
-            def _run() -> None:
-                loop = asyncio.new_event_loop()
+            import time as _time
+            max_retries = 3
+            for attempt in range(max_retries):
                 try:
-                    result_box[0] = loop.run_until_complete(
-                        self._async_generate(prompt, max_tokens)
+                    resp = httpx.post(
+                        url, json=payload, headers=headers,
+                        timeout=llm.timeout_seconds,
                     )
-                except Exception as e:
-                    error_box[0] = e
-                finally:
-                    loop.close()
-
-            t = threading.Thread(target=_run, daemon=True)
-            t.start()
-            t.join()
-
-            if error_box[0] is not None:
-                raise error_box[0]
-            return result_box[0] or ""
+                    resp.raise_for_status()
+                    data = resp.json()
+                    message = data["choices"][0]["message"]
+                    content = message.get("content", "") or ""
+                    if not content:
+                        content = message.get("reasoning_content", "") or ""
+                    return content
+                except httpx.HTTPStatusError as e:
+                    if e.response.status_code in (502, 503, 524, 429) and attempt < max_retries - 1:
+                        wait = 2 ** (attempt + 1)
+                        print(f"[_SyncLLMAdapter] HTTP {e.response.status_code}, retry in {wait}s (attempt {attempt+1}/{max_retries})")
+                        _time.sleep(wait)
+                        continue
+                    raise
+            return ""
         except Exception as e:
             print(f"[_SyncLLMAdapter] LLM call failed: {e}")
             return ""
-
-    async def _async_generate(self, prompt: str, max_tokens: int) -> str:
-        """Generate text using the async LLMClient's generate method."""
-        # LLMClient.generate expects (question, context_chunks, max_tokens)
-        # We pass the prompt as the question with an empty context list.
-        return await self._async_client.generate(
-            prompt, context_chunks=[], max_tokens=max_tokens
-        )
 
 
 

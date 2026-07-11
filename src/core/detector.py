@@ -261,7 +261,7 @@ class DocumentDetector:
             payload = {
                 "model": config.model,
                 "messages": messages,
-                "max_tokens": 50,
+                "max_tokens": config.max_tokens,
                 "temperature": 0.0,
             }
             url = self.llm._openai_url()
@@ -269,7 +269,10 @@ class DocumentDetector:
             resp = await client.post(url, json=payload, headers=headers)
             resp.raise_for_status()
             data = resp.json()
-            raw = data["choices"][0]["message"]["content"]
+            message = data["choices"][0]["message"]
+            raw = message.get("content", "") or ""
+            if not raw:
+                raw = message.get("reasoning_content", "") or ""
 
         return self._parse_llm_response(raw)
 
