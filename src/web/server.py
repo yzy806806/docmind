@@ -1257,6 +1257,8 @@ def create_app() -> FastAPI:
                     document_title=display_title,
                     source_name="web-upload",
                 )
+                # Document is already ingested; mark job as completed immediately.
+                await queue.complete(job.id, doc_id)
 
                 results.append({
                     "title": display_title,
@@ -2587,12 +2589,14 @@ def create_app() -> FastAPI:
             document_title=doc.title,
             source_name=doc.source_name,
         )
+        # Document is already ingested; mark job as completed immediately.
+        await queue.complete(job.id, doc_id)
 
         logger.info("Document %s submitted → job %s", doc.path, job.id)
 
         return SubmissionAccepted(
             job_id=job.id,
-            status="pending",
+            status="completed",
             document_path=doc.path,
         )
 
