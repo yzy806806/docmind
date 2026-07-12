@@ -10,6 +10,7 @@ to populate the ``document_type`` column.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from typing import Any, Optional
@@ -257,22 +258,42 @@ class DocumentDetector:
             data = resp.json()
             raw = data.get("message", {}).get("content", "")
         else:
-            # OpenAI-compatible
+            # OpenAI-compatible (streaming to avoid gateway timeouts)
             payload = {
                 "model": config.model,
                 "messages": messages,
                 "max_tokens": config.max_tokens,
                 "temperature": 0.0,
+                "stream": True,
             }
             url = self.llm._openai_url()
             headers = self.llm._openai_headers()
-            resp = await client.post(url, json=payload, headers=headers)
-            resp.raise_for_status()
-            data = resp.json()
-            message = data["choices"][0]["message"]
-            raw = message.get("content", "") or ""
+            content_parts: list[str] = []
+            reasoning_parts: list[str] = []
+            async with client.stream(
+                "POST", url, json=payload, headers=headers
+            ) as resp:
+                resp.raise_for_status()
+                async for line in resp.aiter_lines():
+                    if not line or not line.startswith("data: "):
+                        continue
+                    data_str = line[6:]
+                    if data_str.strip() == "[DONE]":
+                        break
+                    try:
+                        chunk = json.loads(data_str)
+                        delta = chunk.get("choices", [{}])[0].get("delta", {})
+                        c = delta.get("content", "")
+                        r = delta.get("reasoning_content", "")
+                        if c:
+                            content_parts.append(c)
+                        if r:
+                            reasoning_parts.append(r)
+                    except (json.JSONDecodeError, IndexError, KeyError):
+                        continue
+            raw = "".join(content_parts)
             if not raw:
-                raw = message.get("reasoning_content", "") or ""
+                raw = "".join(reasoning_parts)
 
         return self._parse_llm_response(raw)
 

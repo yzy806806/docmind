@@ -318,11 +318,11 @@ class _SyncLLMAdapter:
     def __init__(self, async_client) -> None:
         self._async_client = async_client
 
-    def chat(self, prompt: str, max_tokens: int = 150) -> str:
-        """Call the LLM synchronously via a direct httpx request.
+    def chat(self, prompt: str, max_tokens: int = 8000) -> str:
+        """Call the LLM synchronously via streaming httpx request.
 
-        Avoids event-loop conflicts by using a plain synchronous httpx.post
-        instead of sharing the async LLMClient across threads/loops.
+        Uses streaming to keep the connection alive and avoid upstream
+        gateway timeouts (e.g. Cloudflare 524) on slow reasoning models.
         """
         import httpx
 
@@ -342,6 +342,7 @@ class _SyncLLMAdapter:
             ],
             "max_tokens": max_tokens,
             "temperature": llm.temperature,
+            "stream": True,
         }
         url = llm.base_url.rstrip("/") + "/chat/completions"
 
@@ -350,16 +351,35 @@ class _SyncLLMAdapter:
             max_retries = 3
             for attempt in range(max_retries):
                 try:
-                    resp = httpx.post(
-                        url, json=payload, headers=headers,
+                    content_parts: list[str] = []
+                    reasoning_parts: list[str] = []
+                    with httpx.stream(
+                        "POST", url,
+                        json=payload,
+                        headers=headers,
                         timeout=llm.timeout_seconds,
-                    )
-                    resp.raise_for_status()
-                    data = resp.json()
-                    message = data["choices"][0]["message"]
-                    content = message.get("content", "") or ""
+                    ) as resp:
+                        resp.raise_for_status()
+                        for line in resp.iter_lines():
+                            if not line or not line.startswith("data: "):
+                                continue
+                            data_str = line[6:]
+                            if data_str.strip() == "[DONE]":
+                                break
+                            try:
+                                chunk = json.loads(data_str)
+                                delta = chunk.get("choices", [{}])[0].get("delta", {})
+                                c = delta.get("content", "")
+                                r = delta.get("reasoning_content", "")
+                                if c:
+                                    content_parts.append(c)
+                                if r:
+                                    reasoning_parts.append(r)
+                            except (json.JSONDecodeError, IndexError, KeyError):
+                                continue
+                    content = "".join(content_parts)
                     if not content:
-                        content = message.get("reasoning_content", "") or ""
+                        content = "".join(reasoning_parts)
                     return content
                 except httpx.HTTPStatusError as e:
                     if e.response.status_code in (502, 503, 524, 429) and attempt < max_retries - 1:
