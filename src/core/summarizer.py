@@ -94,12 +94,12 @@ class ChunkSummarizer:
         """Summarize a short-enough document in one LLM call."""
         truncated = body[:limit]
         prompt = (
-            f"Summarize the following document in 2-3 sentences. "
-            f"Focus on: what it is about, key topics, and document type "
-            f"(e.g., contract, report, invoice, speech).\n\n"
-            f"Title: {title}\n\n"
-            f"Content:\n{truncated}\n\n"
-            f"Summary:"
+            f"请用中文总结以下文档，2-3句话，"
+            f"重点说明：文档内容、关键主题和文档类型"
+            f"（如合同、报告、发票、发言稿）。\n\n"
+            f"标题：{title}\n\n"
+            f"内容：\n{truncated}\n\n"
+            f"摘要："
         )
         try:
             response = self.llm.chat(prompt, max_tokens=self.max_tokens)
@@ -141,13 +141,11 @@ class ChunkSummarizer:
     ) -> str:
         """Summarize one chunk with positional context."""
         prompt = (
-            f"You are reading section {chunk_idx + 1} of {total_chunks} of a "
-            f"longer document titled '{title}'. "
-            f"Summarize this section in 1-2 sentences, capturing the key "
-            f"information it contains.\n\n"
-            f"Content (section {chunk_idx + 1}/{total_chunks}):\n"
+            f"你正在阅读标题为'{title}'的长文档的第 {chunk_idx + 1}/{total_chunks} 节。"
+            f"请用1-2句话总结本节的关键内容。\n\n"
+            f"内容（第 {chunk_idx + 1}/{total_chunks} 节）：\n"
             f"{chunk}\n\n"
-            f"Summary:"
+            f"摘要："
         )
         response = self.llm.chat(prompt, max_tokens=self.max_tokens)
         return response.strip() if response else ""
@@ -159,11 +157,10 @@ class ChunkSummarizer:
             for i, s in enumerate(chunk_summaries)
         )
         prompt = (
-            f"Below are summaries of individual sections of a longer document "
-            f"titled '{title}'. Combine them into a single coherent summary "
-            f"of 3-5 sentences that captures the overall document.\n\n"
+            f"以下是标题为'{title}'的长文档各节摘要。"
+            f"请将它们合并成一段连贯的中文总结，3-5句话，概括整篇文档。\n\n"
             f"{joined}\n\n"
-            f"Combined summary:"
+            f"合并摘要："
         )
         response = self.llm.chat(prompt, max_tokens=self.max_tokens)
         return response.strip() if response else " ".join(chunk_summaries)

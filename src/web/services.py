@@ -337,7 +337,7 @@ class _SyncLLMAdapter:
         payload = {
             "model": llm.model,
             "messages": [
-                {"role": "system", "content": "You are a helpful assistant that summarizes documents concisely."},
+                {"role": "system", "content": "你是一个文档摘要助手，用简洁的中文总结文档内容。"},
                 {"role": "user", "content": prompt},
             ],
             "max_tokens": max_tokens,
