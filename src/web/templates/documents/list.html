@@ -4,6 +4,13 @@
     {% if collection_breadcrumb_html %}{{ collection_breadcrumb_html | safe }}{% endif %}
     <div class="card">
         <h2>Documents{{ filter_label }}</h2>
+        <div id="doc-table-skeleton" class="htmx-indicator skeleton-block" aria-live="polite" role="status">
+            <table><tbody>
+                <tr class="skeleton-row"><td><span class="skeleton skeleton-text-sm"></span></td><td><span class="skeleton skeleton-title"></span></td><td><span class="skeleton skeleton-badge"></span></td><td><span class="skeleton skeleton-text-sm"></span></td><td><span class="skeleton skeleton-text-sm"></span></td><td><span class="skeleton skeleton-text-sm"></span></td><td></td><td></td></tr>
+                <tr class="skeleton-row"><td><span class="skeleton skeleton-text-sm"></span></td><td><span class="skeleton skeleton-title"></span></td><td><span class="skeleton skeleton-badge"></span></td><td><span class="skeleton skeleton-text-sm"></span></td><td><span class="skeleton skeleton-text-sm"></span></td><td><span class="skeleton skeleton-text-sm"></span></td><td></td><td></td></tr>
+                <tr class="skeleton-row"><td><span class="skeleton skeleton-text-sm"></span></td><td><span class="skeleton skeleton-title"></span></td><td><span class="skeleton skeleton-badge"></span></td><td><span class="skeleton skeleton-text-sm"></span></td><td><span class="skeleton skeleton-text-sm"></span></td><td><span class="skeleton skeleton-text-sm"></span></td><td></td><td></td></tr>
+            </tbody></table>
+        </div>
         <div id="doc-table-region">
         <div class="pagination-info">Showing {{ start }}–{{ end }} of {{ total }} document(s)</div>
         {% if documents %}
@@ -89,7 +96,8 @@
                   hx-target="#doc-table-region"
                   hx-swap="outerHTML"
                   hx-trigger="submit, change"
-                  hx-push-url="true">
+                  hx-push-url="true"
+                  hx-indicator="#doc-table-skeleton">
                 <label>
                     Source Type
                     <select name="source" class="facet-select">

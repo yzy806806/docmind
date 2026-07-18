@@ -512,6 +512,47 @@ def _render_search_results(
     )
 
 
+def _render_search_results_fragment(
+    query: str,
+    results: list[dict],
+    vector_weight: float | None = None,
+    *,
+    offset: int = 0,
+    limit: int = 20,
+    total: int | None = None,
+) -> str:
+    """Render only the results portion (no page chrome or form) for HTMX swaps.
+
+    Returns the export bar + results list as an HTML fragment suitable for
+    ``hx-swap="innerHTML"`` into ``#search-live-region``.  This is used by
+    keyup-triggered live search so the page doesn't reload the form or
+    surrounding layout.
+    """
+    prepared = []
+    for r in results:
+        prepared.append({
+            "id": r.get("id", "?"),
+            "title": r.get("title", "Untitled"),
+            "snippet": r.get("snippet", r.get("raw_preview", "")),
+            "summary": r.get("summary", ""),
+            "status": r.get("status", "pending"),
+            "rank": r.get("rank", 0),
+        })
+    vw_current = vector_weight if vector_weight is not None else 0.6
+    actual_total = total if total is not None else len(prepared)
+    return _render_template(
+        "search_results_fragment.html",
+        query=query,
+        results=prepared,
+        vw_current=vw_current,
+        vw_default=0.6,
+        offset=offset,
+        limit=limit,
+        total=actual_total,
+        vw_str=f"{vw_current:.2f}",
+    )
+
+
 def _find_collection_name(
     tree: list[dict], target_id: int
 ) -> str | None:

@@ -1,0 +1,29 @@
+{# Fragment returned to HTMX keyup-triggered live search.
+   Contains only the export bar + results list — no <html>, <head>,
+   <form>, or page chrome.  HTMX swaps this into #search-live-region. #}
+<div class="search-export-bar">
+    <p style="margin:0;">Found {{ total }} result(s) for: <strong>{{ query }}</strong>{% if total > limit %} (showing first {{ limit }}){% endif %}</p>
+    {% if results %}
+    <div class="export-links">
+        <a href="/search?q={{ query }}&vector_weight={{ "%.2f"|format(vw_current) }}&export=csv" class="btn btn-secondary btn-sm">⬇ Export CSV</a>
+        <a href="/search?q={{ query }}&vector_weight={{ "%.2f"|format(vw_current) }}&export=json" class="btn btn-secondary btn-sm">⬇ Export JSON</a>
+    </div>
+    {% endif %}
+</div>
+{% if results %}
+<div id="search-results-list">
+    {% for r in results %}
+    <div class="result">
+        <h3><a href="/documents/{{ r.id }}">[{{ r.id }}] {{ r.title }}</a></h3>
+        <div class="meta">
+            Status: <span class="badge badge-{{ r.status }}">{{ r.status }}</span>
+            {% if r.rank %} | Score: {{ "%.2f"|format(r.rank) }}{% endif %}
+        </div>
+        {% if r.summary %}<div class="snippet"><strong>Summary:</strong> {{ r.summary }}</div>{% endif %}
+        {% if r.snippet %}<div class="snippet">{{ r.snippet[:300] }}</div>{% endif %}
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+    <p>No results found. Try different keywords.</p>
+{% endif %}

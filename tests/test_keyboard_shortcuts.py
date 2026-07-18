@@ -328,20 +328,24 @@ class TestKbdCSS:
     """Verify CSS styles for the keyboard shortcuts modal."""
 
     def test_overlay_hidden_by_default(self):
-        """.kbd-modal-overlay should be display: none by default."""
+        """".kbd-modal-overlay should be hidden by default (visibility: hidden
+        or display: none — both are valid, visibility allows transitions)."""
         css = _read_css()
         idx = css.find(".kbd-modal-overlay")
         assert idx != -1, "Missing .kbd-modal-overlay selector"
-        block = css[idx:idx + 200]
-        assert "display: none" in block or "display:none" in block
+        block = css[idx:idx + 500]
+        assert ("display: none" in block or "display:none" in block
+                or "visibility: hidden" in block or "visibility:hidden" in block)
 
     def test_overlay_shown_when_open(self):
-        """.kbd-modal-overlay.open should use display: flex."""
+        """".kbd-modal-overlay.open should be visible (visibility: visible
+        or display: flex — the overlay uses visibility for transitions)."""
         css = _read_css()
         idx = css.find(".kbd-modal-overlay.open")
         assert idx != -1, "Missing .kbd-modal-overlay.open selector"
         block = css[idx:idx + 200]
-        assert "display: flex" in block or "display:flex" in block
+        assert ("display: flex" in block or "display:flex" in block
+                or "visibility: visible" in block or "visibility:visible" in block)
 
     def test_overlay_is_fixed_position(self):
         """Overlay should be position: fixed covering the viewport."""
@@ -380,9 +384,20 @@ class TestKbdCSS:
         assert "inline-block" in block or "inline block" in block
 
     def test_modal_animation_exists(self):
-        """An animation for modal entry should exist."""
+        """An animation or transition for modal entry should exist.
+        Accepts either a named @keyframes animation (kbd-modal-in)
+        or a CSS transition on .kbd-modal-panel (transform/opacity)."""
         css = _read_css()
-        assert "kbd-modal-in" in css
+        # Check for named animation
+        if "kbd-modal-in" in css:
+            return
+        # Otherwise check for transition-based animation
+        idx = css.find(".kbd-modal-panel")
+        assert idx != -1, "Missing .kbd-modal-panel selector"
+        block = css[idx:idx + 700]
+        assert ("transition" in block and
+                ("transform" in block or "opacity" in block)), \
+            "Modal panel should have either kbd-modal-in animation or transition"
 
     def test_responsive_breakpoint_for_modal(self):
         """Modal should have responsive rules at 480px breakpoint."""

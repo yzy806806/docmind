@@ -306,6 +306,16 @@
        infinite-list views). */
     --overscroll-behavior: contain;
 
+    /* Custom scrollbar styling — slim, themed scrollbars for scrollable
+       containers (chat, sidebar, TOC, modals).  Replaces default thick
+       browser chrome with a design-consistent look that respects both
+       light and dark themes via the scrollbar-color property. */
+    --scrollbar-width: 8px;
+    --scrollbar-track: transparent;
+    --scrollbar-thumb: var(--border);
+    --scrollbar-thumb-hover: var(--text-faint);
+    --scrollbar-radius: var(--radius-full);
+
 }
 
 /* ================================================================
@@ -574,7 +584,6 @@ header nav a:active { opacity: 0.7; transform: scale(0.97); }
 }
 .btn-ghost:hover {
     background: var(--surface-alt);
-    transition: var(--transition-press);
     color: var(--text);
 }
 
@@ -801,12 +810,14 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
 .btn-filter {
     padding: var(--space-1) var(--space-3);
     cursor: pointer;
+    transition: var(--transition-press);
 }
 
 /* --- Filter panel: Clear link -------------------------------- */
 .facet-clear-btn {
     padding: var(--space-1) var(--space-2);
     text-decoration: none;
+    transition: color var(--transition-base), background var(--transition-base);
 }
 
 .search-export-bar .btn-export {
@@ -959,7 +970,7 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
 .tag-cloud-item:hover { background: var(--primary); color: var(--header-text); }
 .tag-cloud-item:active { transform: scale(0.94); }
 .tag-cloud-item .tag-count { font-size: var(--font-size-sm); opacity: 0.7; }
-.tag-cloud-item.active { background: var(--primary); color: var(--header-text); font-weight: 600; }
+.tag-cloud-item.active { background: var(--primary); color: var(--header-text); font-weight: 600; transition: var(--transition-color); }
 
 /* ================================================================
  * 10. Collection Tree
@@ -1325,7 +1336,7 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
 
 .pagination a:hover { background: var(--hover-bg); }
 .pagination a:active { transform: scale(0.96); }
-.pagination .current { background: var(--primary); color: var(--header-text); border-color: var(--primary); }
+.pagination .current { background: var(--primary); color: var(--header-text); border-color: var(--primary); transition: var(--transition-color); }
 .pagination .disabled { color: var(--text-faint); opacity: 0.5; cursor: default; }
 .pagination-info { text-align: center; color: var(--text-muted); font-size: var(--font-size-sm2); margin-bottom: var(--space-2); }
 
@@ -2683,7 +2694,7 @@ kbd {
 }
 @keyframes optimistic-spin { to { transform: rotate(360deg); } }
 
-.optimistic-btn-loading { pointer-events: none; opacity: 0.7; cursor: wait; }
+.optimistic-btn-loading { pointer-events: none; opacity: 0.7; cursor: wait; transition: opacity var(--transition-fast); }
 
 .optimistic-removing {
     opacity: 0.3 !important; transform: scale(0.97);
