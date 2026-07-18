@@ -1203,7 +1203,7 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
     color: var(--text-muted);
     cursor: pointer;
     padding: 0 var(--space-1);
-    transition: color var(--transition-base);
+    transition: color var(--transition-base), transform var(--transition-fast);
 }
 
 .file-remove:hover { color: var(--error-text); }
@@ -1985,6 +1985,7 @@ td input[type="checkbox"]:checked::after {
     margin: var(--space-5);
 
     transition: var(--transition-lift);
+    will-change: transform, box-shadow;
 }
 
 .login-card:hover {
@@ -2691,9 +2692,37 @@ kbd {
     to { opacity: 1; transform: translateY(0); }
 }
 
+/* ── Flash / highlight feedback for successful mutations ──────────
+ * Applied transiently to the target element after a mutation succeeds.
+ * The animation runs once then the class is removed by JS.
+ */
+@keyframes optimistic-flash-success {
+    0%   { background-color: transparent; }
+    15%  { background-color: var(--success-tint); box-shadow: 0 0 0 2px var(--success-text); }
+    100% { background-color: transparent; box-shadow: none; }
+}
+@keyframes optimistic-flash-error {
+    0%   { background-color: transparent; }
+    15%  { background-color: var(--error-bg); box-shadow: 0 0 0 2px var(--error-text); }
+    100% { background-color: transparent; box-shadow: none; }
+}
+.optimistic-flash-success {
+    animation: optimistic-flash-success 0.9s ease-out;
+}
+.optimistic-flash-error {
+    animation: optimistic-flash-error 0.9s ease-out;
+}
+/* When an element is both being removed and flashed, flash takes priority */
+.optimistic-removing.optimistic-flash-success,
+.optimistic-removing.optimistic-flash-error {
+    animation: optimistic-flash-success 0.9s ease-out, optimistic-flash-error 0.9s ease-out;
+}
+
 @media (prefers-reduced-motion: reduce) {
     .optimistic-spinner { animation: none; }
     .optimistic-removing { transition: none; transform: none; }
     .optimistic-added { animation: none; }
     .optimistic-toast-msg { animation: none; }
+    .optimistic-flash-success { animation: none; }
+    .optimistic-flash-error { animation: none; }
 }
