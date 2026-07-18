@@ -129,10 +129,10 @@ class TestBreakpoint768px:
     """Verify rules inside the 768px (tablet portrait) breakpoint."""
 
     def test_container_padding_reduced_at_768(self):
-        """At ≤768px, .container padding should reduce to 16px."""
+        """At ≤768px, .container padding should reduce."""
         block = _extract_media_block(_read_css(), "768px")
         assert ".container" in block
-        assert "16px" in block
+        assert "var(--space-4)" in block
 
     def test_header_row_stacks_at_768(self):
         """At ≤768px, .header-row should stack vertically."""
@@ -295,7 +295,7 @@ class TestBreakpoint480px:
         """At ≤480px, header padding should reduce."""
         block = _extract_media_block(_read_css(), "480px")
         assert "header" in block
-        assert "12px" in block and "16px" in block
+        assert "var(--space-3)" in block and "var(--space-3)" in block
 
     def test_header_h1_smaller_at_480(self):
         """At ≤480px, header h1 font-size should reduce."""

@@ -220,7 +220,7 @@ def _inline(text: str) -> str:
     )
     # Images before links (link regex would eat the ! prefix otherwise)
     text = _IMAGE_RE.sub(
-        lambda m: f'<img src="{_html_lib.escape(m.group(2), quote=True)}" alt="{_html_lib.escape(m.group(1), quote=True)}">',
+        lambda m: f'<img src="{_html_lib.escape(m.group(2), quote=True)}" alt="{_html_lib.escape(m.group(1), quote=True)}" loading="lazy" class="md-image">',
         text,
     )
     text = _LINK_RE.sub(

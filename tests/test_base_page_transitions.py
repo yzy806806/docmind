@@ -432,7 +432,7 @@ class TestBasePageTransitionContracts:
     # ── (c) Timing values within bounds ────────────────────────
 
     _MIN_MS = 50   # Minimum acceptable transition duration
-    _MAX_MS = 500  # Maximum acceptable transition duration
+    _MAX_MS = 300  # Maximum acceptable transition duration (task spec)
 
     def test_timing_values_within_acceptable_bounds(self):
         """All hardcoded timing values must be between 50ms and 500ms.

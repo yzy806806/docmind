@@ -83,7 +83,9 @@
                     var temp = document.createElement('tbody');
                     temp.innerHTML = html;
                     while (temp.firstChild) {
-                        tbody.appendChild(temp.firstChild);
+                        var child = temp.firstChild;
+                        child.classList.add('lazy-fade-in');
+                        tbody.appendChild(child);
                     }
                     currentPage = nextPage;
                     // Update the sentinel's data attributes
@@ -170,7 +172,9 @@
                     var temp = document.createElement('div');
                     temp.innerHTML = html;
                     while (temp.firstChild) {
-                        resultsContainer.appendChild(temp.firstChild);
+                        var child = temp.firstChild;
+                        child.classList.add('lazy-fade-in');
+                        resultsContainer.appendChild(child);
                     }
                     offset += limit;
                     sentinel.setAttribute('data-offset', offset);
@@ -233,8 +237,7 @@
             entries.forEach(function (entry) {
                 if (entry.isIntersecting && !loaded) {
                     loaded = true;
-                    // Show a loading placeholder
-                    previewContainer.innerHTML = '<em style="color:var(--text-muted,#888);">Loading preview…</em>';
+                    // Skeleton is already visible from the template — just fetch.
 
                     fetch('/documents/' + docId + '/partials/excerpt', {
                         headers: { 'X-Requested-With': 'XMLHttpRequest' }
@@ -247,7 +250,11 @@
                             previewContainer.innerHTML = html;
                         })
                         .catch(function (err) {
-                            previewContainer.innerHTML = '<em>Preview unavailable.</em>';
+                            var skeleton = previewContainer.querySelector('.doc-excerpt-skeleton');
+                            var serverExcerpt = previewContainer.querySelector('.doc-excerpt');
+                            if (skeleton) skeleton.style.display = 'none';
+                            if (serverExcerpt) serverExcerpt.style.display = '';
+                            else previewContainer.innerHTML = '<em>Preview unavailable.</em>';
                             console.warn('Excerpt lazy load failed:', err.message);
                         })
                         .finally(function () {
@@ -260,11 +267,27 @@
         observer.observe(previewContainer);
     }
 
+    // ── Lazy-loaded image fade-in ────────────────────────────────
+    function initLazyImageFadeIn() {
+        var images = document.querySelectorAll('img.md-image:not(.loaded)');
+        for (var i = 0; i < images.length; i++) {
+            (function (img) {
+                if (img.complete && img.naturalWidth > 0) {
+                    img.classList.add('loaded');
+                } else {
+                    img.addEventListener('load', function () { img.classList.add('loaded'); });
+                    img.addEventListener('error', function () { img.classList.add('loaded'); });
+                }
+            })(images[i]);
+        }
+    }
+
     // ── Initialize on DOMContentLoaded ────────────────────────────
 
     document.addEventListener('DOMContentLoaded', function () {
         initDocumentsListInfiniteScroll();
         initSearchResultsLazyLoad();
         initDocumentDetailLazyPreview();
+        initLazyImageFadeIn();
     });
 })();
