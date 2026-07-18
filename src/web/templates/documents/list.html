@@ -72,7 +72,7 @@
             </form>
         </div>
         {% else %}
-        <p>No documents found.</p>
+        <p>No documents found{% if source or active_tag or date_from or date_to or file_type %} matching your current filters. <a href="/documents">Clear filters</a> to browse all documents.{% else %}. <a href="/upload">Upload your first document</a> to get started.{% endif %}</p>
         {% endif %}
         </div>{# /#doc-table-region #}
             {# Faceted search UI (Phase 4c):

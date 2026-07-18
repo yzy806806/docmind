@@ -12,7 +12,7 @@
         {% if collection.description %}
         <p class="pagination-info">{{ collection.description }}</p>
         {% else %}
-        <p class="pagination-info" style="color: var(--text-muted, #888);">No description.</p>
+        <p class="pagination-info" style="color: var(--text-muted, #888);">No description yet. <a href="/collections/{{ collection.id }}/edit">Add one</a> to help organize your collection.</p>
         {% endif %}
 
         <div style="margin: 12px 0; display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">

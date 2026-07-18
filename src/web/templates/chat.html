@@ -8,7 +8,7 @@
                 <button id="new-chat-btn" class="btn-new-chat" title="Start a new chat">+ New</button>
             </div>
             <div class="chat-session-list" id="chat-session-list">
-                <p class="pagination-info">Loading...</p>
+                <p class="pagination-info">Loading conversations…</p>
             </div>
         </aside>
         <div class="card chat-main">
@@ -37,10 +37,10 @@
             <p class="pagination-info">Ask questions and get AI-powered answers with citation tracking.</p>
             <div class="chat-box">
                 <div class="chat-messages" id="chat-messages">
-                    <div class="chat-msg bot">Connecting...</div>
+                    <div class="chat-msg bot">Connecting to assistant…</div>
                 </div>
                 <div class="chat-input-row">
-                    <input type="text" id="chat-input" placeholder="Ask a question..."
+                    <input type="text" id="chat-input" placeholder="Ask a question about your documents…"
                            onkeydown="if(event.key==='Enter')sendChat()" autofocus>
                     <button id="chat-send-btn" onclick="sendChat()">Send</button>
                 </div>

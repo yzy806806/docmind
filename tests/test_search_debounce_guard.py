@@ -1,14 +1,14 @@
 """Tests verifying debounced search with loading indicator.
 
 Context: Agora Phase 2, motion-69159b7de5f1, action item 3/7.
-Implement 250ms debounced search with a '正在搜索…' loading indicator
+Implement 250ms debounced search with a 'Searching…' loading indicator
 that appears after first keystroke and disappears on results.
 
 The search forms (search_form.html, search_results.html) now use HTMX
 with hx-trigger including 'keyup ... changed delay:250ms' for live
 debounced search. These tests verify:
 1. Search forms have HTMX attributes with 250ms debounce delay
-2. The loading indicator (#search-loading) with '正在搜索…' text exists
+2. The loading indicator (#search-loading) with 'Searching…' text exists
 3. The hx-target points to #search-live-region
 4. The hx-indicator points to #search-loading
 5. Dashboard search still uses plain form-submit (no live search there)
@@ -75,7 +75,7 @@ class TestSearchFormsHaveDebouncedHTMX:
         )
 
     def test_search_form_page_has_loading_indicator(self):
-        """search_form.html: must have #search-loading with 正在搜索… text."""
+        """search_form.html: must have #search-loading with Searching… text."""
         html = _read("src/web/templates/search_form.html")
         assert 'id="search-loading"' in html, (
             "search_form.html missing #search-loading indicator"
@@ -125,7 +125,7 @@ class TestSearchFormsHaveDebouncedHTMX:
         )
 
     def test_search_results_page_has_loading_indicator(self):
-        """search_results.html: must have #search-loading with 正在搜索… text."""
+        """search_results.html: must have #search-loading with Searching… text."""
         html = _read("src/web/templates/search_results.html")
         assert 'id="search-loading"' in html, (
             "search_results.html missing #search-loading indicator"

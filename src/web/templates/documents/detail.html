@@ -51,7 +51,7 @@
 
         <div class="doc-tags-section">
             <div class="field"><span class="field-label">Tags:</span>
-                {% if tag_badges_html %}{{ tag_badges_html }}{% else %}<em>No tags yet</em>{% endif %}
+                {% if tag_badges_html %}{{ tag_badges_html }}{% else %}<em>No tags yet — <a href="#" onclick="document.querySelector('.tag-input-row input').focus();return false;">add one</a></em>{% endif %}
             </div>
             <form action="/documents/{{ doc.id or '?' }}/tags" method="post" class="tag-input-row">
                 <input type="text" name="tag" placeholder="Add a tag…" required maxlength="50">
@@ -61,7 +61,7 @@
 
         <h3>Summary</h3>
         <div class="summary-section">
-            <p>{{ doc.summary or '<em>No summary available</em>' }}</p>
+            <p>{{ doc.summary or '<em>No summary available — regenerate to create one</em>' }}</p>
             <div class="summary-actions" style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">
                 <form action="/documents/{{ doc.id or '?' }}/regenerate-summary" method="post"
                       style="display:inline;"

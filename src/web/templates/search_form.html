@@ -5,7 +5,7 @@
         <h2>Search Documents</h2>
         {% if error %}<div class="error">{{ error }}</div>{% endif %}
         <form action="/search" method="get" class="search-box">
-            <input type="text" name="q" placeholder="Enter your search query..." required autofocus>
+            <input type="text" name="q" placeholder="Search by keyword or natural language…" required autofocus>
             <button  type="submit" name="submit_search" value="1">Search</button>
             <div class="vector-weight-control">
                 <label for="vw-slider">
