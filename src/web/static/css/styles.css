@@ -668,6 +668,14 @@ header nav a:active { opacity: 0.7; transform: scale(0.97); }
 }
 .input::placeholder { color: var(--text-faint); }
 
+/* — Bare form elements (textarea, select, input without .input class) — */
+/* Ensures all form controls have smooth transitions even when the .input
+   component class is not applied (e.g. legacy templates, inline forms). */
+textarea,
+select {
+    transition: border-color var(--transition-base), background var(--transition-base);
+}
+
 /* — Form validation states — */
 .input.is-invalid {
     border-color: var(--badge-error-text);
