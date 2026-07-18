@@ -8,6 +8,7 @@
     {% block extra_head %}{% if extra_head %}{{ extra_head }}{% endif %}{% endblock %}
 </head>
 <body>
+    <div class="progress-bar" id="progress-bar" aria-hidden="true"></div>
     <header>
         <div class="container">
             <div class="header-row">
@@ -44,6 +45,9 @@
     <script src="/static/js/vector-weight-slider.js" defer></script>
     <script src="/static/js/lazy-load.js" defer></script>
     <script src="/static/js/keyboard-shortcuts.js" defer></script>
+    <script src="/static/js/perf-utils.js" defer></script>
+    <script src="/static/js/progress-bar.js" defer></script>
+    <script src="/static/js/optimistic-ui.js" defer></script>
     {% block extra_js %}{% endblock %}
 </body>
 </html>

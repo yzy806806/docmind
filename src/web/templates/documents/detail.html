@@ -35,7 +35,8 @@
                 {% endif %}
             </div>
             <form action="/documents/{{ doc.id or '?' }}/assign-collection" method="post"
-                  class="collection-assign-row">
+                  class="collection-assign-row"
+                  data-optimistic data-optimistic-action="collection-assign">
                 <select name="collection_id">
                     <option value="">— Unassigned —</option>
                     {% for col in all_collections %}
@@ -53,7 +54,8 @@
             <div class="field"><span class="field-label">Tags:</span>
                 {% if tag_badges_html %}{{ tag_badges_html }}{% else %}<em>No tags yet</em>{% endif %}
             </div>
-            <form action="/documents/{{ doc.id or '?' }}/tags" method="post" class="tag-input-row">
+            <form action="/documents/{{ doc.id or '?' }}/tags" method="post" class="tag-input-row"
+                  data-optimistic data-optimistic-action="single-tag-add">
                 <input type="text" name="tag" placeholder="Add a tag…" required maxlength="50">
                 <button type="submit">Add Tag</button>
             </form>
@@ -87,6 +89,7 @@
 
         <div class="doc-actions">
             <form action="/documents/{{ doc.id or '?' }}/delete" method="post"
+                  data-optimistic data-optimistic-action="single-delete"
                   onsubmit="return confirm('Are you sure you want to delete document {{ doc.id or '?' }}? This cannot be undone.');">
                 <button type="submit" class="btn-delete">🗑 Delete Document</button>
             </form>

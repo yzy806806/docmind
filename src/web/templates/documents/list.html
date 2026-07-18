@@ -5,9 +5,31 @@
     <div class="card">
         <h2>Documents{{ filter_label }}</h2>
         <div id="doc-table-region">
+        <div id="doc-table-skeleton" class="htmx-indicator">
+            <div class="table-scroll">
+                <table>
+                    <tr><th style="width:24px;"></th><th>Document</th><th>Status</th><th>Source</th><th>Type</th><th>Date</th><th>Tags</th><th>View</th></tr>
+                    <tbody>
+                    {% for _ in range(5) %}
+                    <tr class="skeleton-row">
+                        <td><span class="skeleton" style="width:16px;"></span></td>
+                        <td><span class="skeleton skeleton-text-lg"></span></td>
+                        <td><span class="skeleton skeleton-badge"></span></td>
+                        <td><span class="skeleton skeleton-text-sm"></span></td>
+                        <td><span class="skeleton" style="width:3em;"></span></td>
+                        <td><span class="skeleton" style="width:5em;"></span></td>
+                        <td><span class="skeleton" style="width:4em;"></span></td>
+                        <td><span class="skeleton" style="width:3em;"></span></td>
+                    </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
         <div class="pagination-info">Showing {{ start }}–{{ end }} of {{ total }} document(s)</div>
         {% if documents %}
-        <form id="bulk-delete-form" action="/documents/bulk-delete" method="post" onsubmit="return confirmBulkDelete();">
+        <form id="bulk-delete-form" action="/documents/bulk-delete" method="post" onsubmit="return confirmBulkDelete();"
+               data-optimistic data-optimistic-action="bulk-delete">
         <div class="table-scroll">
         <table><tr><th><input type="checkbox" id="select-all" title="Select all" onclick="toggleSelectAll(this);"></th><th>Document</th><th>Status</th><th>Source</th><th>Type</th><th>Date</th>{{ tags_col_header }}<th>View</th></tr>
         <tbody id="doc-tbody">
@@ -47,12 +69,14 @@
             <span class="bulk-actions-label">Bulk Actions:</span>
             <span id="selected-count-label" style="font-size:0.85em;">Selected: <span id="selected-count">0</span></span>
             <button type="submit" form="bulk-delete-form" id="delete-selected-btn" class="btn-delete" disabled style="padding:4px 12px;font-size:0.85em;cursor:not-allowed;opacity:0.5;">🗑 Delete Selected</button>
-            <form id="bulk-tag-form" action="/documents/bulk-tag" method="post" style="display:flex;gap:4px;align-items:center;">
+            <form id="bulk-tag-form" action="/documents/bulk-tag" method="post" style="display:flex;gap:4px;align-items:center;"
+                data-optimistic data-optimistic-action="bulk-tag">
                 <input type="hidden" name="doc_ids" id="bulk-tag-doc-ids">
                 <input type="text" name="tag" placeholder="tag name" style="padding:4px;width:120px;font-size:0.85em;" id="bulk-tag-input">
                 <button type="submit" id="tag-selected-btn" class="btn-tag" disabled style="padding:4px 12px;font-size:0.85em;cursor:not-allowed;opacity:0.5;">🏷 Tag Selected</button>
             </form>
-            <form id="bulk-move-form" action="/documents/bulk-move-collection" method="post" style="display:flex;gap:4px;align-items:center;">
+            <form id="bulk-move-form" action="/documents/bulk-move-collection" method="post" style="display:flex;gap:4px;align-items:center;"
+                data-optimistic data-optimistic-action="bulk-move">
                 <input type="hidden" name="doc_ids" id="bulk-move-doc-ids">
                 <select name="collection_id" id="bulk-move-select" style="padding:4px;font-size:0.85em;" disabled>
                     <option value="">-- Collection --</option>
@@ -88,7 +112,8 @@
                   hx-get="/documents/partials/table"
                   hx-target="#doc-table-region"
                   hx-swap="outerHTML"
-                  hx-trigger="submit, change">
+                  hx-trigger="submit, change"
+                  hx-indicator="#doc-table-skeleton">
                 <label>
                     Source Type
                     <select name="source" class="facet-select">
