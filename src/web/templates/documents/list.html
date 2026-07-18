@@ -20,7 +20,7 @@
             <td>{{ doc.ext or '' }}</td>
             <td>{{ fmt_date(doc.created_at) }}</td>
             <td>{{ doc._tag_badges_html }}</td>
-            <td><a href="/documents/{{ doc.id }}/view" class="btn-view-link" title="View document">📖 View</a></td>
+            <td><a href="/documents/{{ doc.id }}/view" class="btn btn-link" title="View document">📖 View</a></td>
         </tr>
         {% endfor %}
         </tbody>
@@ -46,11 +46,11 @@
         <div class="bulk-actions" id="bulk-actions-bar">
             <span class="bulk-actions-label">Bulk Actions:</span>
             <span id="selected-count-label" style="font-size:0.85em;">Selected: <span id="selected-count">0</span></span>
-            <button type="submit" form="bulk-delete-form" id="delete-selected-btn" class="btn-delete" disabled style="padding:4px 12px;font-size:0.85em;cursor:not-allowed;opacity:0.5;">🗑 Delete Selected</button>
+            <button type="submit" form="bulk-delete-form" id="delete-selected-btn" class="btn btn-danger btn-sm" disabled style="padding:4px 12px;font-size:0.85em;cursor:not-allowed;opacity:0.5;">🗑 Delete Selected</button>
             <form id="bulk-tag-form" action="/documents/bulk-tag" method="post" style="display:flex;gap:4px;align-items:center;">
                 <input type="hidden" name="doc_ids" id="bulk-tag-doc-ids">
                 <input type="text" name="tag" placeholder="tag name" style="padding:4px;width:120px;font-size:0.85em;" id="bulk-tag-input">
-                <button type="submit" id="tag-selected-btn" class="btn-tag" disabled style="padding:4px 12px;font-size:0.85em;cursor:not-allowed;opacity:0.5;">🏷 Tag Selected</button>
+                <button type="submit" id="tag-selected-btn" class="btn btn-secondary btn-sm" disabled style="padding:4px 12px;font-size:0.85em;cursor:not-allowed;opacity:0.5;">🏷 Tag Selected</button>
             </form>
             <form id="bulk-move-form" action="/documents/bulk-move-collection" method="post" style="display:flex;gap:4px;align-items:center;">
                 <input type="hidden" name="doc_ids" id="bulk-move-doc-ids">
@@ -60,7 +60,7 @@
                     <option value="{{ col.id }}">{{ col.name }}</option>
                     {% endfor %}
                 </select>
-                <button type="submit" id="move-selected-btn" class="btn-move" disabled style="padding:4px 12px;font-size:0.85em;cursor:not-allowed;opacity:0.5;">📦 Move Selected</button>
+                <button type="submit" id="move-selected-btn" class="btn btn-secondary btn-sm" disabled style="padding:4px 12px;font-size:0.85em;cursor:not-allowed;opacity:0.5;">📦 Move Selected</button>
             </form>
             <form id="bulk-export-form" action="/documents/bulk-export" method="get" style="display:flex;gap:4px;align-items:center;">
                 <input type="hidden" name="doc_ids" id="bulk-export-doc-ids">
@@ -68,7 +68,7 @@
                     <option value="csv">CSV</option>
                     <option value="json">JSON</option>
                 </select>
-                <button type="submit" id="export-selected-btn" class="btn-export" disabled style="padding:4px 12px;font-size:0.85em;cursor:not-allowed;opacity:0.5;">⬇ Export Selected</button>
+                <button type="submit" id="export-selected-btn" class="btn btn-secondary btn-sm" disabled style="padding:4px 12px;font-size:0.85em;cursor:not-allowed;opacity:0.5;">⬇ Export Selected</button>
             </form>
         </div>
         {% else %}

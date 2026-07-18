@@ -41,17 +41,17 @@
             </div>
 
             <div class="settings-actions">
-                <button type="submit" class="btn-save">
+                <button type="submit" class="btn btn-primary">
                     {{ 'Update Collection' if mode == 'edit' else 'Create Collection' }}
                 </button>
                 {% if mode == 'edit' %}
                 <button type="submit" formaction="{{ delete_action }}" formmethod="post"
-                        class="btn-delete"
+                        class="btn btn-danger"
                         onclick="return confirm('Delete this collection? Documents will be moved to All Documents. Child collections will also be deleted.');">
                     Delete Collection
                 </button>
                 {% endif %}
-                <a href="/documents" class="btn-cancel">Cancel</a>
+                <a href="/documents" class="btn btn-ghost">Cancel</a>
             </div>
         </form>
     </div>

@@ -36,14 +36,23 @@
         {% block content %}{{ content }}{% endblock %}
     </div>
     <footer>DocMind v0.1.0 — AI-Powered Document Knowledge Base</footer>
+    {# perf-utils.js — shared debounce/throttle/rAF-throttle helpers.
+       Loaded with defer BEFORE other modules that depend on it. #}
+    <script src="/static/js/perf-utils.js" defer></script>
     <script src="/static/js/theme.js" defer></script>
     {# HTMX — self-hosted (ADR-003). Loaded with defer so it executes after DOM parse.
        Pages that use hx-* attributes get progressive enhancement; forms/links still
        work as full-page requests when HTMX is absent (no hx attribute = normal submit). #}
     <script src="/static/vendor/htmx.min.js" defer></script>
+    {# progress-bar.js must load before lazy-load.js / chat.js because they
+       call window.progressBarStart/Stop during fetch requests. Loaded with
+       defer so it runs after DOM parse but before HTMX event dispatch. #}
+    <script src="/static/js/progress-bar.js" defer></script>
     <script src="/static/js/vector-weight-slider.js" defer></script>
     <script src="/static/js/lazy-load.js" defer></script>
     <script src="/static/js/keyboard-shortcuts.js" defer></script>
+    <script src="/static/js/nav-active.js" defer></script>
+    <script src="/static/js/optimistic-ui.js" defer></script>
     {% block extra_js %}{% endblock %}
 </body>
 </html>

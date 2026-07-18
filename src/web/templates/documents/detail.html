@@ -66,12 +66,12 @@
                 <form action="/documents/{{ doc.id or '?' }}/regenerate-summary" method="post"
                       style="display:inline;"
                       onsubmit="return confirm('Regenerate summary for document {{ doc.id or '?' }}?');">
-                    <button type="submit" class="btn-regenerate" style="padding:4px 12px;font-size:0.85em;cursor:pointer;">🔄 Regenerate Summary</button>
+                    <button type="submit" class="btn btn-secondary btn-sm">🔄 Regenerate Summary</button>
                 </form>
                 <a href="/documents/{{ doc.id or '?' }}/summary/export?format=md"
-                   class="btn-export" style="padding:4px 12px;font-size:0.85em;text-decoration:none;border:1px solid var(--border);border-radius:4px;">⬇ Summary .md</a>
+                   class="btn btn-secondary btn-sm">⬇ Summary .md</a>
                 <a href="/documents/{{ doc.id or '?' }}/summary/export?format=txt"
-                   class="btn-export" style="padding:4px 12px;font-size:0.85em;text-decoration:none;border:1px solid var(--border);border-radius:4px;">⬇ Summary .txt</a>
+                   class="btn btn-secondary btn-sm">⬇ Summary .txt</a>
             </div>
         </div>
 
@@ -83,12 +83,12 @@
         <div id="doc-excerpt-lazy" data-doc-id="{{ doc.id or '?' }}" style="min-height:2em;">
             <pre class="doc-excerpt">{{ escape(excerpt) }}</pre>
         </div>
-        <p><a href="/documents/{{ doc.id or '?' }}/view" class="btn-read-full">📖 Read Full Document</a></p>
+        <p><a href="/documents/{{ doc.id or '?' }}/view" class="btn btn-primary">📖 Read Full Document</a></p>
 
         <div class="doc-actions">
             <form action="/documents/{{ doc.id or '?' }}/delete" method="post"
                   onsubmit="return confirm('Are you sure you want to delete document {{ doc.id or '?' }}? This cannot be undone.');">
-                <button type="submit" class="btn-delete">🗑 Delete Document</button>
+                <button type="submit" class="btn btn-danger">🗑 Delete Document</button>
             </form>
         </div>
     </div>

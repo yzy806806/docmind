@@ -6,7 +6,7 @@
         {% if error %}<div class="error">{{ error }}</div>{% endif %}
         <form action="/search" method="get" class="search-box">
             <input type="text" name="q" placeholder="Enter your search query..." required autofocus>
-            <button type="submit">Search</button>
+            <button  type="submit" name="submit_search" value="1">Search</button>
             <div class="vector-weight-control">
                 <label for="vw-slider">
                     Vector Weight: <span class="vw-value" data-default="0.6">0.60</span>

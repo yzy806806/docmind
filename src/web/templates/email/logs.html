@@ -91,11 +91,11 @@
         {% if total_pages > 1 %}
         <div class="pagination" style="margin-top:12px;display:flex;gap:4px;justify-content:center;">
             {% if page > 1 %}
-                <a href="/email-accounts/{{ account.id if account else 0 }}/logs?page={{ page - 1 }}{% if status_filter %}&status={{ status_filter }}{% endif %}" class="btn-view-link">← Prev</a>
+                <a href="/email-accounts/{{ account.id if account else 0 }}/logs?page={{ page - 1 }}{% if status_filter %}&status={{ status_filter }}{% endif %}" class="btn btn-link">← Prev</a>
             {% endif %}
             <span>Page {{ page }} of {{ total_pages }}</span>
             {% if page < total_pages %}
-                <a href="/email-accounts/{{ account.id if account else 0 }}/logs?page={{ page + 1 }}{% if status_filter %}&status={{ status_filter }}{% endif %}" class="btn-view-link">Next →</a>
+                <a href="/email-accounts/{{ account.id if account else 0 }}/logs?page={{ page + 1 }}{% if status_filter %}&status={{ status_filter }}{% endif %}" class="btn btn-link">Next →</a>
             {% endif %}
         </div>
         {% endif %}
