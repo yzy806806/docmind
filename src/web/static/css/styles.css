@@ -534,6 +534,7 @@ header nav a:active { opacity: 0.7; transform: scale(0.97); }
     background: var(--primary);
     color: var(--header-text);
     border: 1px solid var(--primary);
+    transition: var(--transition-press);
 }
 .btn-primary:hover {
     background: var(--primary-hover);
@@ -619,10 +620,12 @@ header nav a:active { opacity: 0.7; transform: scale(0.97); }
 .input.is-invalid {
     border-color: var(--badge-error-text);
     background: var(--error-bg);
+    transition: border-color var(--transition-base), background var(--transition-base);
 }
 .input.is-valid {
     border-color: var(--badge-summarized-text);
     background: var(--success-bg);
+    transition: border-color var(--transition-base), background var(--transition-base);
 }
 .field-error {
     display: block;
@@ -659,6 +662,7 @@ header nav a:active { opacity: 0.7; transform: scale(0.97); }
     box-shadow: var(--shadow);
 
     transition: var(--transition-lift);
+    will-change: transform, box-shadow;
 }
 
 .card:hover {
@@ -681,6 +685,7 @@ header nav a:active { opacity: 0.7; transform: scale(0.97); }
     box-shadow: var(--shadow);
 
     transition: var(--transition-lift);
+    will-change: transform, box-shadow;
 }
 
 .stat:hover {
@@ -762,6 +767,7 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
     border-radius: var(--radius-xl);
     box-shadow: var(--shadow-sm);
     transition: var(--transition-lift);
+    will-change: transform, box-shadow;
 }
 
 .result:hover { box-shadow: var(--shadow); transform: translateY(var(--lift-amount-sm)); }
@@ -2003,6 +2009,7 @@ td input[type="checkbox"]:checked::after {
     margin: var(--space-5);
 
     transition: var(--transition-lift);
+    will-change: transform, box-shadow;
 }
 
 .login-card:hover {

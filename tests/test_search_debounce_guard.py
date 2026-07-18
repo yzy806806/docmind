@@ -80,8 +80,8 @@ class TestSearchFormsHaveDebouncedHTMX:
         assert 'id="search-loading"' in html, (
             "search_form.html missing #search-loading indicator"
         )
-        assert "正在搜索" in html, (
-            "search_form.html missing '正在搜索…' loading text"
+        assert "Searching" in html, (
+            "search_form.html missing 'Searching…' loading text"
         )
         assert 'class="htmx-indicator' in html, (
             "#search-loading must use htmx-indicator class"
@@ -130,8 +130,8 @@ class TestSearchFormsHaveDebouncedHTMX:
         assert 'id="search-loading"' in html, (
             "search_results.html missing #search-loading indicator"
         )
-        assert "正在搜索" in html, (
-            "search_results.html missing '正在搜索…' loading text"
+        assert "Searching" in html, (
+            "search_results.html missing 'Searching…' loading text"
         )
 
     def test_search_results_page_has_live_region(self):
