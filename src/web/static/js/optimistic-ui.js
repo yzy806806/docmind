@@ -83,6 +83,58 @@
         delete btn.dataset.optimisticDisabled;
     }
 
+    /* flashElement — applies a transient flash animation to an element to
+     * give the user visual confirmation that a mutation succeeded or
+     * visual feedback that it failed and was rolled back.
+     */
+    var FLASH_DURATION = 900;
+    function flashElement(el, type) {
+        if (!el) return;
+        var cls = type === 'error' ? 'optimistic-flash-error' : 'optimistic-flash-success';
+        el.classList.remove(cls);
+        void el.offsetWidth;
+        el.classList.add(cls);
+        if (el._optimisticFlashTimer) clearTimeout(el._optimisticFlashTimer);
+        el._optimisticFlashTimer = setTimeout(function () {
+            el.classList.remove(cls);
+            el._optimisticFlashTimer = null;
+        }, FLASH_DURATION + 50);
+    }
+
+    /* extractErrorMessage — parses a fetch error response and returns
+     * a human-readable message. Returns string for Error, Promise for Response.
+     */
+    function extractErrorMessage(errorOrResponse, defaultMsg) {
+        if (!errorOrResponse) return defaultMsg;
+        if (errorOrResponse instanceof Error) {
+            return errorOrResponse.message || defaultMsg;
+        }
+        if (errorOrResponse.text && typeof errorOrResponse.text === 'function') {
+            return errorOrResponse.text().then(function (body) {
+                return parseErrorBody(body, errorOrResponse.status, defaultMsg);
+            });
+        }
+        return defaultMsg;
+    }
+
+    function parseErrorBody(body, status, defaultMsg) {
+        if (!body) return defaultMsg;
+        try {
+            var json = JSON.parse(body);
+            if (json.detail) return json.detail;
+            if (json.message) return json.message;
+            if (json.error) return json.error;
+        } catch (e) { }
+        var msgMatch = body.match(/<main[^>]*>([\s\S]*?)<\/main>/i);
+        if (!msgMatch) msgMatch = body.match(/<p[^>]*>([\s\S]*?)<\/p>/i);
+        if (msgMatch) {
+            var text = msgMatch[1].replace(/<[^>]+>/g, '').trim();
+            if (text && text.length < 300) return text;
+        }
+        if (status && status >= 400) return defaultMsg + ' (HTTP ' + status + ')';
+        return defaultMsg;
+    }
+
     function handleSingleDelete(form, formData) {
         var card = document.querySelector('.card.doc-detail');
         var btn = form.querySelector('button[type="submit"]');
@@ -94,11 +146,17 @@
         setButtonLoading(btn, 'Deleting…');
         return {
             snapshots: snapshots, btn: btn,
-            onSuccess: function () { window.location.href = '/documents'; },
-            onError: function () {
-                if (card) card.classList.remove('optimistic-removing');
+            onSuccess: function () {
+                if (card) flashElement(card, 'success');
+                window.location.href = '/documents';
+            },
+            onError: function (msg) {
+                if (card) {
+                    card.classList.remove('optimistic-removing');
+                    flashElement(card, 'error');
+                }
                 restoreButton(btn);
-                showToast('Failed to delete document. Please try again.', 'error');
+                showToast(msg || 'Failed to delete document. Please try again.', 'error');
             }
         };
     }
@@ -125,13 +183,14 @@
                 if (typeof updateBulkActionButtons === 'function') updateBulkActionButtons();
                 showToast('Deleted ' + rows.length + ' document(s).', 'success');
             },
-            onError: function () {
+            onError: function (msg) {
                 for (var i = 0; i < snapshots.length; i++) {
                     restoreSnapshot(snapshots[i]);
                     snapshots[i].el.classList.remove('optimistic-removing');
+                    flashElement(snapshots[i].el, 'error');
                 }
                 restoreButton(btn);
-                showToast('Failed to delete documents. Please try again.', 'error');
+                showToast(msg || 'Failed to delete documents. Please try again.', 'error');
             }
         };
     }
@@ -165,15 +224,18 @@
             snapshots: badge ? [{el: badge, parent: badge.parentNode, nextSibling: badge.nextSibling}] : [],
             btn: btn, tagInput: tagInput,
             onSuccess: function () {
-                if (badge) badge.classList.remove('optimistic-added');
+                if (badge) {
+                    badge.classList.remove('optimistic-added');
+                    flashElement(badge, 'success');
+                }
                 restoreButton(btn);
                 showToast('Tag "' + tagValue + '" added.', 'success');
             },
-            onError: function () {
+            onError: function (msg) {
                 if (badge && badge.parentNode) badge.parentNode.removeChild(badge);
                 if (tagInput) tagInput.value = tagValue;
                 restoreButton(btn);
-                showToast('Failed to add tag. Please try again.', 'error');
+                showToast(msg || 'Failed to add tag. Please try again.', 'error');
             }
         };
     }
@@ -195,14 +257,20 @@
         return {
             snapshots: badge ? [snapshotElement(badge)] : [], btn: btn,
             onSuccess: function () {
-                if (badge && badge.parentNode) badge.parentNode.removeChild(badge);
+                if (badge && badge.parentNode) {
+                    flashElement(badge, 'success');
+                    if (badge.parentNode) badge.parentNode.removeChild(badge);
+                }
                 restoreButton(btn);
                 showToast('Tag "' + tagValue + '" removed.', 'success');
             },
-            onError: function () {
-                if (badge) badge.classList.remove('optimistic-removing');
+            onError: function (msg) {
+                if (badge) {
+                    badge.classList.remove('optimistic-removing');
+                    flashElement(badge, 'error');
+                }
                 restoreButton(btn);
-                showToast('Failed to remove tag. Please try again.', 'error');
+                showToast(msg || 'Failed to remove tag. Please try again.', 'error');
             }
         };
     }
@@ -231,18 +299,21 @@
             snapshots: snapshots, btn: btn,
             onSuccess: function () {
                 for (var i = 0; i < snapshots.length; i++) {
-                    if (snapshots[i].el) snapshots[i].el.classList.remove('optimistic-added');
+                    if (snapshots[i].el) {
+                        snapshots[i].el.classList.remove('optimistic-added');
+                        flashElement(snapshots[i].el, 'success');
+                    }
                 }
                 restoreButton(btn);
                 if (tagInput) tagInput.value = '';
                 showToast('Tagged ' + checkboxes.length + ' document(s) with "' + tagValue + '".', 'success');
             },
-            onError: function () {
+            onError: function (msg) {
                 for (var i = 0; i < snapshots.length; i++) {
                     if (snapshots[i].el && snapshots[i].el.parentNode) snapshots[i].el.parentNode.removeChild(snapshots[i].el);
                 }
                 restoreButton(btn);
-                showToast('Failed to tag documents. Please try again.', 'error');
+                showToast(msg || 'Failed to tag documents. Please try again.', 'error');
             }
         };
     }
@@ -259,9 +330,9 @@
                 restoreButton(btn);
                 showToast('Moved ' + checkboxes.length + ' document(s) to "' + colName + '".', 'success');
             },
-            onError: function () {
+            onError: function (msg) {
                 restoreButton(btn);
-                showToast('Failed to move documents. Please try again.', 'error');
+                showToast(msg || 'Failed to move documents. Please try again.', 'error');
             }
         };
     }
@@ -275,9 +346,9 @@
                 if (response.redirected) window.location.href = response.url;
                 else window.location.reload();
             },
-            onError: function () {
+            onError: function (msg) {
                 restoreButton(btn);
-                showToast('Failed to assign collection. Please try again.', 'error');
+                showToast(msg || 'Failed to assign collection. Please try again.', 'error');
             }
         };
     }
@@ -330,10 +401,23 @@
         fetch(form.action, { method: 'POST', body: formData, redirect: 'follow' })
             .then(function (response) {
                 if (response.ok) { if (context.onSuccess) context.onSuccess(response); }
-                else { if (context.onError) context.onError(response); }
+                else {
+                    if (context.onError) {
+                        extractErrorMessage(response, 'Request failed.').then(function (msg) {
+                            context.onError(msg, response);
+                        });
+                    }
+                }
             })
             .catch(function (error) {
-                if (context.onError) context.onError(error);
+                if (context.onError) {
+                    var msg = extractErrorMessage(error, 'Network error — please check your connection.');
+                    if (msg && msg.then) {
+                        msg.then(function (m) { context.onError(m, error); });
+                    } else {
+                        context.onError(msg, error);
+                    }
+                }
             });
     }
 
@@ -362,6 +446,8 @@
     window.OptimisticUI = {
         showToast: showToast, setButtonLoading: setButtonLoading,
         restoreButton: restoreButton, handlers: handlerMap,
-        interceptSubmit: interceptSubmit
+        interceptSubmit: interceptSubmit,
+        flashElement: flashElement,
+        extractErrorMessage: extractErrorMessage
     };
 })();

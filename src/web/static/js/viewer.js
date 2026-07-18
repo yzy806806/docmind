@@ -7,17 +7,41 @@
 (function() {
     "use strict";
 
+    // Graceful fallback if perf-utils.js isn't loaded
+    var _perf = window.DocMindPerf || {};
+    var rAFThrottle = _perf.rAFThrottle || function (fn) {
+        var scheduled = false, lastArgs, lastThis;
+        return function () {
+            lastArgs = arguments; lastThis = this;
+            if (scheduled) return;
+            scheduled = true;
+            (window.requestAnimationFrame || function (cb) { return setTimeout(cb, 0); })(function () {
+                scheduled = false;
+                fn.apply(lastThis, lastArgs);
+            });
+        };
+    };
+    var debounce = _perf.debounce || function (fn, wait) {
+        var timer;
+        return function () {
+            var ctx = this, args = arguments;
+            clearTimeout(timer);
+            timer = setTimeout(function () { fn.apply(ctx, args); }, wait);
+        };
+    };
+
     var root = document.documentElement;
-    // Reading mode controls
+    // Reading mode controls — rAF-throttled to avoid layout thrashing on
+    // rapid slider input (each change reflows the .doc-reader text).
     var fontSlider = document.getElementById('fontSizeSlider');
     var lhSlider = document.getElementById('lineHeightSlider');
     var reader = document.querySelector('.doc-reader');
-    function applyFont() {
+    var applyFont = rAFThrottle(function() {
         if (reader && fontSlider) reader.style.setProperty('--reader-font-size', fontSlider.value + 'px');
-    }
-    function applyLineHeight() {
+    });
+    var applyLineHeight = rAFThrottle(function() {
         if (reader && lhSlider) reader.style.setProperty('--reader-line-height', lhSlider.value);
-    }
+    });
     if (fontSlider) { fontSlider.addEventListener('input', applyFont); applyFont(); }
     if (lhSlider) { lhSlider.addEventListener('input', applyLineHeight); applyLineHeight(); }
 
@@ -97,12 +121,13 @@
         updateCount();
     }
 
-    var debounceTimer;
+    // Debounced search input — 220ms delay avoids reflow-heavy highlight
+    // passes on every keystroke. Uses DocMindPerf.debounce with fallback.
+    var debouncedHighlight = debounce(function() {
+        highlightTerm(searchInput.value.trim());
+    }, 220);
     if (searchInput) {
-        searchInput.addEventListener('input', function() {
-            clearTimeout(debounceTimer);
-            debounceTimer = setTimeout(function() { highlightTerm(searchInput.value.trim()); }, 220);
-        });
+        searchInput.addEventListener('input', debouncedHighlight);
     }
     if (prevBtn) prevBtn.addEventListener('click', function() {
         if (matches.length === 0) return;

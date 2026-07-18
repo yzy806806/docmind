@@ -14,6 +14,15 @@
     var currentSessionId = null;
     var sessionTitle = 'New Chat';
 
+    // rAF-throttled auto-scroll — streaming chunks can fire many times per
+    // second; coalescing to one scrollTop write per frame avoids layout
+    // thrashing. Falls back to direct scroll if perf-utils is absent.
+    var _rafScrollToBottom = (window.DocMindPerf || {}).rAFThrottle
+        ? window.DocMindPerf.rAFThrottle(function (box) {
+            if (box) box.scrollTop = box.scrollHeight;
+        })
+        : function (box) { if (box) box.scrollTop = box.scrollHeight; };
+
     function toggleExportMenu() {
         var menu = document.getElementById('chat-export-menu');
         menu.style.display = (menu.style.display === 'none') ? 'block' : 'none';
@@ -109,9 +118,9 @@
         var div = document.createElement('div');
         div.className = 'chat-msg bot typing';
         div.id = 'typing-indicator-msg';
-        div.innerHTML = 'Thinking<span class="typing-indicator">...</span>';
+        div.innerHTML = 'Thinking<span class="typing-dots"><span></span><span></span><span></span></span>';
         box.appendChild(div);
-        box.scrollTop = box.scrollHeight;
+        _rafScrollToBottom(box);
     }
     function removeTypingIndicator() {
         var el = document.getElementById('typing-indicator-msg');
@@ -187,7 +196,7 @@
         div.textContent = text;
         document.getElementById('chat-messages').appendChild(div);
         var box = document.getElementById('chat-messages');
-        box.scrollTop = box.scrollHeight;
+        _rafScrollToBottom(box);
     }
     function appendChunk(text) {
         currentAnswer += text;
@@ -201,7 +210,7 @@
             var last = box.querySelector('.chat-msg.bot:last-child');
             if (last) last.dataset.streaming = 'true';
         }
-        box.scrollTop = box.scrollHeight;
+        _rafScrollToBottom(box);
     }
     function renderCitations() {
         if (citations.length === 0) return;
@@ -215,12 +224,24 @@
         panel.style.display = 'block';
     }
     function loadSessionList() {
+        var listEl = document.getElementById('chat-session-list');
+        // Show skeleton placeholders while fetching
+        if (listEl) {
+            var skelHtml = '';
+            for (var i = 0; i < 4; i++) {
+                skelHtml += '<div class="chat-session-skeleton">' +
+                    '<span class="skeleton" style="width:' + (50 + Math.random() * 30) + '%;"></span>' +
+                    '<span class="skeleton"></span>' +
+                    '</div>';
+            }
+            listEl.innerHTML = skelHtml;
+        }
         fetch('/api/v1/chat/sessions?limit=30')
             .then(function(r) { return r.json(); })
             .then(function(data) {
                 var listEl = document.getElementById('chat-session-list');
                 if (!data.sessions || data.sessions.length === 0) {
-                    listEl.innerHTML = '<p class="pagination-info">No conversations yet.</p>';
+                    listEl.innerHTML = '<div class="empty-state" style="padding:var(--space-4);"><span class="empty-icon" style="font-size:1.5em;">💬</span><p class="empty-title" style="font-size:var(--font-size-base);">还没有对话</p><p class="empty-hint">输入问题开始与文档对话</p></div>';
                     return;
                 }
                 listEl.innerHTML = data.sessions.map(function(s) {
@@ -240,7 +261,7 @@
             })
             .catch(function() {
                 document.getElementById('chat-session-list').innerHTML =
-                    '<p class="pagination-info">Could not load sessions.</p>';
+                    '<div class="error-state" style="padding:var(--space-4);"><span class="error-icon" style="font-size:1.5em;">⚠️</span><p class="error-title" style="font-size:var(--font-size-base);">加载失败</p><p class="error-detail">无法加载对话列表，请刷新页面重试</p></div>';
             });
     }
     function loadSession(id, title) {

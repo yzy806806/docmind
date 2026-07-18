@@ -9,6 +9,21 @@
 (function() {
     "use strict";
 
+    // Throttle the XHR progress handler — progress events fire many times
+    // per second during upload; throttling to 10fps (100ms) avoids layout
+    // thrashing from frequent DOM writes (progEl.value + statusEl.textContent).
+    // Falls back to a direct handler if perf-utils is absent.
+    var _perf = window.DocMindPerf || {};
+    var _throttledProgress = _perf.throttle
+        ? _perf.throttle(function (pct, el, statusEl) {
+            el.value = pct;
+            statusEl.textContent = pct + '%';
+        }, 100)
+        : function (pct, el, statusEl) {
+            el.value = pct;
+            statusEl.textContent = pct + '%';
+        };
+
     var dropZone   = document.getElementById('drop-zone');
     var fileInput  = document.getElementById('file-input');
     var fileListEl = document.getElementById('file-list');
@@ -186,8 +201,7 @@
             xhr.upload.addEventListener('progress', function(e) {
                 if (e.lengthComputable) {
                     var pct = Math.round((e.loaded / e.total) * 100);
-                    progEl.value = pct;
-                    statusEl.textContent = pct + '%';
+                    _throttledProgress(pct, progEl, statusEl);
                 }
             });
         }

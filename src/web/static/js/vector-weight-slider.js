@@ -12,12 +12,26 @@
 (function () {
     "use strict";
 
+    // Graceful fallback if perf-utils.js isn't loaded
+    var _perf = window.DocMindPerf || {};
+    var rAFThrottle = _perf.rAFThrottle || function (fn) {
+        var scheduled = false, lastArgs, lastThis;
+        return function () {
+            lastArgs = arguments; lastThis = this;
+            if (scheduled) return;
+            scheduled = true;
+            (window.requestAnimationFrame || function (cb) { return setTimeout(cb, 0); })(function () {
+                scheduled = false;
+                fn.apply(lastThis, lastArgs);
+            });
+        };
+    };
+
     function init() {
         var sliders = document.querySelectorAll(".vw-slider");
         if (sliders.length === 0) return;
 
         sliders.forEach(function (slider) {
-            // Find the sibling .vw-value display element
             var control = slider.closest(".vector-weight-control");
             if (!control) return;
             var valueDisplay = control.querySelector(".vw-value");
@@ -25,26 +39,12 @@
                 ? parseFloat(valueDisplay.getAttribute("data-default") || "0.6")
                 : 0.6;
 
-            function updateDisplay() {
-                var val = parseFloat(slider.value);
-                var valText = val.toFixed(2);
-                if (valueDisplay) {
-                    valueDisplay.textContent = valText;
-                }
-                // Keep ARIA attributes in sync for screen readers
-                slider.setAttribute("aria-valuenow", valText);
-                slider.setAttribute("aria-valuetext", valText);
-                updateExportLinks(val);
-            }
-
-            // Update export links on the search results page
             function updateExportLinks(val) {
                 var exportLinks = document.querySelectorAll(
                     ".search-export-bar .btn-export"
                 );
                 exportLinks.forEach(function (link) {
                     var href = link.getAttribute("href");
-                    // Replace or add vector_weight= param in the href
                     if (href.indexOf("vector_weight=") !== -1) {
                         href = href.replace(
                             /vector_weight=[\d.]+/,
@@ -57,11 +57,21 @@
                 });
             }
 
-            // Set initial display from the slider's current value
-            // (which may differ from default on the results page)
-            updateDisplay();
+            // rAF-throttled display update — coalesces rapid slider input
+            // events into one DOM write per animation frame, avoiding layout
+            // thrashing from repeated textContent + setAttribute calls.
+            var updateDisplay = rAFThrottle(function () {
+                var val = parseFloat(slider.value);
+                var valText = val.toFixed(2);
+                if (valueDisplay) {
+                    valueDisplay.textContent = valText;
+                }
+                slider.setAttribute("aria-valuenow", valText);
+                slider.setAttribute("aria-valuetext", valText);
+                updateExportLinks(val);
+            });
 
-            // Update on user interaction
+            updateDisplay();
             slider.addEventListener("input", updateDisplay);
         });
     }

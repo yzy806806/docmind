@@ -591,7 +591,7 @@ header nav a:active { opacity: 0.7; transform: scale(0.97); }
     font-size: var(--font-size-sm2);
     padding: 0;
     cursor: pointer;
-    transition: color var(--transition-base);
+    transition: color var(--transition-base), opacity var(--transition-fast);
 }
 .btn-link:hover { text-decoration: underline; }
 .btn-link:active { opacity: 0.7; }
@@ -903,7 +903,7 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
     color: var(--text);
     border: var(--border-w-1) solid var(--input-border);
     margin: var(--space-0-5);
-    transition: var(--transition-color);
+    transition: var(--transition-press);
 }
 
 .tag-pill:hover { background: var(--primary); color: var(--header-text); }
@@ -943,7 +943,7 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
     background: var(--code-bg);
     color: var(--text);
     border: var(--border-w-1) solid var(--input-border);
-    transition: var(--transition-color);
+    transition: var(--transition-press);
 }
 
 .tag-cloud-item:hover { background: var(--primary); color: var(--header-text); }
@@ -1001,7 +1001,7 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
     color: var(--text);
     border: var(--border-w-1) solid var(--input-border);
     margin: var(--space-0-5) 0;
-    transition: var(--transition-color);
+    transition: var(--transition-press);
 }
 
 .collection-tree-item:hover { background: var(--primary); color: var(--header-text); }
@@ -1010,7 +1010,7 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
 .collection-tree-item.active { background: var(--primary); color: var(--header-text); font-weight: 600; }
 
 .collection-tree-actions { display: inline-flex; gap: var(--space-1); margin-left: var(--space-1); }
-.collection-action-link { text-decoration: none; font-size: var(--font-size-sm2); padding: 0 var(--space-1); opacity: 0.6; transition: opacity var(--transition-base); }
+.collection-action-link { text-decoration: none; font-size: var(--font-size-sm2); padding: 0 var(--space-1); opacity: 0.6; transition: opacity var(--transition-base), transform var(--transition-fast); }
 .collection-action-link:hover { opacity: 1; }
 .collection-action-link:active { transform: scale(0.92); }
 
@@ -1221,7 +1221,7 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
     color: var(--text-muted);
     cursor: pointer;
     padding: 0 var(--space-1);
-    transition: color var(--transition-base);
+    transition: color var(--transition-base), transform var(--transition-fast);
 }
 
 .file-remove:hover { color: var(--error-text); }
@@ -1444,7 +1444,7 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
     border-radius: var(--radius-lg);
     cursor: pointer;
     border: var(--border-w-1) solid transparent;
-    transition: var(--transition-color);
+    transition: var(--transition-press);
 }
 
 .chat-session-item:hover { background: var(--hover-bg); }
@@ -1533,7 +1533,7 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
 
 .btn-save:hover { background: var(--primary-hover); }
 .btn-save:active { transform: scale(0.97); }
-.btn-cancel { color: var(--text-muted); text-decoration: none; transition: color var(--transition-base); }
+.btn-cancel { color: var(--text-muted); text-decoration: none; transition: color var(--transition-base), opacity var(--transition-fast); }
 .btn-cancel:hover { text-decoration: underline; }
 .btn-cancel:active { opacity: 0.7; }
 
@@ -1601,7 +1601,7 @@ footer { text-align: center; padding: var(--space-6); color: var(--text-faint); 
     border: var(--border-w-1) solid var(--input-border);
     color: var(--text);
     background: var(--surface);
-    transition: var(--transition-color);
+    transition: var(--transition-press);
 }
 
 .date-range-selector a:hover { background: var(--hover-bg); }
@@ -1652,7 +1652,7 @@ footer { text-align: center; padding: var(--space-6); color: var(--text-faint); 
     text-decoration: none;
     color: var(--text-muted);
     font-size: 0.88em;
-    transition: var(--transition-color);
+    transition: var(--transition-press);
 }
 
 .toc-list a:hover { background: var(--hover-bg); color: var(--text); }
@@ -1702,7 +1702,7 @@ footer { text-align: center; padding: var(--space-6); color: var(--text-faint); 
     color: var(--text);
     cursor: pointer;
     font-size: var(--font-size-sm2);
-    transition: var(--transition-color);
+    transition: var(--transition-press);
 }
 
 .search-nav-btns button:hover { background: var(--hover-bg); }
@@ -1800,7 +1800,7 @@ footer { text-align: center; padding: var(--space-6); color: var(--text-faint); 
     border: var(--border-w-1) solid var(--input-border);
     color: var(--text);
     background: var(--surface);
-    transition: var(--transition-color);
+    transition: var(--transition-press);
 }
 
 .viewer-pagination .vp-btn:hover:not(.disabled) { background: var(--hover-bg); }
@@ -1840,7 +1840,7 @@ footer { text-align: center; padding: var(--space-6); color: var(--text-faint); 
     text-decoration: none;
     color: var(--nav-link);
     font-size: var(--font-size-md);
-    transition: color var(--transition-base);
+    transition: color var(--transition-base), opacity var(--transition-fast);
 }
 
 .btn-viewer-back:hover { text-decoration: underline; }
@@ -1894,7 +1894,7 @@ footer { text-align: center; padding: var(--space-6); color: var(--text-faint); 
     border: var(--border-w-1) solid var(--input-border);
     border-radius: var(--radius-md);
     background: var(--surface);
-    transition: var(--transition-color);
+    transition: var(--transition-press);
 }
 
 .date-preset-btn:hover { background: var(--hover-bg); }
@@ -2709,11 +2709,31 @@ kbd {
     to { opacity: 1; transform: translateY(0); }
 }
 
+/* -- Flash / highlight feedback for successful mutations -------------- */
+@keyframes optimistic-flash-success {
+    0%   { background-color: transparent; }
+    15%  { background-color: var(--success-tint); box-shadow: 0 0 0 2px var(--success-text); }
+    100% { background-color: transparent; box-shadow: none; }
+}
+@keyframes optimistic-flash-error {
+    0%   { background-color: transparent; }
+    15%  { background-color: var(--error-bg); box-shadow: 0 0 0 2px var(--error-text); }
+    100% { background-color: transparent; box-shadow: none; }
+}
+.optimistic-flash-success {
+    animation: optimistic-flash-success 0.9s ease-out;
+}
+.optimistic-flash-error {
+    animation: optimistic-flash-error 0.9s ease-out;
+}
+
 @media (prefers-reduced-motion: reduce) {
     .optimistic-spinner { animation: none; }
     .optimistic-removing { transition: none; transform: none; }
     .optimistic-added { animation: none; }
     .optimistic-toast-msg { animation: none; }
+    .optimistic-flash-success { animation: none; }
+    .optimistic-flash-error { animation: none; }
 }
 
 /* — Lazy-loaded images (fade-in on load) — */
