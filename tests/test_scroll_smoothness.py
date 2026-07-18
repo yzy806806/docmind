@@ -44,7 +44,12 @@ def _extract_rule(css: str, selector: str) -> str:
 
     Returns the properties text between { } for the first match.
     Raises AssertionError if the selector is not found.
+
+    Strips CSS comments first to avoid brace characters inside comment
+    text (e.g. ':active { transform: scale() }' in a comment) from
+    prematurely terminating the match.
     """
+    css = _strip_comments(css)
     escaped = re.escape(selector)
     pattern = re.compile(
         rf"(?:^|\}})\s*{escaped}\s*\{{([^}}]*)\}}",
