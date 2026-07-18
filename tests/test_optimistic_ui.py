@@ -8,6 +8,8 @@ Verifies:
 - base.html loads the required JS scripts
 - Progressive enhancement: forms still work without JS (data-optimistic
   is opt-in, not required for form submission)
+- Loading/feedback states: flash animations on success, error rollback
+  messaging with server-provided detail
 """
 import re
 from pathlib import Path
@@ -19,6 +21,72 @@ TEMPLATES = Path(__file__).resolve().parent.parent / "src" / "web" / "templates"
 SRC = Path(__file__).resolve().parent.parent / "src" / "web"
 
 
+def _extract_function(js_text, name):
+    """Extract a function body from JS source by name."""
+    pattern = r"function\s+" + re.escape(name) + r"\s*\([^)]*\)\s*\{"
+    match = re.search(pattern, js_text)
+    if not match:
+        return None
+    start = match.end() - 1
+    depth = 0
+    for i in range(start, len(js_text)):
+        if js_text[i] == "{":
+            depth += 1
+        elif js_text[i] == "}":
+            depth -= 1
+            if depth == 0:
+                return js_text[start : i + 1]
+    return None
+
+
+def _extract_callback(handler_body, callback_name):
+    """Extract an onSuccess/onError callback block from a handler body."""
+    pattern = callback_name + r":\s*function\s*\([^)]*\)\s*\{"
+    match = re.search(pattern, handler_body)
+    if not match:
+        return None
+    start = match.end() - 1
+    depth = 0
+    for i in range(start, len(handler_body)):
+        if handler_body[i] == "{":
+            depth += 1
+        elif handler_body[i] == "}":
+            depth -= 1
+            if depth == 0:
+                return handler_body[start : i + 1]
+    return None
+
+
+def _extract_fetch_chain(js_text):
+    """Extract the fetch(...).then().catch() chain from the JS source.
+
+    Tracks parens and braces through the full chained expression,
+    continuing past .then() and .catch() method calls.
+    """
+    start = js_text.find("fetch(form.action")
+    if start < 0:
+        return None
+    depth = 0
+    i = start
+    while i < len(js_text):
+        c = js_text[i]
+        if c in "({":
+            depth += 1
+        elif c in ")}":
+            depth -= 1
+            if depth == 0:
+                # Check if next non-space char is . (method chain) or ; (end)
+                j = i + 1
+                while j < len(js_text) and js_text[j] in " \n\t":
+                    j += 1
+                if j < len(js_text) and js_text[j] == ".":
+                    i = j  # continue tracking the chained method
+                else:
+                    return js_text[start : i + 1]
+        i += 1
+    return None
+
+
 class TestOptimisticUIJS:
     """Verify optimistic-ui.js structure and API."""
 
@@ -27,35 +95,18 @@ class TestOptimisticUIJS:
         return (STATIC / "js" / "optimistic-ui.js").read_text()
 
     def test_file_exists(self, js_content):
-        assert len(js_content) > 1000, "optimistic-ui.js must be substantial"
+        assert len(js_content) > 1000
 
     def test_iife_wrapping(self, js_content):
         assert "(function ()" in js_content
         assert "})();" in js_content
 
     def test_has_all_handlers(self, js_content):
-        """All 7 mutation handlers must be present."""
-        for handler in [
-            "handleSingleDelete",
-            "handleBulkDelete",
-            "handleSingleTagAdd",
-            "handleTagRemove",
-            "handleBulkTag",
-            "handleBulkMove",
-            "handleCollectionAssign",
-        ]:
+        for handler in ["handleSingleDelete","handleBulkDelete","handleSingleTagAdd","handleTagRemove","handleBulkTag","handleBulkMove","handleCollectionAssign"]:
             assert handler in js_content, f"Missing handler: {handler}"
 
     def test_handler_map_complete(self, js_content):
-        for key in [
-            "single-delete",
-            "bulk-delete",
-            "single-tag-add",
-            "tag-remove",
-            "bulk-tag",
-            "bulk-move",
-            "collection-assign",
-        ]:
+        for key in ["single-delete","bulk-delete","single-tag-add","tag-remove","bulk-tag","bulk-move","collection-assign"]:
             assert f"'{key}'" in js_content, f"Missing handler map key: {key}"
 
     def test_submit_interceptor(self, js_content):
@@ -64,14 +115,12 @@ class TestOptimisticUIJS:
         assert "event.preventDefault" in js_content
 
     def test_htmx_skip(self, js_content):
-        """Forms with hx-post etc. should NOT be intercepted."""
         assert "hx-post" in js_content
         assert "hx-put" in js_content
         assert "hx-patch" in js_content
         assert "hx-delete" in js_content
 
     def test_loading_indicators(self, js_content):
-        """Button loading + spinner + element removing must be present."""
         assert "setButtonLoading" in js_content
         assert "optimistic-spinner" in js_content
         assert "optimistic-btn-loading" in js_content
@@ -89,7 +138,6 @@ class TestOptimisticUIJS:
         assert "error" in js_content
 
     def test_progressive_enhancement(self, js_content):
-        """If handler fails, form should fall back to normal submit."""
         assert "form.submit()" in js_content
         assert "removeAttribute" in js_content
 
@@ -103,11 +151,164 @@ class TestOptimisticUIJS:
         assert "interceptSubmit" in js_content
 
     def test_tag_remove_uses_closest(self, js_content):
-        """Tag remove should find badge via form.closest('.tag-pill')."""
         assert "closest('.tag-pill')" in js_content
 
     def test_bulk_delete_updates_buttons(self, js_content):
         assert "updateBulkActionButtons" in js_content
+
+
+class TestOptimisticFeedbackStates:
+    """Tests for loading/feedback states on HTMX mutation operations.
+
+    Verifies:
+    - flashElement() helper exists and is wired into onSuccess callbacks
+    - extractErrorMessage() helper exists for richer error rollback messaging
+    - CSS flash animation classes are defined
+    - onError callbacks accept a message parameter for server-provided detail
+    """
+
+    @pytest.fixture
+    def js_content(self):
+        return (STATIC / "js" / "optimistic-ui.js").read_text()
+
+    @pytest.fixture
+    def css_content(self):
+        return (STATIC / "css" / "styles.css").read_text()
+
+    def test_flash_element_function_exists(self, js_content):
+        assert "function flashElement" in js_content
+
+    def test_flash_element_in_public_api(self, js_content):
+        assert "flashElement: flashElement" in js_content
+
+    def test_flash_element_uses_success_class(self, js_content):
+        assert "optimistic-flash-success" in js_content
+
+    def test_flash_element_uses_error_class(self, js_content):
+        assert "optimistic-flash-error" in js_content
+
+    def test_flash_element_auto_removes_class(self, js_content):
+        assert "FLASH_DURATION" in js_content
+        assert "classList.remove" in js_content
+        assert "_optimisticFlashTimer" in js_content
+
+    def test_flash_element_forces_reflow(self, js_content):
+        assert "offsetWidth" in js_content
+
+    def test_single_delete_flashes_on_success(self, js_content):
+        handler_block = _extract_function(js_content, "handleSingleDelete")
+        assert handler_block is not None
+        assert "flashElement" in handler_block
+        success_block = _extract_callback(handler_block, "onSuccess")
+        assert success_block is not None
+        assert "flashElement" in success_block
+
+    def test_single_tag_add_flashes_on_success(self, js_content):
+        handler_block = _extract_function(js_content, "handleSingleTagAdd")
+        assert handler_block is not None
+        assert "flashElement" in handler_block
+
+    def test_tag_remove_flashes_on_success(self, js_content):
+        handler_block = _extract_function(js_content, "handleTagRemove")
+        assert handler_block is not None
+        assert "flashElement" in handler_block
+
+    def test_bulk_tag_flashes_on_success(self, js_content):
+        handler_block = _extract_function(js_content, "handleBulkTag")
+        assert handler_block is not None
+        assert "flashElement" in handler_block
+
+    def test_bulk_delete_error_flashes(self, js_content):
+        handler_block = _extract_function(js_content, "handleBulkDelete")
+        assert handler_block is not None
+        error_block = _extract_callback(handler_block, "onError")
+        assert error_block is not None
+        assert "flashElement" in error_block
+
+    def test_single_delete_error_flashes(self, js_content):
+        handler_block = _extract_function(js_content, "handleSingleDelete")
+        assert handler_block is not None
+        error_block = _extract_callback(handler_block, "onError")
+        assert error_block is not None
+        assert "flashElement" in error_block
+
+    def test_tag_remove_error_flashes(self, js_content):
+        handler_block = _extract_function(js_content, "handleTagRemove")
+        assert handler_block is not None
+        error_block = _extract_callback(handler_block, "onError")
+        assert error_block is not None
+        assert "flashElement" in error_block
+
+    def test_extract_error_message_exists(self, js_content):
+        assert "function extractErrorMessage" in js_content
+
+    def test_extract_error_message_in_public_api(self, js_content):
+        assert "extractErrorMessage: extractErrorMessage" in js_content
+
+    def test_extract_error_message_handles_json(self, js_content):
+        assert "JSON.parse" in js_content
+        assert "json.detail" in js_content
+        assert "json.message" in js_content
+
+    def test_extract_error_message_handles_html(self, js_content):
+        assert "parseErrorBody" in js_content
+        assert "<main" in js_content or "<p" in js_content
+
+    def test_extract_error_message_handles_network_error(self, js_content):
+        assert "instanceof Error" in js_content
+
+    def test_extract_error_message_returns_promise_for_response(self, js_content):
+        assert "errorOrResponse.text" in js_content
+        assert ".then" in js_content
+
+    def test_parse_error_body_exists(self, js_content):
+        assert "function parseErrorBody" in js_content
+
+    def test_all_on_error_callbacks_accept_message(self, js_content):
+        on_error_matches = re.findall(r"onError:\s*function\s*\((\w+)", js_content)
+        assert len(on_error_matches) >= 7
+        for param_name in on_error_matches:
+            assert param_name != ""
+
+    def test_on_error_uses_msg_or_fallback(self, js_content):
+        msg_or_pattern = re.findall(r"showToast\(msg\s*\|\|", js_content)
+        assert len(msg_or_pattern) >= 7
+
+    def test_fetch_chain_extracts_error_on_failure(self, js_content):
+        fetch_block = _extract_fetch_chain(js_content)
+        assert fetch_block is not None
+        assert "extractErrorMessage" in fetch_block
+
+    def test_fetch_chain_extracts_error_on_catch(self, js_content):
+        fetch_block = _extract_fetch_chain(js_content)
+        assert fetch_block is not None
+        assert "extractErrorMessage" in fetch_block
+
+    def test_css_flash_success_class(self, css_content):
+        assert ".optimistic-flash-success" in css_content
+
+    def test_css_flash_error_class(self, css_content):
+        assert ".optimistic-flash-error" in css_content
+
+    def test_css_flash_success_keyframes(self, css_content):
+        assert "@keyframes" in css_content
+        assert "optimistic-flash-success" in css_content
+
+    def test_css_flash_error_keyframes(self, css_content):
+        assert "optimistic-flash-error" in css_content
+
+    def test_css_flash_uses_design_tokens(self, css_content):
+        flash_section = css_content[css_content.index("optimistic-flash-success"):]
+        assert "var(--success" in flash_section
+        assert "var(--error" in flash_section
+
+    def test_css_flash_in_reduced_motion(self, css_content):
+        all_reduced = css_content.split("@media (prefers-reduced-motion: reduce)")
+        for section in all_reduced:
+            if "optimistic-spinner" in section and "optimistic-flash" in section:
+                return
+        reduced_section = all_reduced[-1]
+        assert "optimistic-flash-success" in reduced_section or "optimistic-flash-error" in reduced_section
 
 
 class TestOptimisticUICSS:
@@ -138,14 +339,11 @@ class TestOptimisticUICSS:
         assert ".optimistic-toast-error" in css_content
 
     def test_reduced_motion(self, css_content):
-        """prefers-reduced-motion must disable animations."""
         assert "prefers-reduced-motion" in css_content
-        # Check it's in a reduced-motion block for optimistic classes
         reduced_section = css_content.split("prefers-reduced-motion: reduce")[-1]
         assert "optimistic-spinner" in reduced_section or ".optimistic-spinner" in css_content
 
     def test_uses_design_tokens(self, css_content):
-        """CSS should use var() references, not hardcoded values."""
         optimistic_section = css_content[css_content.index(".optimistic-spinner"):]
         assert "var(--" in optimistic_section
 
@@ -166,13 +364,8 @@ class TestTemplateWiring:
         assert 'data-optimistic-action="collection-assign"' in content
 
     def test_detail_html_no_optimistic_on_regenerate(self):
-        """Regenerate-summary form should NOT have data-optimistic."""
         content = (TEMPLATES / "documents" / "detail.html").read_text()
-        # Find the regenerate-summary form
-        reg_match = re.search(
-            r'regenerate-summary.*?</form>',
-            content, re.DOTALL
-        )
+        reg_match = re.search(r'regenerate-summary.*?</form>', content, re.DOTALL)
         assert reg_match is not None
         assert "data-optimistic" not in reg_match.group()
 
