@@ -137,6 +137,7 @@ from .rendering import (
     _render_search_form,
     _render_search_results,
     _render_search_result_row,
+    _render_search_results_live,
     _render_documents_list,
     _render_documents_table_partial,
     _render_document_rows_partial,
@@ -563,6 +564,7 @@ def create_app() -> FastAPI:
             default=False,
             description="If true, return only result rows as HTML fragment (for lazy loading)"
         ),
+        request: Request = None,
     ):
         """Search page with results and citations.
 
@@ -574,6 +576,12 @@ def create_app() -> FastAPI:
         ``HybridSearchEngine.search()`` to tune the FTS/vector balance
         for this query without re-instantiating the engine.
         Non-numeric input returns a 400 error.
+
+        When the request comes from HTMX (HX-Request header present)
+        and is not an export or lazy-load partial, the response is a
+        live-search fragment — only the inner content of
+        #search-live-region — so the debounced keyup search swaps
+        results without reloading the entire page.
         """
         if not q.strip():
             return HTMLResponse(content=_render_search_form())
@@ -676,6 +684,22 @@ def create_app() -> FastAPI:
         # For the full page, show the first `limit` results and set up
         # the lazy-load sentinel for subsequent pages.
         page_results = results[:limit]
+
+        # ── Live HTMX search fragment ────────────────────────
+        # When the request originates from an HTMX-triggered keyup
+        # (debounced at 250ms in the template), the HX-Request header
+        # is set to "true".  In that case we return only the inner
+        # content of #search-live-region — not a full page — so the
+        # client can swap it in via hx-swap="innerHTML" without
+        # reloading the form, slider, or page chrome.
+        if request is not None and request.headers.get("HX-Request") == "true":
+            live_html = _render_search_results_live(
+                validated_q, page_results,
+                vector_weight=resolved_vw,
+                limit=limit, total=total,
+            )
+            return HTMLResponse(content=live_html)
+
         html = _render_search_results(
             validated_q, page_results,
             vector_weight=resolved_vw,
@@ -822,7 +846,32 @@ def create_app() -> FastAPI:
             source_facets=source_facets,
             all_collections_list=all_collections_list,
         )
-        return HTMLResponse(content=html)
+        # Push the canonical /documents URL into browser history so the
+        # back button works after HTMX filter swaps.  The partial endpoint
+        # URL (/documents/partials/table) must NOT be pushed — it returns
+        # a fragment, not a full page.  We build the full-page URL with the
+        # same query params so pressing back reloads the full /documents
+        # page with filters applied.
+        from urllib.parse import urlencode
+        push_params: dict[str, str | int] = {"per_page": per_page}
+        if source:
+            push_params["source"] = source
+        if tag:
+            push_params["tag"] = tag
+        if collection_id is not None:
+            push_params["collection_id"] = collection_id
+        if date_from:
+            push_params["date_from"] = date_from
+        if date_to:
+            push_params["date_to"] = date_to
+        if file_type:
+            push_params["file_type"] = file_type
+        push_params["page"] = page
+        push_url = f"/documents?{urlencode(push_params)}"
+        return HTMLResponse(
+            content=html,
+            headers={"HX-Push-Url": push_url},
+        )
 
     # ── HTMX Rows-Only Endpoint (Phase 9 lazy loading) ────────────
     # Returns just the <tr> elements for one page — used by the

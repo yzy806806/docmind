@@ -3,9 +3,16 @@
 {% block content %}
     <div class="card">
         <h2>Search Results</h2>
-        <form action="/search" method="get" class="search-box">
-            <input type="text" name="q" value="{{ query }}" required>
-            <button type="submit">Search</button>
+        <form action="/search" method="get" class="search-box"
+              hx-get="/search"
+              hx-target="#search-live-region"
+              hx-swap="innerHTML"
+              hx-trigger="submit, keyup from:find([name='q']) changed delay:250ms, change"
+              hx-include="this"
+              hx-indicator="#search-loading">
+            <input type="text" name="q" class="input" value="{{ query }}" required autofocus
+                   autocomplete="off" placeholder="Enter your search query...">
+            <button type="submit" class="btn btn-primary">Search</button>
             <div class="vector-weight-control">
                 <label for="vw-slider">
                     Vector Weight: <span class="vw-value" data-default="{{ vw_default }}">0.60</span>
@@ -21,12 +28,17 @@
         </form>
     </div>
 
+    <div id="search-loading" class="htmx-indicator search-live-loading" aria-live="polite" role="status">
+        <span class="spinner"></span> 正在搜索…
+    </div>
+
+    <div id="search-live-region" aria-live="polite" aria-busy="false">
     <div class="search-export-bar">
         <p style="margin:0;">Found {{ total }} result(s) for: <strong>{{ query }}</strong>{% if total > limit %} (showing first {{ limit }}){% endif %}</p>
         {% if results %}
         <div class="export-links">
-            <a href="/search?q={{ query }}&vector_weight={{ "%.2f"|format(vw_current) }}&export=csv" class="btn-export">⬇ Export CSV</a>
-            <a href="/search?q={{ query }}&vector_weight={{ "%.2f"|format(vw_current) }}&export=json" class="btn-export">⬇ Export JSON</a>
+            <a href="/search?q={{ query }}&vector_weight={{ "%.2f"|format(vw_current) }}&export=csv" class="btn btn-secondary btn-sm">⬇ Export CSV</a>
+            <a href="/search?q={{ query }}&vector_weight={{ "%.2f"|format(vw_current) }}&export=json" class="btn btn-secondary btn-sm">⬇ Export JSON</a>
         </div>
         {% endif %}
     </div>
@@ -49,10 +61,27 @@
        When this enters the viewport, lazy-load.js fetches more results
        from /search?partial=1&offset=... and appends them to
        #search-results-list. A manual "Load More" button is also
-       provided as a fallback for no-JS or no-IntersectionObserver. #}
-    <div id="search-load-more-loading" style="text-align:center;padding:12px;color:var(--text-muted,#888);font-size:0.85em;display:none;">Loading more results…</div>
+       provided as a fallback for no-JS or no-IntersectionObserver.
+
+       The loading indicator uses .htmx-indicator (hidden by default,
+       shown via .htmx-request or when lazy-load.js toggles display)
+       and .loading-state with a CSS spinner for visual feedback. #}
+    <div id="search-load-more-loading" class="htmx-indicator search-lazy-skeleton" style="display:none;" aria-hidden="true">
+        <div class="skeleton-result">
+            <span class="skeleton skeleton-title"></span>
+            <span class="skeleton skeleton-line"></span>
+            <span class="skeleton skeleton-line" style="width:70%;"></span>
+        </div>
+        <div class="skeleton-result">
+            <span class="skeleton skeleton-title"></span>
+            <span class="skeleton skeleton-line"></span>
+            <span class="skeleton skeleton-line" style="width:60%;"></span>
+        </div>
+    </div>
     <div style="text-align:center;padding:8px;">
-        <button id="search-load-more-btn" class="btn-export" style="padding:6px 18px;cursor:pointer;border:1px solid var(--border);border-radius:4px;background:var(--surface-alt,transparent);">Load More Results</button>
+        <button id="search-load-more-btn" class="btn btn-secondary btn-sm">
+            <span class="btn-text">Load More Results</span>
+        </button>
     </div>
     <div id="search-load-more-sentinel"
          data-query="{{ query }}"
@@ -63,6 +92,7 @@
          style="height:1px;"></div>
     {% endif %}
     {% else %}
-        <p>No results found. Try different keywords.</p>
+        <p>No results found for "<strong>{{ query }}</strong>". Try different keywords, or <a href="/search">start a new search</a>.</p>
     {% endif %}
+    </div>{# /#search-live-region #}
 {% endblock %}

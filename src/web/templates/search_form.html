@@ -4,9 +4,16 @@
     <div class="card">
         <h2>Search Documents</h2>
         {% if error %}<div class="error">{{ error }}</div>{% endif %}
-        <form action="/search" method="get" class="search-box">
-            <input type="text" name="q" placeholder="Enter your search query..." required autofocus>
-            <button type="submit">Search</button>
+        <form action="/search" method="get" class="search-box"
+              hx-get="/search"
+              hx-target="#search-live-region"
+              hx-swap="innerHTML"
+              hx-trigger="submit, keyup from:find([name='q']) changed delay:250ms, change"
+              hx-include="this"
+              hx-indicator="#search-loading">
+            <input type="text" name="q" class="input" placeholder="Enter your search query..." required autofocus
+                   autocomplete="off">
+            <button type="submit" class="btn btn-primary">Search</button>
             <div class="vector-weight-control">
                 <label for="vw-slider">
                     Vector Weight: <span class="vw-value" data-default="0.6">0.60</span>
@@ -21,4 +28,9 @@
             </div>
         </form>
     </div>
+
+    <div id="search-loading" class="htmx-indicator search-live-loading" aria-live="polite" role="status">
+        <span class="spinner"></span> 正在搜索…
+    </div>
+    <div id="search-live-region" aria-live="polite" aria-busy="false"></div>
 {% endblock %}
