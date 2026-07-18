@@ -13,17 +13,17 @@
    all_collections_list is needed to populate the move-to-collection <select>.
 #}
 <div id="doc-table-region">
-    <div class="pagination-info">Showing {{ start }}–{{ end }} of {{ total }} document(s)</div>
+    <div class="pagination-info">显示第 {{ start }}–{{ end }} 条，共 {{ total }} 条</div>
 
     {% if documents %}
     <form id="bulk-delete-form" action="/documents/bulk-delete" method="post"
           onsubmit="return confirmBulkDelete();">
         <table>
             <tr>
-                <th><input type="checkbox" id="select-all" title="Select all"
+                <th><input type="checkbox" id="select-all" title="全选"
                            onclick="toggleSelectAll(this);"></th>
-                <th>Document</th><th>Status</th><th>Source</th><th>Type</th>
-                <th>Date</th>{{ tags_col_header }}<th>View</th>
+                <th>文档</th><th>状态</th><th>来源</th><th>类型</th>
+                <th>日期</th>{{ tags_col_header }}<th>操作</th>
             </tr>
             <tbody id="doc-tbody">
             {% for doc in documents %}
@@ -37,7 +37,7 @@
                 <td>{{ fmt_date(doc.created_at) }}</td>
                 <td>{{ doc._tag_badges_html }}</td>
                 <td><a href="/documents/{{ doc.id }}/view" class="btn btn-link"
-                       title="View document">📖 View</a></td>
+                       title="查看文档">📖 查看</a></td>
             </tr>
             {% endfor %}
             </tbody>
@@ -55,23 +55,23 @@
              style="height:1px;"></div>
     </form>
     <div class="bulk-actions" id="bulk-actions-bar" style="margin:8px 0;padding:8px;background:var(--bg-secondary,#f5f5f5);border-radius:6px;display:flex;flex-wrap:wrap;gap:12px;align-items:center;">
-        <span class="bulk-actions-label" style="font-size:0.85em;font-weight:bold;">Bulk Actions:</span>
-        <span id="selected-count-label" style="font-size:0.85em;">Selected: <span id="selected-count">0</span></span>
-        <button type="submit" form="bulk-delete-form" id="delete-selected-btn" class="btn btn-danger btn-sm" disabled style="padding:4px 12px;font-size:0.85em;cursor:not-allowed;opacity:0.5;">🗑 Delete Selected</button>
+        <span class="bulk-actions-label" style="font-size:0.85em;font-weight:bold;">批量操作：</span>
+        <span id="selected-count-label" style="font-size:0.85em;">已选：<span id="selected-count">0</span></span>
+        <button type="submit" form="bulk-delete-form" id="delete-selected-btn" class="btn btn-danger btn-sm" disabled style="padding:4px 12px;font-size:0.85em;cursor:not-allowed;opacity:0.5;">🗑 删除所选</button>
         <form id="bulk-tag-form" action="/documents/bulk-tag" method="post" style="display:flex;gap:4px;align-items:center;">
             <input type="hidden" name="doc_ids" id="bulk-tag-doc-ids">
-            <input type="text" name="tag" placeholder="tag name" style="padding:4px;width:120px;font-size:0.85em;" id="bulk-tag-input">
-            <button type="submit" id="tag-selected-btn" class="btn btn-secondary btn-sm" disabled style="padding:4px 12px;font-size:0.85em;cursor:not-allowed;opacity:0.5;">🏷 Tag Selected</button>
+            <input type="text" name="tag" placeholder="标签名称" style="padding:4px;width:120px;font-size:0.85em;" id="bulk-tag-input">
+            <button type="submit" id="tag-selected-btn" class="btn btn-secondary btn-sm" disabled style="padding:4px 12px;font-size:0.85em;cursor:not-allowed;opacity:0.5;">🏷 标记所选</button>
         </form>
         <form id="bulk-move-form" action="/documents/bulk-move-collection" method="post" style="display:flex;gap:4px;align-items:center;">
             <input type="hidden" name="doc_ids" id="bulk-move-doc-ids">
             <select name="collection_id" id="bulk-move-select" style="padding:4px;font-size:0.85em;" disabled>
-                <option value="">-- Collection --</option>
+                <option value="">-- 合集 --</option>
                 {% for col in all_collections_list or [] %}
                 <option value="{{ col.id }}">{{ col.name }}</option>
                 {% endfor %}
             </select>
-            <button type="submit" id="move-selected-btn" class="btn btn-secondary btn-sm" disabled style="padding:4px 12px;font-size:0.85em;cursor:not-allowed;opacity:0.5;">📦 Move Selected</button>
+            <button type="submit" id="move-selected-btn" class="btn btn-secondary btn-sm" disabled style="padding:4px 12px;font-size:0.85em;cursor:not-allowed;opacity:0.5;">📦 移动所选</button>
         </form>
         <form id="bulk-export-form" action="/documents/bulk-export" method="get" style="display:flex;gap:4px;align-items:center;">
             <input type="hidden" name="doc_ids" id="bulk-export-doc-ids">
@@ -79,11 +79,11 @@
                 <option value="csv">CSV</option>
                 <option value="json">JSON</option>
             </select>
-            <button type="submit" id="export-selected-btn" class="btn btn-secondary btn-sm" disabled style="padding:4px 12px;font-size:0.85em;cursor:not-allowed;opacity:0.5;">⬇ Export Selected</button>
+            <button type="submit" id="export-selected-btn" class="btn btn-secondary btn-sm" disabled style="padding:4px 12px;font-size:0.85em;cursor:not-allowed;opacity:0.5;">⬇ 导出所选</button>
         </form>
     </div>
     {% else %}
-    <p>No documents found.</p>
+    <p>未找到文档。</p>
     {% endif %}
 
     {{ pagination_html }}

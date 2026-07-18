@@ -136,6 +136,7 @@ from .rendering import (
     _render_analytics_page,
     _render_search_form,
     _render_search_results,
+    _render_search_results_fragment,
     _render_search_result_row,
     _render_documents_list,
     _render_documents_table_partial,
@@ -688,6 +689,19 @@ def create_app() -> FastAPI:
         # so the back button works.  Keyup-triggered live search
         # requests do NOT push (would flood history on every keystroke).
         is_htmx = request is not None and request.headers.get("HX-Request") == "true"
+
+        # ── HTMX live-search fragment ────────────────────────────
+        # Keyup-triggered requests (no submit_search) return only the
+        # results fragment (export bar + result list) for innerHTML
+        # swap into #search-live-region.  No page chrome, no <form>.
+        if is_htmx and not submit_search:
+            html = _render_search_results_fragment(
+                validated_q, page_results,
+                vector_weight=resolved_vw,
+                offset=0, limit=limit, total=total,
+            )
+            return HTMLResponse(content=html)
+
         if is_htmx and submit_search:
             from urllib.parse import urlencode
             push_params: dict[str, str] = {"q": validated_q}

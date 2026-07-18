@@ -3,34 +3,34 @@
 {% block content %}
     {% if breadcrumb_html %}{{ breadcrumb_html | safe }}{% endif %}
     <div class="card">
-        <h2>{{ collection.name or 'Untitled Collection' }}</h2>
+        <h2>{{ collection.name or '未命名合集' }}</h2>
 
         <div style="margin: 12px 0;">
-            <a href="/documents">← Back to Documents</a>
+            <a href="/documents">← 返回文档列表</a>
         </div>
 
         {% if collection.description %}
         <p class="pagination-info">{{ collection.description }}</p>
         {% else %}
-        <p class="pagination-info" style="color: var(--text-muted, #888);">No description yet. <a href="/collections/{{ collection.id }}/edit">Add one</a> to help organize your collection.</p>
+        <p class="pagination-info" style="color: var(--text-muted, #888);">暂无描述。<a href="/collections/{{ collection.id }}/edit">添加描述</a>以帮助整理合集。</p>
         {% endif %}
 
         <div style="margin: 12px 0; display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
-            <strong>Parent:</strong> {{ parent_link_html | safe }}
+            <strong>父合集：</strong> {{ parent_link_html | safe }}
         </div>
 
         <div style="margin: 12px 0; display: flex; gap: 8px; flex-wrap: wrap;">
-            <a href="/collections/{{ collection.id }}/edit" class="btn btn-secondary btn-sm">✏️ Edit</a>
-            <form method="post" action="/collections/{{ collection.id }}/delete" style="display: inline;" onsubmit="return confirm('Delete this collection? Documents will be moved to All Documents.');">
-                <button type="submit" class="btn btn-danger btn-sm">🗑 Delete</button>
+            <a href="/collections/{{ collection.id }}/edit" class="btn btn-secondary btn-sm">✏️ 编辑</a>
+            <form method="post" action="/collections/{{ collection.id }}/delete" style="display: inline;" onsubmit="return confirm('删除此合集？文档将移至"全部文档"。');">
+                <button type="submit" class="btn btn-danger btn-sm">🗑 删除</button>
             </form>
-            <a href="/collections/new" class="btn btn-secondary btn-sm">＋ New Collection</a>
+            <a href="/collections/new" class="btn btn-secondary btn-sm">＋ 新建合集</a>
         </div>
 
-        <h3>Sub-Collections</h3>
+        <h3>子合集</h3>
         {{ child_items_html | safe }}
 
-        <h3>Documents ({{ doc_count }})</h3>
+        <h3>文档（{{ doc_count }}）</h3>
         {{ documents_table_html | safe }}
     </div>
 

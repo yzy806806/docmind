@@ -3,92 +3,92 @@
 {% block content %}
     <div class="analytics-page">
     <div class="card">
-        <h2>📈 Analytics Overview</h2>
+        <h2>📈 分析概览</h2>
         <div class="date-range-selector">
-            <span>Range:</span>
+            <span>时间范围：</span>
             {{ range_links }}
         </div>
-        <a href="/api/v1/analytics?days={{ days }}" class="export-link">Export as JSON →</a>
+        <a href="/api/v1/analytics?days={{ days }}" class="export-link">导出 JSON →</a>
     </div>
 
     <div class="stats">
         <div class="stat">
             <div class="stat-value">{{ stats.total }}</div>
-            <div class="stat-label">Total Documents</div>
+            <div class="stat-label">文档总数</div>
         </div>
         <div class="stat">
             <div class="stat-value">{{ search_stats.total_searches }}</div>
-            <div class="stat-label">Searches ({{ days }}d)</div>
+            <div class="stat-label">搜索次数（{{ days }}天）</div>
         </div>
         <div class="stat">
             <div class="stat-value">{{ search_stats.unique_queries }}</div>
-            <div class="stat-label">Unique Queries</div>
+            <div class="stat-label">唯一查询数</div>
         </div>
         <div class="stat">
             <div class="stat-value">{{ "%.0f"|format(success_rate) }}%</div>
-            <div class="stat-label">Job Success Rate</div>
+            <div class="stat-label">任务成功率</div>
         </div>
     </div>
 
     <div class="analytics-grid">
         <div class="card chart-card analytics-grid-full">
-            <h3>📊 Document Growth ({{ days }} days)</h3>
+            <h3>📊 文档增长（{{ days }}天）</h3>
             {{ growth_chart }}
         </div>
         <div class="card chart-card">
-            <h3>🔍 Search Trend ({{ days }} days)</h3>
+            <h3>🔍 搜索趋势（{{ days }}天）</h3>
             {{ search_chart }}
         </div>
         <div class="card chart-card">
-            <h3>💬 Chat Activity ({{ days }} days)</h3>
+            <h3>💬 对话活跃度（{{ days }}天）</h3>
             {{ chat_chart }}
         </div>
     </div>
 
     <div class="analytics-grid">
         <div class="card chart-card">
-            <h3>📁 Document Status Distribution</h3>
+            <h3>📁 文档状态分布</h3>
             {{ status_pie }}
         </div>
         <div class="card chart-card">
-            <h3>💾 Storage by File Type</h3>
-            <p class="stat-extra">Total: {{ total_size }} · Avg doc: {{ avg_doc_size }}</p>
+            <h3>💾 存储分类</h3>
+            <p class="stat-extra">总计：{{ total_size }} · 平均文档：{{ avg_doc_size }}</p>
             {{ storage_pie }}
         </div>
     </div>
 
     <div class="analytics-grid">
         <div class="card chart-card analytics-grid-full">
-            <h3>🏷️ Tag Distribution</h3>
+            <h3>🏷️ 标签分布</h3>
             {{ tag_chart }}
         </div>
     </div>
 
     <div class="analytics-grid">
         <div class="card chart-card">
-            <h3>🔍 Popular Search Queries</h3>
+            <h3>🔍 热门搜索</h3>
             {{ popular_html }}
         </div>
         <div class="card chart-card">
-            <h3>⚙️ Job Statistics</h3>
-            <p><strong>Total Jobs:</strong> {{ job_stats.total }}</p>
-            <p><strong>States:</strong> {{ job_states_html }}</p>
-            <p><strong>Success Rate:</strong> {{ "%.1f"|format(success_rate) }}%</p>
-            <p><strong>Avg Processing Time:</strong> {{ "%.1f"|format(avg_time) }}s</p>
-            <h4>Recent Failures</h4>
+            <h3>⚙️ 任务统计</h3>
+            <p><strong>任务总数：</strong> {{ job_stats.total }}</p>
+            <p><strong>状态：</strong> {{ job_states_html }}</p>
+            <p><strong>成功率：</strong> {{ "%.1f"|format(success_rate) }}%</p>
+            <p><strong>平均处理时间：</strong> {{ "%.1f"|format(avg_time) }}s</p>
+            <h4>最近失败</h4>
             {{ failures_html }}
         </div>
     </div>
 
     <div class="analytics-grid">
         <div class="card chart-card">
-            <h3>📋 All Tags</h3>
+            <h3>📋 全部标签</h3>
             <div class="table-scroll">
             {{ tag_table }}
             </div>
         </div>
         <div class="card chart-card">
-            <h3>💾 Storage Breakdown</h3>
+            <h3>💾 存储详情</h3>
             <div class="table-scroll">
             {{ storage_table }}
             </div>

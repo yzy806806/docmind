@@ -439,6 +439,43 @@ textarea:focus-visible,
     border-color: var(--nav-link);
 }
 
+/* Smooth focus-ring appearance — the outline transitions in/out rather
+   than snapping, giving a polished feel for keyboard navigators.
+   outline-offset animates from 0 to the target offset on focus. */
+:focus-visible {
+    transition: outline-offset var(--transition-fast), outline-color var(--transition-fast);
+}
+
+/* Buttons and links get explicit focus-visible so the ring is always
+   visible on Tab navigation, even on colored backgrounds. */
+.btn:focus-visible,
+.btn-primary:focus-visible,
+.btn-secondary:focus-visible,
+.btn-danger:focus-visible,
+.btn-ghost:focus-visible,
+.btn-save:focus-visible,
+.btn-cancel:focus-visible,
+.btn-delete:focus-visible,
+.btn-export:focus-visible,
+.btn-filter:focus-visible,
+.btn-link:focus-visible,
+header nav a:focus-visible,
+.theme-toggle:focus-visible,
+.nav-toggle:focus-visible,
+.tag-pill:focus-visible,
+.facet-clear-btn:focus-visible,
+.date-preset-btn:focus-visible,
+.vp-btn:focus-visible,
+.collection-tree-item:focus-visible,
+.collection-action-link:focus-visible,
+.collection-breadcrumb-link:focus-visible,
+.btn-new-collection:focus-visible,
+.search-box button:focus-visible,
+.chat-input-row button:focus-visible {
+    outline: var(--focus-ring-width) solid var(--focus-ring-color);
+    outline-offset: var(--focus-ring-offset);
+}
+
 /* ================================================================
  * 4. Header & Navigation
  * ================================================================ */
@@ -866,6 +903,7 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
     border-radius: var(--radius-sm);
     outline: none;
     cursor: pointer;
+    transition: background var(--transition-base);
 }
 
 .vw-slider::-webkit-slider-thumb {

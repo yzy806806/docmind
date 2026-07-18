@@ -2,7 +2,7 @@
 
 {% block content %}
     <div class="card">
-        <h2>Search Results</h2>
+        <h2>搜索结果</h2>
         <form action="/search" method="get" class="search-box"
               hx-get="/search"
               hx-target="#search-live-region"
@@ -11,11 +11,11 @@
               hx-push-url="false"
               hx-indicator="#search-loading">
             <input type="text" name="q" value="{{ query }}" required>
-            <button type="submit" name="submit_search" value="1">Search</button>
+            <button type="submit" name="submit_search" value="1">搜索</button>
             <div class="vector-weight-control">
                 <label for="vw-slider">
-                    Vector Weight: <span class="vw-value" data-default="{{ vw_default }}">0.60</span>
-                    <span class="vw-hint">(0 = keyword only, 1 = semantic only)</span>
+                    向量权重：<span class="vw-value" data-default="{{ vw_default }}">0.60</span>
+                    <span class="vw-hint">（0 = 仅关键词，1 = 仅语义）</span>
                 </label>
                 <input type="range" id="vw-slider" name="vector_weight"
                        min="0" max="1" step="0.05" value="{{ "%.2f"|format(vw_current) }}"
@@ -28,15 +28,15 @@
     </div>
 
     <div id="search-loading" class="htmx-indicator search-live-loading" aria-live="polite" role="status">
-        <span class="spinner"></span> Searching…
+        <span class="spinner"></span> 正在搜索…
     </div>
     <div id="search-live-region" aria-live="polite" aria-atomic="true">
     <div class="search-export-bar">
-        <p style="margin:0;">Found {{ total }} result(s) for: <strong>{{ query }}</strong>{% if total > limit %} (showing first {{ limit }}){% endif %}</p>
+        <p style="margin:0;">找到 <strong>{{ total }}</strong> 条结果：<strong>{{ query }}</strong>{% if total > limit %}（显示前 {{ limit }} 条）{% endif %}</p>
         {% if results %}
         <div class="export-links">
-            <a href="/search?q={{ query }}&vector_weight={{ "%.2f"|format(vw_current) }}&export=csv" class="btn btn-secondary btn-sm">⬇ Export CSV</a>
-            <a href="/search?q={{ query }}&vector_weight={{ "%.2f"|format(vw_current) }}&export=json" class="btn btn-secondary btn-sm">⬇ Export JSON</a>
+            <a href="/search?q={{ query }}&vector_weight={{ "%.2f"|format(vw_current) }}&export=csv" class="btn btn-secondary btn-sm">⬇ 导出 CSV</a>
+            <a href="/search?q={{ query }}&vector_weight={{ "%.2f"|format(vw_current) }}&export=json" class="btn btn-secondary btn-sm">⬇ 导出 JSON</a>
         </div>
         {% endif %}
     </div>
@@ -46,10 +46,10 @@
         <div class="result">
             <h3><a href="/documents/{{ r.id }}">[{{ r.id }}] {{ r.title }}</a></h3>
             <div class="meta">
-                Status: <span class="badge badge-{{ r.status }}">{{ r.status }}</span>
-                {% if r.rank %} | Score: {{ "%.2f"|format(r.rank) }}{% endif %}
+                状态：<span class="badge badge-{{ r.status }}">{{ r.status }}</span>
+                {% if r.rank %} | 评分：{{ "%.2f"|format(r.rank) }}{% endif %}
             </div>
-            {% if r.summary %}<div class="snippet"><strong>Summary:</strong> {{ r.summary }}</div>{% endif %}
+            {% if r.summary %}<div class="snippet"><strong>摘要：</strong> {{ r.summary }}</div>{% endif %}
             {% if r.snippet %}<div class="snippet">{{ r.snippet[:300] }}</div>{% endif %}
         </div>
         {% endfor %}
@@ -60,9 +60,20 @@
        from /search?partial=1&offset=... and appends them to
        #search-results-list. A manual "Load More" button is also
        provided as a fallback for no-JS or no-IntersectionObserver. #}
-    <div id="search-load-more-loading" style="text-align:center;padding:12px;color:var(--text-muted,#888);font-size:0.85em;display:none;">Loading more results…</div>
+    <div id="search-load-more-loading" class="htmx-indicator search-lazy-skeleton" style="display:none;" aria-hidden="true">
+        <div class="skeleton-result">
+            <span class="skeleton skeleton-title"></span>
+            <span class="skeleton skeleton-line"></span>
+            <span class="skeleton skeleton-line" style="width:70%;"></span>
+        </div>
+        <div class="skeleton-result">
+            <span class="skeleton skeleton-title"></span>
+            <span class="skeleton skeleton-line"></span>
+            <span class="skeleton skeleton-line" style="width:60%;"></span>
+        </div>
+    </div>
     <div style="text-align:center;padding:8px;">
-        <button id="search-load-more-btn" class="btn btn-secondary btn-sm" style="padding:6px 18px;cursor:pointer;border:1px solid var(--border);border-radius:4px;background:var(--surface-alt,transparent);">Load More Results</button>
+        <button id="search-load-more-btn" class="btn btn-secondary btn-sm" style="padding:6px 18px;cursor:pointer;border:1px solid var(--border);border-radius:4px;background:var(--surface-alt,transparent);">加载更多</button>
     </div>
     <div id="search-load-more-sentinel"
          data-query="{{ query }}"
@@ -73,7 +84,7 @@
          style="height:1px;"></div>
     {% endif %}
     {% else %}
-        <p>No results found. Try different keywords.</p>
+        <p>未找到结果，请尝试其他关键词。</p>
     {% endif %}
     </div>{# /#search-live-region #}
 {% endblock %}

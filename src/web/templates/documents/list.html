@@ -3,20 +3,13 @@
 {% block content %}
     {% if collection_breadcrumb_html %}{{ collection_breadcrumb_html | safe }}{% endif %}
     <div class="card">
-        <h2>Documents{{ filter_label }}</h2>
-        <div id="doc-table-skeleton" class="htmx-indicator skeleton-block" aria-live="polite" role="status">
-            <table><tbody>
-                <tr class="skeleton-row"><td><span class="skeleton skeleton-text-sm"></span></td><td><span class="skeleton skeleton-title"></span></td><td><span class="skeleton skeleton-badge"></span></td><td><span class="skeleton skeleton-text-sm"></span></td><td><span class="skeleton skeleton-text-sm"></span></td><td><span class="skeleton skeleton-text-sm"></span></td><td></td><td></td></tr>
-                <tr class="skeleton-row"><td><span class="skeleton skeleton-text-sm"></span></td><td><span class="skeleton skeleton-title"></span></td><td><span class="skeleton skeleton-badge"></span></td><td><span class="skeleton skeleton-text-sm"></span></td><td><span class="skeleton skeleton-text-sm"></span></td><td><span class="skeleton skeleton-text-sm"></span></td><td></td><td></td></tr>
-                <tr class="skeleton-row"><td><span class="skeleton skeleton-text-sm"></span></td><td><span class="skeleton skeleton-title"></span></td><td><span class="skeleton skeleton-badge"></span></td><td><span class="skeleton skeleton-text-sm"></span></td><td><span class="skeleton skeleton-text-sm"></span></td><td><span class="skeleton skeleton-text-sm"></span></td><td></td><td></td></tr>
-            </tbody></table>
-        </div>
+        <h2>文档{{ filter_label }}</h2>
         <div id="doc-table-region">
-        <div class="pagination-info">Showing {{ start }}–{{ end }} of {{ total }} document(s)</div>
+        <div class="pagination-info">显示第 {{ start }}–{{ end }} 条，共 {{ total }} 条</div>
         {% if documents %}
         <form id="bulk-delete-form" action="/documents/bulk-delete" method="post" onsubmit="return confirmBulkDelete();">
         <div class="table-scroll">
-        <table><tr><th><input type="checkbox" id="select-all" title="Select all" onclick="toggleSelectAll(this);"></th><th>Document</th><th>Status</th><th>Source</th><th>Type</th><th>Date</th>{{ tags_col_header }}<th>View</th></tr>
+        <table><tr><th><input type="checkbox" id="select-all" title="全选" onclick="toggleSelectAll(this);"></th><th>文档</th><th>状态</th><th>来源</th><th>类型</th><th>日期</th>{{ tags_col_header }}<th>操作</th></tr>
         <tbody id="doc-tbody">
         {% for doc in documents %}
         <tr>
@@ -27,7 +20,7 @@
             <td>{{ doc.ext or '' }}</td>
             <td>{{ fmt_date(doc.created_at) }}</td>
             <td>{{ doc._tag_badges_html }}</td>
-            <td><a href="/documents/{{ doc.id }}/view" class="btn btn-link" title="View document">📖 View</a></td>
+            <td><a href="/documents/{{ doc.id }}/view" class="btn btn-link" title="查看文档">📖 查看</a></td>
         </tr>
         {% endfor %}
         </tbody>
@@ -51,23 +44,23 @@
         </div>
         </form>
         <div class="bulk-actions" id="bulk-actions-bar">
-            <span class="bulk-actions-label">Bulk Actions:</span>
-            <span id="selected-count-label" style="font-size:0.85em;">Selected: <span id="selected-count">0</span></span>
-            <button type="submit" form="bulk-delete-form" id="delete-selected-btn" class="btn btn-danger btn-sm" disabled style="padding:4px 12px;font-size:0.85em;cursor:not-allowed;opacity:0.5;">🗑 Delete Selected</button>
+            <span class="bulk-actions-label">批量操作：</span>
+            <span id="selected-count-label" style="font-size:0.85em;">已选：<span id="selected-count">0</span></span>
+            <button type="submit" form="bulk-delete-form" id="delete-selected-btn" class="btn btn-danger btn-sm" disabled style="padding:4px 12px;font-size:0.85em;cursor:not-allowed;opacity:0.5;">🗑 删除所选</button>
             <form id="bulk-tag-form" action="/documents/bulk-tag" method="post" style="display:flex;gap:4px;align-items:center;">
                 <input type="hidden" name="doc_ids" id="bulk-tag-doc-ids">
-                <input type="text" name="tag" placeholder="tag name" style="padding:4px;width:120px;font-size:0.85em;" id="bulk-tag-input">
-                <button type="submit" id="tag-selected-btn" class="btn btn-secondary btn-sm" disabled style="padding:4px 12px;font-size:0.85em;cursor:not-allowed;opacity:0.5;">🏷 Tag Selected</button>
+                <input type="text" name="tag" placeholder="标签名称" style="padding:4px;width:120px;font-size:0.85em;" id="bulk-tag-input">
+                <button type="submit" id="tag-selected-btn" class="btn btn-secondary btn-sm" disabled style="padding:4px 12px;font-size:0.85em;cursor:not-allowed;opacity:0.5;">🏷 标记所选</button>
             </form>
             <form id="bulk-move-form" action="/documents/bulk-move-collection" method="post" style="display:flex;gap:4px;align-items:center;">
                 <input type="hidden" name="doc_ids" id="bulk-move-doc-ids">
                 <select name="collection_id" id="bulk-move-select" style="padding:4px;font-size:0.85em;" disabled>
-                    <option value="">-- Collection --</option>
+                    <option value="">-- 合集 --</option>
                     {% for col in all_collections_list or [] %}
                     <option value="{{ col.id }}">{{ col.name }}</option>
                     {% endfor %}
                 </select>
-                <button type="submit" id="move-selected-btn" class="btn btn-secondary btn-sm" disabled style="padding:4px 12px;font-size:0.85em;cursor:not-allowed;opacity:0.5;">📦 Move Selected</button>
+                <button type="submit" id="move-selected-btn" class="btn btn-secondary btn-sm" disabled style="padding:4px 12px;font-size:0.85em;cursor:not-allowed;opacity:0.5;">📦 移动所选</button>
             </form>
             <form id="bulk-export-form" action="/documents/bulk-export" method="get" style="display:flex;gap:4px;align-items:center;">
                 <input type="hidden" name="doc_ids" id="bulk-export-doc-ids">
@@ -75,11 +68,11 @@
                     <option value="csv">CSV</option>
                     <option value="json">JSON</option>
                 </select>
-                <button type="submit" id="export-selected-btn" class="btn btn-secondary btn-sm" disabled style="padding:4px 12px;font-size:0.85em;cursor:not-allowed;opacity:0.5;">⬇ Export Selected</button>
+                <button type="submit" id="export-selected-btn" class="btn btn-secondary btn-sm" disabled style="padding:4px 12px;font-size:0.85em;cursor:not-allowed;opacity:0.5;">⬇ 导出所选</button>
             </form>
         </div>
         {% else %}
-        <p>No documents found{% if source or active_tag or date_from or date_to or file_type %} matching your current filters. <a href="/documents">Clear filters</a> to browse all documents.{% else %}. <a href="/upload">Upload your first document</a> to get started.{% endif %}</p>
+        <p>未找到文档{% if source or active_tag or date_from or date_to or file_type %}，可能被当前筛选条件限制。<a href="/documents">清除筛选</a>浏览全部文档。{% else %}。<a href="/upload">上传第一篇文档</a>开始使用。{% endif %}</p>
         {% endif %}
         </div>{# /#doc-table-region #}
             {# Faceted search UI (Phase 4c):
@@ -90,55 +83,54 @@
                Progressive enhancement: without HTMX, the form GETs
                /documents normally (full page reload). #}
             <details class="filter-panel" {{ "open" if (date_from or date_to or file_type or active_source or active_tag) }}>
-            <summary>🔍 Filters</summary>
+            <summary>🔍 筛选</summary>
             <form id="facet-filter-form" method="get" action="/documents"
                   hx-get="/documents/partials/table"
                   hx-target="#doc-table-region"
                   hx-swap="outerHTML"
                   hx-trigger="submit, change"
-                  hx-push-url="true"
-                  hx-indicator="#doc-table-skeleton">
+                  hx-push-url="true">
                 <label>
-                    Source Type
+                    来源类型
                     <select name="source" class="facet-select">
-                        <option value="">All sources</option>
+                        <option value="">全部来源</option>
                         {% for facet in source_facets %}
                         <option value="{{ facet.source_type }}" {{ "selected" if active_source == facet.source_type }}>{{ facet.source_type }} ({{ facet.count }})</option>
                         {% endfor %}
                     </select>
                 </label>
                 <label>
-                    File Type
+                    文件类型
                     <select name="file_type" class="facet-select">
-                        <option value="">All types</option>
+                        <option value="">全部类型</option>
                         {% for facet in file_type_facets %}
-                        <option value="{{ facet.ext }}" {{ "selected" if file_type == facet.ext }}>{{ facet.ext or '(none)' }} ({{ facet.count }})</option>
+                        <option value="{{ facet.ext }}" {{ "selected" if file_type == facet.ext }}>{{ facet.ext or '(无)' }} ({{ facet.count }})</option>
                         {% endfor %}
                     </select>
                 </label>
                 <label>
-                    Tag
-                    <input type="text" name="tag" value="{{ active_tag or '' }}" class="facet-select" placeholder="tag">
+                    标签
+                    <input type="text" name="tag" value="{{ active_tag or '' }}" class="facet-select" placeholder="标签">
                 </label>
                 <label>
-                    Date From
+                    起始日期
                     <input type="date" name="date_from" value="{{ date_from or '' }}" class="facet-date">
                 </label>
                 <label>
-                    Date To
+                    截止日期
                     <input type="date" name="date_to" value="{{ date_to or '' }}" class="facet-date">
                 </label>
                 <div style="display:flex;flex-direction:column;font-size:0.85em;gap:4px;">
-                    Quick Range
+                    快速范围
                     <div style="display:flex;gap:4px;">
-                        <button type="button" class="date-preset-btn" data-days="7">7d</button>
-                        <button type="button" class="date-preset-btn" data-days="30">30d</button>
-                        <button type="button" class="date-preset-btn" data-days="90">90d</button>
-                        <button type="button" class="date-preset-btn" data-days="365">1y</button>
+                        <button type="button" class="date-preset-btn" data-days="7">7天</button>
+                        <button type="button" class="date-preset-btn" data-days="30">30天</button>
+                        <button type="button" class="date-preset-btn" data-days="90">90天</button>
+                        <button type="button" class="date-preset-btn" data-days="365">1年</button>
                     </div>
                 </div>
-                <button type="submit" style="padding:5px 14px;cursor:pointer;">Apply</button>
-                <a href="/documents" style="padding:5px 10px;text-decoration:none;" class="facet-clear-btn">Clear</a>
+                <button type="submit" style="padding:5px 14px;cursor:pointer;">应用</button>
+                <a href="/documents" style="padding:5px 10px;text-decoration:none;" class="facet-clear-btn">清除</a>
             </form>
         </details>
     </div>

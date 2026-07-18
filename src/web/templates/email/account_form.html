@@ -4,7 +4,7 @@
     <div class="card">
         <h2>{{ page_title }}</h2>
         <p class="pagination-info">
-            <a href="/email-accounts">← Back to Email Accounts</a>
+            <a href="/email-accounts">← 返回邮件账户</a>
         </p>
 
         {% if error %}
@@ -15,58 +15,58 @@
 
         <form method="post" action="{{ form_action }}" class="settings-form" style="margin-top:16px;">
             <div class="settings-field">
-                <label for="name">Account Name</label>
+                <label for="name">账户名称</label>
                 <input type="text" id="name" name="name" required
                        value="{{ account.name if account else '' }}"
-                       placeholder="e.g. Gmail — Personal"
+                       placeholder="例如：Gmail — 个人"
                        style="width:100%;padding:8px 12px;border:2px solid var(--input-border);border-radius:6px;font-size:1em;background:var(--surface);color:var(--text);">
-                <p class="settings-hint">A unique label to identify this account.</p>
+                <p class="settings-hint">用于标识此账户的唯一标签。</p>
             </div>
 
             <div class="settings-field">
-                <label for="host">IMAP Host</label>
+                <label for="host">IMAP 主机</label>
                 <input type="text" id="host" name="host" required
                        value="{{ account.host if account else '' }}"
-                       placeholder="e.g. imap.gmail.com"
+                       placeholder="例如：imap.gmail.com"
                        style="width:100%;padding:8px 12px;border:2px solid var(--input-border);border-radius:6px;font-size:1em;background:var(--surface);color:var(--text);">
             </div>
 
             <div style="display:flex;gap:16px;">
                 <div class="settings-field" style="flex:1;">
-                    <label for="port">Port</label>
+                    <label for="port">端口</label>
                     <input type="number" id="port" name="port"
                            value="{{ account.port if account else 993 }}"
                            style="width:100%;padding:8px 12px;border:2px solid var(--input-border);border-radius:6px;font-size:1em;background:var(--surface);color:var(--text);">
                 </div>
                 <div class="settings-field" style="flex:1;">
-                    <label for="use_ssl">Use SSL</label>
+                    <label for="use_ssl">使用 SSL</label>
                     <select id="use_ssl" name="use_ssl"
                             style="width:100%;padding:8px 12px;border:2px solid var(--input-border);border-radius:6px;font-size:1em;background:var(--surface);color:var(--text);">
-                        <option value="1" {{ 'selected' if (account and account.use_ssl) or not account }}>Yes (recommended)</option>
-                        <option value="0" {{ 'selected' if account and not account.use_ssl }}>No</option>
+                        <option value="1" {{ 'selected' if (account and account.use_ssl) or not account }}>是（推荐）</option>
+                        <option value="0" {{ 'selected' if account and not account.use_ssl }}>否</option>
                     </select>
                 </div>
             </div>
 
             <div class="settings-field">
-                <label for="username">Username</label>
+                <label for="username">用户名</label>
                 <input type="text" id="username" name="username" required
                        value="{{ account.username if account else '' }}"
-                       placeholder="e.g. user@gmail.com"
+                       placeholder="例如：user@gmail.com"
                        style="width:100%;padding:8px 12px;border:2px solid var(--input-border);border-radius:6px;font-size:1em;background:var(--surface);color:var(--text);">
             </div>
 
             <div class="settings-field">
-                <label for="password">Password{{ ' (leave blank to keep current)' if mode == 'edit' else '' }}</label>
+                <label for="password">密码{{ '（留空保持当前密码）' if mode == 'edit' else '' }}</label>
                 <input type="password" id="password" name="password"
                        {{ '' if mode == 'edit' else 'required' }}
-                       placeholder="{{ '••••••••' if mode == 'edit' else 'Enter password' }}"
+                       placeholder="{{ '••••••••' if mode == 'edit' else '输入密码' }}"
                        style="width:100%;padding:8px 12px;border:2px solid var(--input-border);border-radius:6px;font-size:1em;background:var(--surface);color:var(--text);">
-                <p class="settings-hint">Stored as plaintext for MVP. Encryption coming in Phase 8e.</p>
+                <p class="settings-hint">MVP 阶段以明文存储。加密将在 Phase 8e 实现。</p>
             </div>
 
             <div class="settings-field">
-                <label for="folder">Folder to Monitor</label>
+                <label for="folder">监控文件夹</label>
                 <input type="text" id="folder" name="folder"
                        value="{{ account.folder if account else 'INBOX' }}"
                        placeholder="INBOX"
@@ -74,50 +74,50 @@
             </div>
 
             <div class="settings-field">
-                <label for="body_handling">Body Handling</label>
+                <label for="body_handling">正文处理方式</label>
                 <select id="body_handling" name="body_handling"
                         style="width:100%;padding:8px 12px;border:2px solid var(--input-border);border-radius:6px;font-size:1em;background:var(--surface);color:var(--text);">
-                    <option value="save_with_attachments" {{ 'selected' if (account and account.body_handling == 'save_with_attachments') or not account }}>Save body + attachments (default)</option>
-                    <option value="save_as_document" {{ 'selected' if account and account.body_handling == 'save_as_document' }}>Body only</option>
-                    <option value="attachments_only" {{ 'selected' if account and account.body_handling == 'attachments_only' }}>Attachments only</option>
+                    <option value="save_with_attachments" {{ 'selected' if (account and account.body_handling == 'save_with_attachments') or not account }}>保存正文 + 附件（默认）</option>
+                    <option value="save_as_document" {{ 'selected' if account and account.body_handling == 'save_as_document' }}>仅正文</option>
+                    <option value="attachments_only" {{ 'selected' if account and account.body_handling == 'attachments_only' }}>仅附件</option>
                 </select>
             </div>
 
             <div class="settings-field">
-                <label for="attachment_whitelist">Attachment Whitelist (optional)</label>
+                <label for="attachment_whitelist">附件白名单（可选）</label>
                 <input type="text" id="attachment_whitelist" name="attachment_whitelist"
                        value="{{ account.attachment_whitelist if account else '' }}"
-                       placeholder="e.g. *.pdf,*.docx,*.txt"
+                       placeholder="例如：*.pdf,*.docx,*.txt"
                        style="width:100%;padding:8px 12px;border:2px solid var(--input-border);border-radius:6px;font-size:1em;background:var(--surface);color:var(--text);">
-                <p class="settings-hint">Comma-separated glob patterns. Only matching attachments are saved.</p>
+                <p class="settings-hint">逗号分隔的通配符模式。仅保存匹配的附件。</p>
             </div>
 
             <div class="settings-field">
-                <label for="attachment_blacklist">Attachment Blacklist (optional)</label>
+                <label for="attachment_blacklist">附件黑名单（可选）</label>
                 <input type="text" id="attachment_blacklist" name="attachment_blacklist"
                        value="{{ account.attachment_blacklist if account else '' }}"
-                       placeholder="e.g. *.exe,*.zip"
+                       placeholder="例如：*.exe,*.zip"
                        style="width:100%;padding:8px 12px;border:2px solid var(--input-border);border-radius:6px;font-size:1em;background:var(--surface);color:var(--text);">
-                <p class="settings-hint">Comma-separated glob patterns. Matching attachments are skipped.</p>
+                <p class="settings-hint">逗号分隔的通配符模式。跳过匹配的附件。</p>
             </div>
 
             <div class="settings-field">
-                <label for="enabled">Enabled</label>
+                <label for="enabled">启用</label>
                 <select id="enabled" name="enabled"
                         style="width:100%;padding:8px 12px;border:2px solid var(--input-border);border-radius:6px;font-size:1em;background:var(--surface);color:var(--text);">
-                    <option value="1" {{ 'selected' if (account and account.enabled) or not account }}>Yes</option>
-                    <option value="0" {{ 'selected' if account and not account.enabled }}>No</option>
+                    <option value="1" {{ 'selected' if (account and account.enabled) or not account }}>是</option>
+                    <option value="0" {{ 'selected' if account and not account.enabled }}>否</option>
                 </select>
             </div>
 
             <div class="settings-actions">
                 <button type="submit" class="btn btn-primary">
-                    {{ 'Update Account' if mode == 'edit' else 'Create Account' }}
+                    {{ '更新账户' if mode == 'edit' else '创建账户' }}
                 </button>
                 {% if mode == 'edit' %}
-                <a href="/email-accounts/{{ account.id }}/test" class="btn btn-secondary btn-sm">🔌 Test Connection</a>
+                <a href="/email-accounts/{{ account.id }}/test" class="btn btn-secondary btn-sm">🔌 测试连接</a>
                 {% endif %}
-                <a href="/email-accounts" class="btn btn-ghost">Cancel</a>
+                <a href="/email-accounts" class="btn btn-ghost">取消</a>
             </div>
         </form>
     </div>

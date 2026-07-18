@@ -2,7 +2,7 @@
 
 {% block content %}
     <div class="upload-form">
-        <h2>Upload Documents</h2>
+        <h2>上传文档</h2>
         {% if error %}<div class="error">{{ error }}</div>{% endif %}
 
         <!-- Drag-and-drop zone -->
@@ -14,8 +14,8 @@
                     <polyline points="17 8 12 3 7 8"/>
                     <line x1="12" y1="3" x2="12" y2="15"/>
                 </svg>
-                <p><strong>Drop files here</strong> or click to browse</p>
-                <p class="drop-hint">Multiple files supported · PDF, DOCX, HTML, MD, TXT, CSV, JSON, XML</p>
+                <p><strong>拖拽文件到此处</strong>或点击浏览</p>
+                <p class="drop-hint">支持多文件上传 · PDF、DOCX、HTML、MD、TXT、CSV、JSON、XML</p>
             </div>
             <input id="file-input" type="file" name="files" multiple
                    accept=".txt,.md,.pdf,.docx,.html,.htm,.csv,.json,.xml"
@@ -28,16 +28,16 @@
         <!-- Fallback: plain form POST (works without JS) -->
         <form id="fallback-form" action="/upload" method="post" enctype="multipart/form-data" style="display:none;">
             <input type="file" name="files" multiple>
-            <button type="submit">Upload &amp; Index</button>
+            <button type="submit">上传并索引</button>
         </form>
 
         <div id="upload-actions" class="upload-actions" style="display:none;">
-            <button type="button" id="upload-btn" class="btn btn-primary">Upload {{ '{{'}}count{{'}}'}} file(s)</button>
-            <button type="button" id="clear-btn" class="btn btn-secondary">Clear</button>
+            <button type="button" id="upload-btn" class="btn btn-primary">上传 {{ '{{'}}count{{'}}' }} 个文件</button>
+            <button type="button" id="clear-btn" class="btn btn-secondary">清空</button>
         </div>
 
         <div id="no-js-note" class="drop-hint" style="margin-top:12px;">
-            JavaScript is disabled — <a href="#" onclick="document.getElementById('fallback-form').style.display='block';document.getElementById('drop-zone').style.display='none';this.style.display='none';return false;">use the basic uploader</a>.
+            JavaScript 已禁用 — <a href="#" onclick="document.getElementById('fallback-form').style.display='block';document.getElementById('drop-zone').style.display='none';this.style.display='none';return false;">使用基础上传</a>。
         </div>
     </div>
 {% endblock %}

@@ -2,10 +2,10 @@
 
 {% block content %}
     <div class="success">
-        <h2>✅ Upload Successful</h2>
-        <p><strong>{{ title }}</strong> has been uploaded and queued for processing.</p>
-        <p>Document ID: <a href="/documents/{{ doc_id }}">{{ doc_id }}</a></p>
-        <p>Job ID: {{ job_id }}</p>
+        <h2>✅ 上传成功</h2>
+        <p><strong>{{ title }}</strong>已上传，正在排队处理。</p>
+        <p>文档 ID：<a href="/documents/{{ doc_id }}">{{ doc_id }}</a></p>
+        <p>任务 ID：{{ job_id }}</p>
     </div>
-    <p><a href="/upload">Upload another</a> | <a href="/documents">View all documents</a></p>
+    <p><a href="/upload">再传一个</a> | <a href="/documents">查看全部文档</a></p>
 {% endblock %}

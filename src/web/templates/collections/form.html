@@ -4,30 +4,30 @@
     <div class="card">
         <h2>{{ page_title }}</h2>
         <p class="pagination-info">
-            <a href="/documents">← Back to Documents</a>
+            <a href="/documents">← 返回文档列表</a>
         </p>
 
         <form method="post" action="{{ form_action }}" class="settings-form" style="margin-top:16px;">
             <div class="settings-field">
-                <label for="name">Collection Name</label>
+                <label for="name">合集名称</label>
                 <input type="text" id="name" name="name" required
                        value="{{ collection.name if collection else '' }}"
-                       placeholder="e.g. Research Papers"
+                       placeholder="例如：研究论文"
                        style="width:100%;padding:8px 12px;border:2px solid var(--input-border);border-radius:6px;font-size:1em;background:var(--surface);color:var(--text);">
             </div>
 
             <div class="settings-field">
-                <label for="description">Description (optional)</label>
+                <label for="description">描述（选填）</label>
                 <textarea id="description" name="description" rows="3"
-                          placeholder="A short description of this collection"
+                          placeholder="关于此合集的简短描述"
                           style="width:100%;padding:8px 12px;border:2px solid var(--input-border);border-radius:6px;font-size:1em;background:var(--surface);color:var(--text);">{{ collection.description if collection else '' }}</textarea>
             </div>
 
             <div class="settings-field">
-                <label for="parent_id">Parent Collection (optional)</label>
+                <label for="parent_id">父合集（选填）</label>
                 <select id="parent_id" name="parent_id"
                         style="width:100%;padding:8px 12px;border:2px solid var(--input-border);border-radius:6px;font-size:1em;background:var(--surface);color:var(--text);">
-                    <option value="">— None (top-level) —</option>
+                    <option value="">— 无（顶层） —</option>
                     {% for col in parent_choices %}
                         {% if not collection or col.id != collection.id %}
                         <option value="{{ col.id }}"
@@ -37,21 +37,21 @@
                         {% endif %}
                     {% endfor %}
                 </select>
-                <p class="settings-hint">Nest this collection under a parent to build a hierarchy.</p>
+                <p class="settings-hint">将此合集嵌套在父合集下以构建层级结构。</p>
             </div>
 
             <div class="settings-actions">
                 <button type="submit" class="btn btn-primary">
-                    {{ 'Update Collection' if mode == 'edit' else 'Create Collection' }}
+                    {{ '更新合集' if mode == 'edit' else '创建合集' }}
                 </button>
                 {% if mode == 'edit' %}
                 <button type="submit" formaction="{{ delete_action }}" formmethod="post"
                         class="btn btn-danger"
-                        onclick="return confirm('Delete this collection? Documents will be moved to All Documents. Child collections will also be deleted.');">
-                    Delete Collection
+                        onclick="return confirm('删除此合集？文档将移至"全部文档"。子合集也将被删除。');">
+                    删除合集
                 </button>
                 {% endif %}
-                <a href="/documents" class="btn btn-ghost">Cancel</a>
+                <a href="/documents" class="btn btn-ghost">取消</a>
             </div>
         </form>
     </div>

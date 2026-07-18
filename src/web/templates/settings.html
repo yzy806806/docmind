@@ -2,45 +2,45 @@
 
 {% block content %}
     <div class="card">
-        <h2>⚙️ LLM Settings</h2>
-        <p class="pagination-info">Configure the language model used for chat answers and document summarization. Settings persist across restarts.</p>
+        <h2>⚙️ LLM 设置</h2>
+        <p class="pagination-info">配置用于对话回答和文档摘要的语言模型。设置重启后仍然有效。</p>
         {% if success %}
-        <div class="success">✅ Settings saved. The new LLM configuration is now active — chat will use it on the next request.</div>
+        <div class="success">✅ 设置已保存。新的 LLM 配置已生效 — 下次对话请求将使用新配置。</div>
         {% endif %}
         <form action="/settings" method="post" id="settings-form">
             <div class="settings-field">
-                <label for="provider"><strong>LLM Provider</strong></label>
+                <label for="provider"><strong>LLM 提供方</strong></label>
                 <select name="provider" id="provider" onchange="toggleBaseUrl()">
-                    <option value="" {% if not provider %}selected{% endif %}>(none — extractive fallback)</option>
+                    <option value="" {% if not provider %}selected{% endif %}>（无 — 提取式回退）</option>
                     <option value="openai" {% if provider == 'openai' %}selected{% endif %}>OpenAI</option>
-                    <option value="openai-compat" {% if provider == 'openai-compat' %}selected{% endif %}>OpenAI-compatible (vLLM, LM Studio, etc.)</option>
-                    <option value="ollama" {% if provider == 'ollama' %}selected{% endif %}>Ollama (local)</option>
+                    <option value="openai-compat" {% if provider == 'openai-compat' %}selected{% endif %}>OpenAI 兼容（vLLM、LM Studio 等）</option>
+                    <option value="ollama" {% if provider == 'ollama' %}selected{% endif %}>Ollama（本地）</option>
                 </select>
             </div>
 
             <div class="settings-field">
-                <label for="model"><strong>Model Name</strong></label>
+                <label for="model"><strong>模型名称</strong></label>
                 <input type="text" name="model" id="model" value="{{ model }}"
-                       placeholder="e.g. gpt-4o-mini, llama3, qwen2.5">
+                       placeholder="例如：gpt-4o-mini、llama3、qwen2.5">
             </div>
 
             <div class="settings-field">
-                <label for="api_key"><strong>API Key</strong></label>
+                <label for="api_key"><strong>API 密钥</strong></label>
                 <input type="password" name="api_key" id="api_key"
                        value="{{ masked_key }}"
-                       placeholder="Leave as-is to keep current key, or type a new one">
-                <p class="settings-hint">Current key: {% if masked_key %}{{ masked_key }}{% else %}(not set){% endif %} — only the last 4 characters are shown for security.</p>
+                       placeholder="留空保留当前密钥，或输入新密钥">
+                <p class="settings-hint">当前密钥：{% if masked_key %}{{ masked_key }}{% else %}（未设置）{% endif %} — 仅显示最后 4 位以保证安全。</p>
             </div>
 
             <div class="settings-field" id="base_url_row" style="display:{{ base_url_row_display }}">
                 <label for="base_url"><strong>Base URL</strong></label>
                 <input type="text" name="base_url" id="base_url" value="{{ base_url }}"
-                       placeholder="https://api.openai.com/v1 or http://localhost:11434">
-                <p class="settings-hint">Required for OpenAI-compatible and Ollama providers.</p>
+                       placeholder="https://api.openai.com/v1 或 http://localhost:11434">
+                <p class="settings-hint">OpenAI 兼容和 Ollama 提供方需要填写此项。</p>
             </div>
 
             <div class="settings-field">
-                <label for="max_tokens"><strong>Max Tokens</strong> <span id="max_tokens_val">{{ max_tokens }}</span></label>
+                <label for="max_tokens"><strong>最大 Token 数</strong> <span id="max_tokens_val">{{ max_tokens }}</span></label>
                 <input type="range" name="max_tokens" id="max_tokens" min="100" max="4000" step="100"
                        value="{{ max_tokens }}" oninput="document.getElementById('max_tokens_val').textContent=this.value">
             </div>
@@ -54,32 +54,32 @@
             <div class="settings-field">
                 <label>
                     <input type="checkbox" name="chat_fallback" value="1" {{ fallback_checked }}>
-                    <strong>Chat Fallback</strong> — if the LLM call fails, use an extractive answer from search snippets instead of erroring.
+                    <strong>对话回退</strong> — LLM 调用失败时，使用搜索片段的提取式回答替代报错。
                 </label>
             </div>
 
             <hr style="margin: 28px 0; border: none; border-top: 1px solid var(--border);">
-            <h3>🔐 Authentication</h3>
-            <p class="pagination-info">Protect the web UI and REST API with a password/API key. When enabled, all requests require either a valid session cookie (web UI) or an <code>X-API-Key</code> header (programmatic API).</p>
+            <h3>🔐 认证</h3>
+            <p class="pagination-info">使用密码/API 密钥保护 Web 界面和 REST API。启用后，所有请求需携带有效会话 Cookie（Web 界面）或 <code>X-API-Key</code> 请求头（程序化 API）。</p>
 
             <div class="settings-field">
                 <label>
                     <input type="checkbox" name="auth_enabled" value="1" {{ auth_enabled_checked }}>
-                    <strong>Enable Authentication</strong> — require login to access the web UI and API.
+                    <strong>启用认证</strong> — 需要登录才能访问 Web 界面和 API。
                 </label>
             </div>
 
             <div class="settings-field">
-                <label for="auth_api_key"><strong>Password / API Key</strong></label>
+                <label for="auth_api_key"><strong>密码 / API 密钥</strong></label>
                 <input type="password" name="auth_api_key" id="auth_api_key"
                        value="{{ masked_auth_key }}"
-                       placeholder="Leave as-is to keep current key, or type a new one">
-                <p class="settings-hint">Current key: {% if masked_auth_key %}{{ masked_auth_key }}{% else %}(not set — a random one will be generated on enable){% endif %} — only the last 4 characters are shown. For API access, send this value in the <code>X-API-Key</code> header.</p>
+                       placeholder="留空保留当前密钥，或输入新密钥">
+                <p class="settings-hint">当前密钥：{% if masked_auth_key %}{{ masked_auth_key }}{% else %}（未设置 — 启用认证时会自动生成）{% endif %} — 仅显示最后 4 位。API 调用时请在 <code>X-API-Key</code> 请求头中发送此值。</p>
             </div>
 
             <div class="settings-actions">
-                <button type="submit" class="btn btn-primary">💾 Save Settings</button>
-                <a href="/" class="btn btn-ghost">Cancel</a>
+                <button type="submit" class="btn btn-primary">💾 保存设置</button>
+                <a href="/" class="btn btn-ghost">取消</a>
             </div>
         </form>
     </div>

@@ -2,17 +2,17 @@
 
 {% block content %}
     <div class="success">
-        <h2>🗑 Bulk Delete Complete</h2>
-        <p>Requested deletion of <strong>{{ total_requested }}</strong> document(s).</p>
+        <h2>🗑 批量删除完成</h2>
+        <p>已请求删除 <strong>{{ total_requested }}</strong> 篇文档。</p>
         {% if deleted_ids %}
-        <p>✅ Deleted <strong>{{ deleted_ids|length }}</strong> document(s): {{ deleted_ids|join(', ') }}</p>
+        <p>✅ 已删除 <strong>{{ deleted_ids|length }}</strong> 篇文档：{{ deleted_ids|join(', ') }}</p>
         {% endif %}
         {% if not_found_ids %}
-        <p>⚠️ Not found ({{ not_found_ids|length }}): {{ not_found_ids|join(', ') }}</p>
+        <p>⚠️ 未找到（{{ not_found_ids|length }}）：{{ not_found_ids|join(', ') }}</p>
         {% endif %}
         {% if invalid_ids %}
-        <p>❌ Invalid IDs ({{ invalid_ids|length }}): {{ invalid_ids|join(', ') }}</p>
+        <p>❌ 无效 ID（{{ invalid_ids|length }}）：{{ invalid_ids|join(', ') }}</p>
         {% endif %}
     </div>
-    <p><a href="/documents">← Back to Documents</a></p>
+    <p><a href="/documents">← 返回文档列表</a></p>
 {% endblock %}

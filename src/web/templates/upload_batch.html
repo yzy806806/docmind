@@ -2,28 +2,28 @@
 
 {% block content %}
     <div class="upload-batch-results">
-        <h2>Upload Results</h2>
+        <h2>上传结果</h2>
 
         <p class="batch-summary">
-            {{ total_ok }} file(s) uploaded and queued
-            {% if total_err %} · {{ total_err }} failed{% endif %}
+            {{ total_ok }} 个文件已上传并排队
+            {% if total_err %} · {{ total_err }} 个失败{% endif %}
         </p>
 
         {% if results %}
-            <h3>✅ Uploaded</h3>
+            <h3>✅ 已上传</h3>
             <ul class="batch-ok">
                 {% for r in results %}
                     <li>
                         <strong>{{ r.title }}</strong> —
-                        Document ID: <a href="/documents/{{ r.doc_id }}">{{ r.doc_id }}</a>,
-                        Job ID: {{ r.job_id }}
+                        文档 ID：<a href="/documents/{{ r.doc_id }}">{{ r.doc_id }}</a>，
+                        任务 ID：{{ r.job_id }}
                     </li>
                 {% endfor %}
             </ul>
         {% endif %}
 
         {% if errors %}
-            <h3>❌ Failed</h3>
+            <h3>❌ 失败</h3>
             <ul class="batch-err">
                 {% for e in errors %}
                     <li>
@@ -33,5 +33,5 @@
             </ul>
         {% endif %}
     </div>
-    <p><a href="/upload">Upload more</a> | <a href="/documents">View all documents</a></p>
+    <p><a href="/upload">继续上传</a> | <a href="/documents">查看全部文档</a></p>
 {% endblock %}

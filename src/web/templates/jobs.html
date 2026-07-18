@@ -6,10 +6,10 @@
 
 {% block content %}
     <div class="card">
-        <h2>⚙️ Job Processing Status</h2>
-        <div class="pagination-info">Showing {{ start }}–{{ end }} of {{ total }} job(s)</div>
+        <h2>⚙️ 任务处理状态</h2>
+        <div class="pagination-info">显示第 {{ start }}–{{ end }} 条，共 {{ total }} 个任务</div>
         <form method="get" action="/jobs" style="margin: 12px 0; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
-            <label for="state-filter">Filter by state:</label>
+            <label for="state-filter">按状态筛选：</label>
             <select name="state" id="state-filter" onchange="this.form.submit()">
                 {% for val, label, selected in state_options %}
                 <option value="{{ val }}"{{ selected }}>{{ label }}</option>
@@ -18,11 +18,11 @@
             <input type="hidden" name="per_page" value="{{ per_page }}">
         </form>
         {% if refresh_meta %}
-        <div class="success" style="padding: 8px 12px;">🔄 Auto-refreshing every 10 seconds — active jobs in progress.</div>
+        <div class="success" style="padding: 8px 12px;">🔄 每 10 秒自动刷新（有任务进行中）</div>
         {% endif %}
         {% if jobs %}
         <div class="table-scroll">
-        <table><tr><th>Job ID</th><th>Document</th><th>State</th><th>Source</th><th>Created</th><th>Updated</th><th>Error</th></tr>
+        <table><tr><th>任务 ID</th><th>文档</th><th>状态</th><th>来源</th><th>创建时间</th><th>更新时间</th><th>错误</th></tr>
         {% for job in jobs %}
         <tr style="cursor: pointer;" onclick="window.location='/jobs/{{ job.id }}'">
             <td><a href="/jobs/{{ job.id }}">{{ job.id[:8] }}</a></td>
@@ -41,7 +41,7 @@
         </table>
         </div>
         {% else %}
-        <p>No jobs found. Processed documents appear here once they complete. <a href="/upload">Upload a document</a> to create a job.</p>
+        <p>暂无任务。已处理的文档完成后会显示在这里。<a href="/upload">上传文档</a>以创建任务。</p>
         {% endif %}
     </div>
     {{ pagination_html }}

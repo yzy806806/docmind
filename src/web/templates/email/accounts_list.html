@@ -2,10 +2,10 @@
 
 {% block content %}
     <div class="card">
-        <h2>📧 Email Accounts</h2>
+        <h2>📧 邮件账户</h2>
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-            <p class="pagination-info">Manage IMAP accounts for email-based document ingestion.</p>
-            <a href="/email-accounts/new" class="btn btn-primary btn-sm">+ Add Account</a>
+            <p class="pagination-info">管理 IMAP 账户以通过邮件接收文档。</p>
+            <a href="/email-accounts/new" class="btn btn-primary btn-sm">＋ 添加账户</a>
         </div>
 
         {% if accounts %}
@@ -13,14 +13,14 @@
         <table>
             <tr>
                 <th>ID</th>
-                <th>Name</th>
-                <th>Host</th>
-                <th>Username</th>
-                <th>Folder</th>
-                <th>Enabled</th>
-                <th>Last Sync</th>
-                <th>Status</th>
-                <th>Actions</th>
+                <th>名称</th>
+                <th>主机</th>
+                <th>用户名</th>
+                <th>文件夹</th>
+                <th>已启用</th>
+                <th>上次同步</th>
+                <th>状态</th>
+                <th>操作</th>
             </tr>
             {% for acct in accounts %}
             <tr>
@@ -31,31 +31,31 @@
                 <td>{{ acct.folder or 'INBOX' }}</td>
                 <td>
                     {% if acct.enabled %}
-                        <span class="badge badge-completed">✓ Enabled</span>
+                        <span class="badge badge-completed">✓ 已启用</span>
                     {% else %}
-                        <span class="badge badge-pending">Disabled</span>
+                        <span class="badge badge-pending">已禁用</span>
                     {% endif %}
                 </td>
                 <td>{{ fmt_date(acct.last_sync_at) or '—' }}</td>
                 <td>
                     {% if acct.last_error %}
-                        <span class="badge badge-failed" title="{{ acct.last_error }}">Error</span>
+                        <span class="badge badge-failed" title="{{ acct.last_error }}">错误</span>
                     {% elif acct.last_sync_at %}
-                        <span class="badge badge-completed">OK</span>
+                        <span class="badge badge-completed">正常</span>
                     {% else %}
-                        <span class="badge badge-pending">Never</span>
+                        <span class="badge badge-pending">从未同步</span>
                     {% endif %}
                 </td>
                 <td>
-                    <a href="/email-accounts/{{ acct.id }}" class="btn btn-link" title="View details">📖</a>
-                    <a href="/email-accounts/{{ acct.id }}/edit" class="btn btn-link" title="Edit">✏️</a>
-                    <a href="/email-accounts/{{ acct.id }}/logs" class="btn btn-link" title="Logs">📋</a>
+                    <a href="/email-accounts/{{ acct.id }}" class="btn btn-link" title="查看详情">📖</a>
+                    <a href="/email-accounts/{{ acct.id }}/edit" class="btn btn-link" title="编辑">✏️</a>
+                    <a href="/email-accounts/{{ acct.id }}/logs" class="btn btn-link" title="日志">📋</a>
                     <form method="post" action="/email-accounts/{{ acct.id }}/sync" style="display:inline;"
-                          onsubmit="return confirm('Sync account {{ acct.name }} now?');">
-                        <button type="submit" style="padding:2px 8px;font-size:0.85em;cursor:pointer;" title="Sync now">🔄</button>
+                          onsubmit="return confirm('立即同步账户 {{ acct.name }}？');">
+                        <button type="submit" style="padding:2px 8px;font-size:0.85em;cursor:pointer;" title="立即同步">🔄</button>
                     </form>
                     <form method="post" action="/email-accounts/{{ acct.id }}/delete" style="display:inline;"
-                          onsubmit="return confirm('Delete account {{ acct.name }}? Ingestion logs will be removed.');">
+                          onsubmit="return confirm('删除账户 {{ acct.name }}？接收日志也将被清除。');">
                         <button type="submit" class="btn btn-danger btn-sm">🗑</button>
                     </form>
                 </td>
@@ -64,16 +64,16 @@
         </table>
         </div>
         {% else %}
-        <p>No email accounts configured. <a href="/email-accounts/new">Add one</a> to start ingesting documents from email.</p>
+        <p>暂无邮件账户。<a href="/email-accounts/new">添加一个</a>以开始通过邮件接收文档。</p>
         {% endif %}
 
-        <h3>How It Works</h3>
+        <h3>工作原理</h3>
         <ol style="font-size:0.9em;color:var(--text-muted);">
-            <li>Configure an IMAP account (host, credentials, folder to monitor).</li>
-            <li>The background worker polls for unseen emails at the configured interval.</li>
-            <li>Email body and attachments are extracted and saved as searchable documents.</li>
-            <li>Processed emails are marked as read (mark-to-read only — move/delete deferred).</li>
-            <li>Filter documents by <code>source_type = email</code> on the <a href="/documents?source=email">Documents</a> page.</li>
+            <li>配置 IMAP 账户（主机、凭证、监控文件夹）。</li>
+            <li>后台工作进程按配置的间隔轮询未读邮件。</li>
+            <li>邮件正文和附件被提取并保存为可搜索的文档。</li>
+            <li>已处理的邮件标记为已读（仅标记 — 移动/删除暂不执行）。</li>
+            <li>在<a href="/documents?source=email">文档</a>页面按 <code>source_type = email</code> 筛选文档。</li>
         </ol>
     </div>
 {% endblock %}

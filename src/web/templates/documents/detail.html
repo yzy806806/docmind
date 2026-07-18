@@ -2,42 +2,42 @@
 
 {% block content %}
     <div class="card doc-detail">
-        <h2>{{ doc.title or 'Untitled' }}</h2>
-        <div class="field"><span class="field-label">ID:</span> {{ doc.id or '?' }}</div>
-        <div class="field"><span class="field-label">Status:</span> <span class="badge badge-{{ doc.status or 'pending' }}">{{ doc.status or '' }}</span></div>
-        <div class="field"><span class="field-label">Path:</span> {{ doc.path or '' }}</div>
-        <div class="field"><span class="field-label">Source:</span> {{ doc.source_name or doc.source_type or '' }}</div>
+        <h2>{{ doc.title or '未命名' }}</h2>
+        <div class="field"><span class="field-label">ID：</span> {{ doc.id or '?' }}</div>
+        <div class="field"><span class="field-label">状态：</span> <span class="badge badge-{{ doc.status or 'pending' }}">{{ doc.status or '' }}</span></div>
+        <div class="field"><span class="field-label">路径：</span> {{ doc.path or '' }}</div>
+        <div class="field"><span class="field-label">来源：</span> {{ doc.source_name or doc.source_type or '' }}</div>
         {% if doc.source_type == 'email' and email_meta %}
         <div class="email-meta-section" style="margin:8px 0;padding:8px 12px;border-left:3px solid var(--accent,#4a90d9);background:var(--surface-alt,rgba(255,255,255,0.03));">
-            <div class="field"><span class="field-label">📧 Sender:</span> {{ email_meta.email_sender or '' }}</div>
-            <div class="field"><span class="field-label">Subject:</span> {{ email_meta.email_subject or '' }}</div>
-            <div class="field"><span class="field-label">Message-ID:</span> <code>{{ email_meta.email_message_id or '' }}</code></div>
-            <div class="field"><span class="field-label">Received:</span> {{ email_meta.email_received_at or '' }}</div>
-            <div class="field"><span class="field-label">Thread ID:</span> <code>{{ email_meta.email_thread_id or '' }}</code></div>
+            <div class="field"><span class="field-label">📧 发件人：</span> {{ email_meta.email_sender or '' }}</div>
+            <div class="field"><span class="field-label">主题：</span> {{ email_meta.email_subject or '' }}</div>
+            <div class="field"><span class="field-label">Message-ID：</span> <code>{{ email_meta.email_message_id or '' }}</code></div>
+            <div class="field"><span class="field-label">接收时间：</span> {{ email_meta.email_received_at or '' }}</div>
+            <div class="field"><span class="field-label">Thread ID：</span> <code>{{ email_meta.email_thread_id or '' }}</code></div>
             {% if email_meta.email_part %}
-            <div class="field"><span class="field-label">Part:</span> {{ email_meta.email_part }}</div>
+            <div class="field"><span class="field-label">部件：</span> {{ email_meta.email_part }}</div>
             {% endif %}
         </div>
         {% endif %}
-        <div class="field"><span class="field-label">Type:</span> {{ doc.ext or '' }} ({{ doc.mime_type or '' }})</div>
-        <div class="field"><span class="field-label">Size:</span> {{ fmt_size(doc.size or 0) }}</div>
-        <div class="field"><span class="field-label">Created:</span> {{ fmt_date(doc.created_at) }}</div>
-        <div class="field"><span class="field-label">Updated:</span> {{ fmt_date(doc.updated_at) }}</div>
-        <div class="field"><span class="field-label">Words:</span> {{ "{:,}".format(wc) }} · ~{{ rt }} min read</div>
+        <div class="field"><span class="field-label">类型：</span> {{ doc.ext or '' }} ({{ doc.mime_type or '' }})</div>
+        <div class="field"><span class="field-label">大小：</span> {{ fmt_size(doc.size or 0) }}</div>
+        <div class="field"><span class="field-label">创建时间：</span> {{ fmt_date(doc.created_at) }}</div>
+        <div class="field"><span class="field-label">更新时间：</span> {{ fmt_date(doc.updated_at) }}</div>
+        <div class="field"><span class="field-label">字数：</span> {{ "{:,}".format(wc) }} · 约 {{ rt }} 分钟读完</div>
 
         <div class="doc-collection-section">
-            <div class="field"><span class="field-label">Collection:</span>
+            <div class="field"><span class="field-label">合集：</span>
                 {% if current_collection %}
                     <a href="/documents?collection_id={{ current_collection.id }}"
                        class="collection-breadcrumb">{{ current_collection.name }}</a>
                 {% else %}
-                    <em>Unassigned</em>
+                    <em>未分配</em>
                 {% endif %}
             </div>
             <form action="/documents/{{ doc.id or '?' }}/assign-collection" method="post"
                   class="collection-assign-row">
                 <select name="collection_id">
-                    <option value="">— Unassigned —</option>
+                    <option value="">— 未分配 —</option>
                     {% for col in all_collections %}
                         <option value="{{ col.id }}"
                             {% if current_collection and current_collection.id == col.id %}selected{% endif %}>
@@ -45,50 +45,53 @@
                         </option>
                     {% endfor %}
                 </select>
-                <button type="submit">Assign</button>
+                <button type="submit">分配</button>
             </form>
         </div>
 
         <div class="doc-tags-section">
-            <div class="field"><span class="field-label">Tags:</span>
-                {% if tag_badges_html %}{{ tag_badges_html }}{% else %}<em>No tags yet — <a href="#" onclick="document.querySelector('.tag-input-row input').focus();return false;">add one</a></em>{% endif %}
-            </div>
+            <div class="field"><span class="field-label">标签：</span>
+                {% if tag_badges_html %}{{ tag_badges_html }}{% else %}<em>暂无标签 — <a href="#" onclick="document.querySelector('.tag-input-row input').focus();return false;">添加标签</a></em>{% endif %}</div>
             <form action="/documents/{{ doc.id or '?' }}/tags" method="post" class="tag-input-row">
-                <input type="text" name="tag" placeholder="Add a tag…" required maxlength="50">
-                <button type="submit">Add Tag</button>
+                <input type="text" name="tag" placeholder="添加标签…" required maxlength="50">
+                <button type="submit">添加标签</button>
             </form>
         </div>
 
-        <h3>Summary</h3>
+        <h3>摘要</h3>
         <div class="summary-section">
-            <p>{{ doc.summary or '<em>No summary available — regenerate to create one</em>' }}</p>
+            <p>{{ doc.summary or '<em>暂无摘要 — 请重新生成</em>' }}</p>
             <div class="summary-actions" style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">
                 <form action="/documents/{{ doc.id or '?' }}/regenerate-summary" method="post"
                       style="display:inline;"
-                      onsubmit="return confirm('Regenerate summary for document {{ doc.id or '?' }}?');">
-                    <button type="submit" class="btn btn-secondary btn-sm">🔄 Regenerate Summary</button>
+                      onsubmit="return confirm('重新生成文档 {{ doc.id or '?' }} 的摘要？');">
+                    <button type="submit" class="btn btn-secondary btn-sm">🔄 重新生成摘要</button>
                 </form>
                 <a href="/documents/{{ doc.id or '?' }}/summary/export?format=md"
-                   class="btn btn-secondary btn-sm">⬇ Summary .md</a>
+                   class="btn btn-secondary btn-sm">⬇ 摘要 .md</a>
                 <a href="/documents/{{ doc.id or '?' }}/summary/export?format=txt"
-                   class="btn btn-secondary btn-sm">⬇ Summary .txt</a>
+                   class="btn btn-secondary btn-sm">⬇ 摘要 .txt</a>
             </div>
         </div>
 
-        <h3>Content Preview</h3>
+        <h3>内容预览</h3>
         {# Lazy-load the content preview (Phase 9).
            The excerpt is loaded via fetch when it scrolls into view,
            improving initial page render time for document detail pages.
            Without JS, the excerpt is still rendered server-side below. #}
         <div id="doc-excerpt-lazy" data-doc-id="{{ doc.id or '?' }}" style="min-height:2em;">
-            <pre class="doc-excerpt">{{ escape(excerpt) }}</pre>
+            {# Skeleton placeholder shown while lazy-load.js fetches the
+               excerpt. Replaced by actual content when the fetch completes.
+               Without JS, the server-rendered excerpt below is visible. #}
+            <div class="skeleton-block doc-excerpt-skeleton" style="height:6em;" aria-hidden="true"></div>
+            <pre class="doc-excerpt" style="display:none;">{{ escape(excerpt) }}</pre>
         </div>
-        <p><a href="/documents/{{ doc.id or '?' }}/view" class="btn btn-primary">📖 Read Full Document</a></p>
+        <p><a href="/documents/{{ doc.id or '?' }}/view" class="btn btn-primary">📖 阅读全文</a></p>
 
         <div class="doc-actions">
             <form action="/documents/{{ doc.id or '?' }}/delete" method="post"
-                  onsubmit="return confirm('Are you sure you want to delete document {{ doc.id or '?' }}? This cannot be undone.');">
-                <button type="submit" class="btn btn-danger">🗑 Delete Document</button>
+                  onsubmit="return confirm('确认删除文档 {{ doc.id or '?' }}？此操作不可撤销。');">
+                <button type="submit" class="btn btn-danger">🗑 删除文档</button>
             </form>
         </div>
     </div>

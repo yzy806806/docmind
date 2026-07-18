@@ -3,6 +3,180 @@
 All notable changes to DocMind are documented in this file. The project uses
 calendar-based versioning: each section groups changes by the week they shipped.
 
+
+## 2026-07-19 — Frontend Smoothness Overhaul (Phases 10–15)
+
+A comprehensive frontend smoothness and UX polish initiative, delivered across six
+iterative phases. Every interactive surface was audited and improved: CSS
+architecture was rebuilt on a design-token foundation, interactive elements gained
+fluid transitions, search became instant with debounced live filtering, mutations
+became optimistic with instant feedback, and scroll/load behaviour was upgraded
+for a native-app feel. 263 new frontend tests verify the improvements.
+
+### Changed — CSS Architecture: Design Token System
+
+- **`--token` taxonomy.** 96 CSS custom properties in `:root` organised into 14
+  groups: surfaces, text, header/nav, primary actions, accent/semantic, borders/inputs,
+  badges, feedback, syntax highlighting, shadows, spacing (4px scale with half-steps),
+  typography, radius, transitions, z-index, layout, focus ring, disabled state,
+  border widths, lift amounts, component sizes, and scroll behaviour.
+- **Theme isolation.** All color and shadow tokens have corresponding overrides in
+  `[data-theme="dark"]`. Spacing, typography, radius, and transition tokens are
+  theme-independent. Adding a new token is a three-step documented process
+  (define, override if dark, consume via `var()`).
+- **Zero hardcoded values.** No hex/rgba/pixel values appear outside the `:root`
+  and dark-theme blocks. All 2,774 lines of CSS reference tokens.
+- **Extended spacing scale.** From 8 generic steps to 20 fine-grained steps
+  (`--space-0` through `--space-10` with half-step increments like `--space-1-25`,
+  `--space-3-5`) covering border widths, inline-code padding, badge gaps, and
+  every layout value in the template system.
+
+### Changed — Unified UI Component System
+
+- **`.btn` base class** — single button primitive with `--primary`, `--secondary`,
+  `--danger`, `--ghost` modifiers. All 60+ buttons across 12 templates use the
+  same class hierarchy. Active state includes `transform: scale(0.97)` press
+  feedback.
+- **`.input` base class** — unified form control with `--lg` and `--inline`
+  modifiers. Consistent border, focus ring, and disabled styling.
+- **`.card` component** — surface container with `--hover` modifier for
+  lift-on-hover (`--lift-amount: -2px` translate + box-shadow transition).
+- **42 CSS component tests** (`test_base_components.py`) verify token usage,
+  modifier combinations, and dark-theme rendering.
+
+### Changed — CSS Transitions & Interactivity
+
+- **Transition token presets** — `--transition-fast` (150ms, opacity/transform
+  micro-interactions) and `--transition-base` (180ms, color/background/border).
+  All durations stay under 200ms for perceived instant response.
+- **Composed transitions** — `--transition-theme`, `--transition-color`,
+  `--transition-opacity`, `--transition-press` (color + border + transform for
+  `:active` scale), `--transition-lift` (shadow + transform for card hover).
+- **Interactive elements with fluid feedback** — buttons, nav links, pagination,
+  tags/badges, filter panels, cards, table rows, search results, and collection
+  trees all use composeable transition tokens. Every `:hover`, `:focus-visible`,
+  and `:active` state has a visible transition.
+- **Focus ring for keyboard nav** — `--focus-ring-width`, `--focus-ring-color`,
+  `--focus-ring-offset` tokens with WCAG 2.4.7 compliance.
+
+### Added — Optimistic UI for Mutations
+
+- **Instant visual feedback** on delete (single + bulk): rows fade out immediately
+  on click. Tag add/remove: badges appear/disappear instantly. Collection move:
+  display updates before the server confirms.
+- **Progressive enhancement** — `data-optimistic` attribute on forms. If JS
+  is absent or fails, forms submit normally with server-rendered response.
+- **Snapshot/restore pattern** — mutations snapshot the DOM state, optimistically
+  apply changes, and restore on server error with a toast notification.
+- **3-second toast notifications** with error/undo support.
+- **73 tests** (`test_optimistic_ui.py`) covering delete, tag, collection move,
+  bulk operations, error recovery, and concurrent operations.
+
+### Added — Debounced Live Search
+
+- **250ms debounce** on the search input — typed characters no longer fire
+  individual server requests. Uses the shared `DocMindPerf.debounce()` utility.
+- **Live loading indicator** with CSS-only spinner animation that replaces
+  the search results area during fetch.
+- **hx-push-url for filter/search** — browser URL updates on filter changes
+  (source, file type, date range, tag, collection, vector weight slider)
+  without full page reload. Back/forward buttons work correctly.
+- **14 tests** (`test_search_push_url.py`) verify URL parameter propagation
+  and back-button behaviour.
+
+### Changed — Scroll Smoothness
+
+- **Native CSS smooth scrolling** — `scroll-behavior: smooth` on `html` for
+  anchor navigation and `scrollIntoView` calls. Overridden to `auto` when
+  `prefers-reduced-motion: reduce` is active.
+- **Scroll padding** — `scroll-padding-top: 84px` so anchor targets aren't
+  hidden under the sticky header (16px header padding + 32px h1 + 28px nav
+  row + 8px visual gap).
+- **Momentum/overscroll** — `-webkit-overflow-scrolling: touch` on list
+  containers for iOS momentum. `overscroll-behavior-y: none` on `html` and
+  `overscroll-behavior: contain` on scrollable regions to prevent accidental
+  page bounce and scroll-chaining glitches on infinite-list views.
+
+### Changed — Loading States & Microcopy
+
+- **Specific loading copy** across all HTMX mutation operations: "Saving…",
+  "Deleting…", "Establishing connection…", "Reconnecting…", "Loading
+  conversations…". Replaced silent waits and generic "Loading…" text.
+- **Actionable empty states** — "No documents found" explains the current
+  filter context; "No tags yet" suggests adding one; "No search results"
+  suggests adjusting terms. Each includes a call-to-action link.
+- **Search text improvements** — placeholder text, aria-labels, and helper
+  text updated for clarity.
+
+### Added — Performance Utilities
+
+- **`DocMindPerf` module** (`perf-utils.js`) — shared `debounce`, `throttle`,
+  and `rAFThrottle` utilities used across all JS modules. Each preserves
+  `this` binding, forwards arguments, and exposes `.cancel()` for cleanup.
+- **Wired to all islands** — debounce (search-as-you-type, autosave),
+  throttle (scroll/resize/upload progress), rAFThrottle (visual DOM updates
+  from slider input, streaming text append). Pauses when the tab is hidden.
+- **Progress bar** — top-of-page animated bar that activates on HTMX/fetch
+  requests and completes on response. Uses CSS `transform: scaleX()` for
+  GPU-composited animation. Auto-clears after 600ms. `z-index: 9999`.
+- **Skeleton loaders** — content-placeholder animations during initial page
+  loads and between-page navigation.
+- **Native lazy loading** — `loading="lazy"` attribute on all `<img>` tags
+  for below-fold images.
+
+### Added — Loading Feedback for HTMX Mutations
+
+- **Button state transitions** — buttons show "Saving…" / "Deleting…" text
+  and disabled state during HTMX request lifecycle. Revert to original text
+  on response.
+- **htmx:beforeRequest / htmx:afterRequest hooks** trigger progress bar and
+  button feedback globally.
+
+### Tests
+
+- **263 new frontend tests** across 10 test files: design tokens (24), base
+  components (28), CSS transitions (15 + 22 extended), fluidity (15),
+  interactive states (22), optimistic UI (73), scroll smoothness (17),
+  search push URL (14), browser smoothness (33).
+
+
+## 2026-07-06 — Phase 9: Responsive Design, Lazy Loading, Keyboard Shortcuts
+
+### Added — Responsive Design Validation
+
+- Validated layout across 4 CSS breakpoints (1024px, 768px, 640px, 480px)
+  on 7 pages plus the document viewer.
+- Hamburger navigation on small screens.
+- `prefers-reduced-motion` media query honoured — transitions and scroll
+  smoothness disabled for users who request reduced motion.
+- Touch target sizing for mobile — all interactive elements meet the 44px
+  minimum in compact viewports.
+
+### Added — Infinite Scroll & Lazy Loading
+
+- **Documents list infinite scroll** — IntersectionObserver on a sentinel
+  element triggers fetch of next page of `<tr>` rows from
+  `/documents/partials/rows`. Filters (source, tag, collection, date range,
+  file type) carry through to subsequent page requests.
+- **Search results lazy loading** — "Load More" button fetches additional
+  results from `/search/partials/results`.
+- **Content preview lazy loading** — document content chunks load on demand.
+- **Progressive enhancement** — without IntersectionObserver, standard
+  pagination links work. Without JS, first page renders server-side.
+
+### Added — Gmail-Style Keyboard Shortcuts
+
+- **g-prefix navigation** — `g d` → Dashboard, `g s` → Search, `g D` →
+  Documents, `g u` → Upload, `g e` → Email, `g j` → Jobs, `g a` →
+  Analytics, `g c` → Chat, `g x` → Settings. 700ms timeout for the second key.
+- **Quick actions** — `/` focuses search input, `?` toggles shortcuts help
+  modal, `Esc` closes modal or blurs focused input.
+- **Document operations** (on documents page) — `e` focus export, `t` focus
+  tag input, `m` focus move select, `Del` trigger bulk delete.
+- **Input suppression** — shortcuts suppressed when focus is in an input,
+  textarea, select, or contentEditable element (except Escape).
+- **Help modal** with visual keyboard shortcut reference displayed on `?`.
+
 ## 2026-07-06 — Phase 8: Email Ingestion
 
 ### Added — IMAP Email Ingestion
@@ -318,183 +492,6 @@ interface, plus a dedicated collection detail page.
 - **Multi-file drag-and-drop upload** UI
 - **Bulk document delete** (multi-select checkboxes + API endpoint)
 
----
-
-## 2026-07-19 — Frontend Smoothness Overhaul (Phases 10–15)
-
-A comprehensive frontend smoothness and UX polish initiative, delivered across six
-iterative phases. Every interactive surface was audited and improved: CSS
-architecture was rebuilt on a design-token foundation, interactive elements gained
-fluid transitions, search became instant with debounced live filtering, mutations
-became optimistic with instant feedback, and scroll/load behaviour was upgraded
-for a native-app feel. 263 new frontend tests verify the improvements.
-
-### Changed — CSS Architecture: Design Token System
-
-- **`--token` taxonomy.** 96 CSS custom properties in `:root` organised into 14
-  groups: surfaces, text, header/nav, primary actions, accent/semantic, borders/inputs,
-  badges, feedback, syntax highlighting, shadows, spacing (4px scale with half-steps),
-  typography, radius, transitions, z-index, layout, focus ring, disabled state,
-  border widths, lift amounts, component sizes, and scroll behaviour.
-- **Theme isolation.** All color and shadow tokens have corresponding overrides in
-  `[data-theme="dark"]`. Spacing, typography, radius, and transition tokens are
-  theme-independent. Adding a new token is a three-step documented process
-  (define, override if dark, consume via `var()`).
-- **Zero hardcoded values.** No hex/rgba/pixel values appear outside the `:root`
-  and dark-theme blocks. All 2,774 lines of CSS reference tokens.
-- **Extended spacing scale.** From 8 generic steps to 20 fine-grained steps
-  (`--space-0` through `--space-10` with half-step increments like `--space-1-25`,
-  `--space-3-5`) covering border widths, inline-code padding, badge gaps, and
-  every layout value in the template system.
-
-### Changed — Unified UI Component System
-
-- **`.btn` base class** — single button primitive with `--primary`, `--secondary`,
-  `--danger`, `--ghost` modifiers. All 60+ buttons across 12 templates use the
-  same class hierarchy. Active state includes `transform: scale(0.97)` press
-  feedback.
-- **`.input` base class** — unified form control with `--lg` and `--inline`
-  modifiers. Consistent border, focus ring, and disabled styling.
-- **`.card` component** — surface container with `--hover` modifier for
-  lift-on-hover (`--lift-amount: -2px` translate + box-shadow transition).
-- **42 CSS component tests** (`test_base_components.py`) verify token usage,
-  modifier combinations, and dark-theme rendering.
-
-### Changed — CSS Transitions & Interactivity
-
-- **Transition token presets** — `--transition-fast` (150ms, opacity/transform
-  micro-interactions) and `--transition-base` (180ms, color/background/border).
-  All durations stay under 200ms for perceived instant response.
-- **Composed transitions** — `--transition-theme`, `--transition-color`,
-  `--transition-opacity`, `--transition-press` (color + border + transform for
-  `:active` scale), `--transition-lift` (shadow + transform for card hover).
-- **Interactive elements with fluid feedback** — buttons, nav links, pagination,
-  tags/badges, filter panels, cards, table rows, search results, and collection
-  trees all use composeable transition tokens. Every `:hover`, `:focus-visible`,
-  and `:active` state has a visible transition.
-- **Focus ring for keyboard nav** — `--focus-ring-width`, `--focus-ring-color`,
-  `--focus-ring-offset` tokens with WCAG 2.4.7 compliance.
-
-### Added — Optimistic UI for Mutations
-
-- **Instant visual feedback** on delete (single + bulk): rows fade out immediately
-  on click. Tag add/remove: badges appear/disappear instantly. Collection move:
-  display updates before the server confirms.
-- **Progressive enhancement** — `data-optimistic` attribute on forms. If JS
-  is absent or fails, forms submit normally with server-rendered response.
-- **Snapshot/restore pattern** — mutations snapshot the DOM state, optimistically
-  apply changes, and restore on server error with a toast notification.
-- **3-second toast notifications** with error/undo support.
-- **73 tests** (`test_optimistic_ui.py`) covering delete, tag, collection move,
-  bulk operations, error recovery, and concurrent operations.
-
-### Added — Debounced Live Search
-
-- **250ms debounce** on the search input — typed characters no longer fire
-  individual server requests. Uses the shared `DocMindPerf.debounce()` utility.
-- **Live loading indicator** with CSS-only spinner animation that replaces
-  the search results area during fetch.
-- **hx-push-url for filter/search** — browser URL updates on filter changes
-  (source, file type, date range, tag, collection, vector weight slider)
-  without full page reload. Back/forward buttons work correctly.
-- **14 tests** (`test_search_push_url.py`) verify URL parameter propagation
-  and back-button behaviour.
-
-### Changed — Scroll Smoothness
-
-- **Native CSS smooth scrolling** — `scroll-behavior: smooth` on `html` for
-  anchor navigation and `scrollIntoView` calls. Overridden to `auto` when
-  `prefers-reduced-motion: reduce` is active.
-- **Scroll padding** — `scroll-padding-top: 84px` so anchor targets aren't
-  hidden under the sticky header (16px header padding + 32px h1 + 28px nav
-  row + 8px visual gap).
-- **Momentum/overscroll** — `-webkit-overflow-scrolling: touch` on list
-  containers for iOS momentum. `overscroll-behavior-y: none` on `html` and
-  `overscroll-behavior: contain` on scrollable regions to prevent accidental
-  page bounce and scroll-chaining glitches on infinite-list views.
-
-### Changed — Loading States & Microcopy
-
-- **Specific loading copy** across all HTMX mutation operations: "Saving…",
-  "Deleting…", "Establishing connection…", "Reconnecting…", "Loading
-  conversations…". Replaced silent waits and generic "Loading…" text.
-- **Actionable empty states** — "No documents found" explains the current
-  filter context; "No tags yet" suggests adding one; "No search results"
-  suggests adjusting terms. Each includes a call-to-action link.
-- **Search text improvements** — placeholder text, aria-labels, and helper
-  text updated for clarity.
-
-### Added — Performance Utilities
-
-- **`DocMindPerf` module** (`perf-utils.js`) — shared `debounce`, `throttle`,
-  and `rAFThrottle` utilities used across all JS modules. Each preserves
-  `this` binding, forwards arguments, and exposes `.cancel()` for cleanup.
-- **Wired to all islands** — debounce (search-as-you-type, autosave),
-  throttle (scroll/resize/upload progress), rAFThrottle (visual DOM updates
-  from slider input, streaming text append). Pauses when the tab is hidden.
-- **Progress bar** — top-of-page animated bar that activates on HTMX/fetch
-  requests and completes on response. Uses CSS `transform: scaleX()` for
-  GPU-composited animation. Auto-clears after 600ms. `z-index: 9999`.
-- **Skeleton loaders** — content-placeholder animations during initial page
-  loads and between-page navigation.
-- **Native lazy loading** — `loading="lazy"` attribute on all `<img>` tags
-  for below-fold images.
-
-### Added — Loading Feedback for HTMX Mutations
-
-- **Button state transitions** — buttons show "Saving…" / "Deleting…" text
-  and disabled state during HTMX request lifecycle. Revert to original text
-  on response.
-- **htmx:beforeRequest / htmx:afterRequest hooks** trigger progress bar and
-  button feedback globally.
-
-### Tests
-
-- **263 new frontend tests** across 10 test files: design tokens (24), base
-  components (28), CSS transitions (15 + 22 extended), fluidity (15),
-  interactive states (22), optimistic UI (73), scroll smoothness (17),
-  search push URL (14), browser smoothness (33).
-
----
-
-## 2026-07-06 — Phase 9: Responsive Design, Lazy Loading, Keyboard Shortcuts
-
-### Added — Responsive Design Validation
-
-- Validated layout across 4 CSS breakpoints (1024px, 768px, 640px, 480px)
-  on 7 pages plus the document viewer.
-- Hamburger navigation on small screens.
-- `prefers-reduced-motion` media query honoured — transitions and scroll
-  smoothness disabled for users who request reduced motion.
-- Touch target sizing for mobile — all interactive elements meet the 44px
-  minimum in compact viewports.
-
-### Added — Infinite Scroll & Lazy Loading
-
-- **Documents list infinite scroll** — IntersectionObserver on a sentinel
-  element triggers fetch of next page of `<tr>` rows from
-  `/documents/partials/rows`. Filters (source, tag, collection, date range,
-  file type) carry through to subsequent page requests.
-- **Search results lazy loading** — "Load More" button fetches additional
-  results from `/search/partials/results`.
-- **Content preview lazy loading** — document content chunks load on demand.
-- **Progressive enhancement** — without IntersectionObserver, standard
-  pagination links work. Without JS, first page renders server-side.
-
-### Added — Gmail-Style Keyboard Shortcuts
-
-- **g-prefix navigation** — `g d` → Dashboard, `g s` → Search, `g D` →
-  Documents, `g u` → Upload, `g e` → Email, `g j` → Jobs, `g a` →
-  Analytics, `g c` → Chat, `g x` → Settings. 700ms timeout for the second key.
-- **Quick actions** — `/` focuses search input, `?` toggles shortcuts help
-  modal, `Esc` closes modal or blurs focused input.
-- **Document operations** (on documents page) — `e` focus export, `t` focus
-  tag input, `m` focus move select, `Del` trigger bulk delete.
-- **Input suppression** — shortcuts suppressed when focus is in an input,
-  textarea, select, or contentEditable element (except Escape).
-- **Help modal** with visual keyboard shortcut reference displayed on `?`.
-
----
 
 ## 2026-07-01 — Initial Scaffold
 

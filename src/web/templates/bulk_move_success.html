@@ -2,17 +2,17 @@
 
 {% block content %}
     <div class="success">
-        <h2>📦 Bulk Move Complete</h2>
-        <p>Requested moving <strong>{{ total_requested }}</strong> document(s) to collection: <strong>{{ collection_name }}</strong></p>
+        <h2>📦 批量移动完成</h2>
+        <p>已请求将 <strong>{{ total_requested }}</strong> 篇文档移动到合集：<strong>{{ collection_name }}</strong></p>
         {% if assigned_ids %}
-        <p>✅ Moved <strong>{{ assigned_ids|length }}</strong> document(s): {{ assigned_ids|join(', ') }}</p>
+        <p>✅ 已移动 <strong>{{ assigned_ids|length }}</strong> 篇文档：{{ assigned_ids|join(', ') }}</p>
         {% endif %}
         {% if not_found_ids %}
-        <p>⚠️ Not found ({{ not_found_ids|length }}): {{ not_found_ids|join(', ') }}</p>
+        <p>⚠️ 未找到（{{ not_found_ids|length }}）：{{ not_found_ids|join(', ') }}</p>
         {% endif %}
         {% if invalid_ids %}
-        <p>❌ Invalid IDs ({{ invalid_ids|length }}): {{ invalid_ids|join(', ') }}</p>
+        <p>❌ 无效 ID（{{ invalid_ids|length }}）：{{ invalid_ids|join(', ') }}</p>
         {% endif %}
     </div>
-    <p><a href="/documents">← Back to Documents</a> | <a href="/collections/{{ collection_id }}">View Collection</a></p>
+    <p><a href="/documents">← 返回文档列表</a> | <a href="/collections/{{ collection_id }}">查看合集</a></p>
 {% endblock %}
