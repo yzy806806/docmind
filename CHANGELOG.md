@@ -4,6 +4,71 @@ All notable changes to DocMind are documented in this file. The project uses
 calendar-based versioning: each section groups changes by the week they shipped.
 
 
+## 2026-07-18 — Phase 9: Design Token Migration & CSS Transitions
+
+The first phase of the frontend beautification initiative established the
+CSS foundation. Every hardcoded colour, spacing value, and visual property
+was migrated to a centralised design-token system, and interactive elements
+gained fluid CSS transitions with composed token presets.
+
+### Changed — Design Token Foundation
+
+- **96 CSS custom properties** in `:root` organised into 14 groups: surfaces,
+  text, header/nav, primary actions, accent/semantic, borders/inputs, badges,
+  feedback, syntax highlighting, shadows, spacing, typography, radius,
+  transitions, z-index, layout, focus ring, disabled state, border widths,
+  lift amounts, component sizes, and scroll behaviour.
+- **Dark theme parity.** Every colour and shadow token has a corresponding
+  override in `[data-theme="dark"]`. Spacing, typography, radius, and
+  transition tokens are theme-independent. Adding a token follows a
+  three-step documented process (define in `:root`, override in dark block,
+  consume via `var()`).
+- **Spacing scale migration.** All hardcoded `px` values replaced with
+  `var(--space-N)` references across 20 fine-grained steps from `--space-0`
+  to `--space-10` with half-step increments. Covers border widths, inline-code
+  padding, icon gaps, and every layout value in the template system.
+- **Zero hardcoded values.** No hex, rgba, or pixel values remain outside the
+  `:root` and dark-theme declaration blocks.
+
+### Changed — Base UI Component System
+
+- **`.btn` class** — single button primitive with `--primary`, `--secondary`,
+  `--danger`, and `--ghost` modifiers. Active state includes
+  `transform: scale(0.97)` press feedback.
+- **`.input` class** — unified form control with `--lg` and `--inline`
+  modifiers. Consistent border, focus ring, and disabled styling.
+- **`.card` component** — surface container with `--hover` modifier for
+  lift-on-hover behaviour.
+- **42 CSS component tests** (`test_base_components.py`) verify token usage,
+  modifier combinations, and dark-theme rendering.
+
+### Changed — CSS Transitions
+
+- **Transition tokens** — `--transition-base` (180ms) and six composed
+  presets: colour, opacity, press (colour + border + transform for `:active`),
+  theme (colour + background for dark-mode toggle), lift (shadow + transform
+  for card hover), and fast (150ms for micro-interactions). All durations
+  under 200ms for perceived instant response.
+- **Button transitions** — `.btn`, `.btn-secondary`, `.btn-danger`, and
+  `.btn-ghost` with `:hover`, `:focus-visible`, and `:active` state
+  transitions. `:active` includes `transform: scale(0.97)` for tactile
+  press feedback.
+- **Navigation & interactive elements** — nav links, pagination, tags, badges,
+  and filter panels with colour, background, and opacity transitions on hover
+  and active states. Text links with `opacity: 0.7` on `:active`.
+- **Focus-visible compliance** — all interactive elements have visible focus
+  ring transitions using `--focus-ring-width`, `--focus-ring-color`, and
+  `--focus-ring-offset` design tokens, meeting WCAG 2.4.7.
+- **24 CSS transition tests** verify token application across interactive
+  element selectors.
+
+### Tests
+
+- **66 new CSS tests** across three test files: design token validity (24),
+  base component token usage and dark-theme rendering (28), and CSS
+  transition validity (14).
+
+
 ## 2026-07-19 — Frontend Smoothness Overhaul (Phases 10–15)
 
 A comprehensive frontend smoothness and UX polish initiative, delivered across six
