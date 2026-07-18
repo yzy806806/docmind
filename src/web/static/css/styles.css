@@ -1276,7 +1276,7 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
 .btn-read-full:hover { background: var(--primary-hover); }
 .btn-read-full:active { transform: scale(0.97); }
 
-.btn-view-link { text-decoration: none; color: var(--nav-link); font-size: var(--font-size-sm2); transition: color var(--transition-base); }
+.btn-view-link { text-decoration: none; color: var(--nav-link); font-size: var(--font-size-sm2); transition: color var(--transition-base), opacity var(--transition-fast); }
 .btn-view-link:hover { text-decoration: underline; }
 .btn-view-link:active { opacity: 0.7; }
 
@@ -1617,7 +1617,7 @@ footer { text-align: center; padding: var(--space-6); color: var(--text-faint); 
 /* Analytics page uses 300px for full charts */
 .analytics-page .chart-svg { max-height: 300px; }
 
-.export-link { float: right; font-size: var(--font-size-sm2); }
+.export-link { float: right; font-size: var(--font-size-sm2); transition: color var(--transition-base); }
 
 /* ================================================================
  * 20. Document Viewer Styles (from viewer.html)
