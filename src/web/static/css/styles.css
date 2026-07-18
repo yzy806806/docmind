@@ -110,6 +110,10 @@
     --transition-theme: background var(--transition-base), color var(--transition-base);
     --transition-color: background var(--transition-base), color var(--transition-base), border-color var(--transition-base);
     --transition-opacity: opacity var(--transition-fast);
+    /* Combined transition for interactive elements that change color + scale on press */
+    --transition-press: background var(--transition-base), color var(--transition-base), transform var(--transition-fast);
+    /* Lift transition for cards: shadow + transform together for a tactile hover rise */
+    --transition-lift: box-shadow var(--transition-base), transform var(--transition-base);
 
     /* — Z-index scale — */
     --z-base: 1;
@@ -214,13 +218,14 @@ header nav a {
 }
 
 header nav a:hover { text-decoration: underline; }
+header nav a:active { opacity: 0.7; }
 
 .theme-toggle {
     background: none;
     border: 1px solid var(--nav-link);
     border-radius: var(--radius-lg);
     color: var(--nav-link);
-    padding: var(--space-1) 10px;
+    padding: var(--space-1) var(--space-2-5);
     cursor: pointer;
     font-size: var(--font-size-lg);
     margin-left: var(--space-2);
@@ -228,7 +233,8 @@ header nav a:hover { text-decoration: underline; }
     transition: var(--transition-color);
 }
 
-.theme-toggle:hover { background: rgba(168,218,220,0.15); }
+.theme-toggle:hover { background: var(--nav-link-soft); }
+.theme-toggle:active { transform: scale(0.94); }
 
 .nav-toggle {
     display: none;
@@ -241,6 +247,9 @@ header nav a:hover { text-decoration: underline; }
     transition: var(--transition-opacity);
 }
 
+.nav-toggle:hover { opacity: 0.7; }
+.nav-toggle:active { transform: scale(0.92); }
+
 /* ================================================================
  * 5. Cards & Stats
  * ================================================================ */
@@ -250,6 +259,13 @@ header nav a:hover { text-decoration: underline; }
     padding: var(--space-5);
     margin: var(--space-4) 0;
     box-shadow: var(--shadow);
+
+    transition: var(--transition-lift);
+}
+
+.card:hover {
+    box-shadow: var(--shadow-lg);
+    transform: translateY(-2px);
 }
 
 .stats {
@@ -265,6 +281,13 @@ header nav a:hover { text-decoration: underline; }
     padding: var(--space-5);
     text-align: center;
     box-shadow: var(--shadow);
+
+    transition: var(--transition-lift);
+}
+
+.stat:hover {
+    box-shadow: var(--shadow-lg);
+    transform: translateY(-2px);
 }
 
 .stat-value { font-size: 2em; font-weight: bold; color: var(--primary); }
@@ -280,7 +303,7 @@ table {
 }
 
 th, td {
-    padding: 10px 12px;
+    padding: var(--space-2-5) var(--space-3);
     text-align: left;
     border-bottom: 1px solid var(--border);
 }
@@ -323,7 +346,7 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
     border-radius: var(--radius-lg);
     cursor: pointer;
     font-size: var(--font-size-base);
-    transition: background var(--transition-base);
+    transition: var(--transition-press);
 }
 
 .search-box button:hover { background: var(--primary-hover); }
@@ -338,10 +361,10 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
     background: var(--surface);
     border-radius: var(--radius-xl);
     box-shadow: var(--shadow-sm);
-    transition: box-shadow var(--transition-base);
+    transition: var(--transition-lift);
 }
 
-.result:hover { box-shadow: var(--shadow); }
+.result:hover { box-shadow: var(--shadow); transform: translateY(-1px); }
 
 .result h3 { color: var(--primary); }
 .result h3 a { color: inherit; text-decoration: none; transition: color var(--transition-base); }
@@ -374,6 +397,7 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
 }
 
 .search-export-bar .btn-export:hover { background: var(--hover-bg); }
+.btn-export:active { transform: scale(0.96); }
 
 /* Vector weight slider control — Phase 7 search relevance tuning */
 .vector-weight-control {
@@ -471,6 +495,7 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
 }
 
 .tag-pill:hover { background: var(--primary); color: var(--header-text); }
+.tag-pill:active { transform: scale(0.94); }
 
 .tag-pill .tag-remove {
     margin-left: var(--space-1);
@@ -510,6 +535,7 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
 }
 
 .tag-cloud-item:hover { background: var(--primary); color: var(--header-text); }
+.tag-cloud-item:active { transform: scale(0.94); }
 .tag-cloud-item .tag-count { font-size: var(--font-size-sm); opacity: 0.7; }
 .tag-cloud-item.active { background: var(--primary); color: var(--header-text); font-weight: 600; }
 
@@ -544,10 +570,11 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
     font-size: var(--font-size-sm);
     font-weight: 600;
     white-space: nowrap;
-    transition: background var(--transition-base);
+    transition: var(--transition-press);
 }
 
 .btn-new-collection:hover { background: var(--primary-hover); }
+.btn-new-collection:active { transform: scale(0.96); }
 
 .collection-tree-list { list-style: none; padding: 0; margin: 0; }
 .collection-tree-children { list-style: none; padding: 0; margin: 0; }
@@ -566,12 +593,14 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
 }
 
 .collection-tree-item:hover { background: var(--primary); color: var(--header-text); }
+.collection-tree-item:active { transform: scale(0.98); }
 .collection-tree-item .collection-count { font-size: var(--font-size-sm); opacity: 0.7; }
 .collection-tree-item.active { background: var(--primary); color: var(--header-text); font-weight: 600; }
 
 .collection-tree-actions { display: inline-flex; gap: var(--space-1); margin-left: var(--space-1); }
 .collection-action-link { text-decoration: none; font-size: var(--font-size-sm2); padding: 0 var(--space-1); opacity: 0.6; transition: opacity var(--transition-base); }
 .collection-action-link:hover { opacity: 1; }
+.collection-action-link:active { transform: scale(0.92); }
 
 /* Collection breadcrumb */
 .collection-breadcrumb {
@@ -596,6 +625,7 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
 }
 
 .collection-breadcrumb-link:hover { background: var(--hover-bg); text-decoration: underline; }
+.collection-breadcrumb-link:active { opacity: 0.7; }
 .collection-breadcrumb-sep { color: var(--text-faint); margin: 0 2px; }
 .collection-breadcrumb-current { color: var(--text); font-weight: 600; padding: 2px var(--space-1); }
 
@@ -626,10 +656,11 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
     background: var(--primary);
     color: var(--header-text);
     cursor: pointer;
-    transition: background var(--transition-base);
+    transition: var(--transition-press);
 }
 
 .tag-input-row button:hover { background: var(--primary-hover); }
+.tag-input-row button:active { transform: scale(0.97); }
 
 .doc-tags { margin: var(--space-3) 0; }
 .doc-tags .field-label { font-weight: 600; color: var(--text-muted); margin-right: var(--space-2); }
@@ -661,6 +692,13 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
     border-radius: var(--radius-xl);
     padding: var(--space-6);
     box-shadow: var(--shadow);
+
+    transition: var(--transition-lift);
+}
+
+.upload-form:hover {
+    box-shadow: var(--shadow-lg);
+    transform: translateY(-2px);
 }
 
 .upload-form input[type="file"] { margin: 12px 0; }
@@ -672,10 +710,11 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
     border: none;
     border-radius: var(--radius-lg);
     cursor: pointer;
-    transition: background var(--transition-base);
+    transition: var(--transition-press);
 }
 
 .upload-form button:hover { background: var(--primary-hover); }
+.upload-form button:active { transform: scale(0.97); }
 
 /* Upload drop zone (from upload_form.html) */
 .drop-zone {
@@ -771,6 +810,7 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
 }
 
 .file-remove:hover { color: var(--error-text); }
+.file-remove:active { transform: scale(0.88); }
 
 .upload-actions { display: flex; gap: var(--space-2); }
 
@@ -801,10 +841,11 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
     border-radius: var(--radius-lg);
     cursor: pointer;
     font-size: var(--font-size-base);
-    transition: background var(--transition-base);
+    transition: var(--transition-press);
 }
 
 .btn-delete:hover { background: var(--error-bg); }
+.btn-delete:active { transform: scale(0.97); }
 
 .btn-read-full {
     display: inline-block;
@@ -814,13 +855,15 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
     border-radius: var(--radius-lg);
     text-decoration: none;
     font-size: 0.95em;
-    transition: background var(--transition-base);
+    transition: var(--transition-press);
 }
 
 .btn-read-full:hover { background: var(--primary-hover); }
+.btn-read-full:active { transform: scale(0.97); }
 
 .btn-view-link { text-decoration: none; color: var(--nav-link); font-size: var(--font-size-sm2); transition: color var(--transition-base); }
 .btn-view-link:hover { text-decoration: underline; }
+.btn-view-link:active { opacity: 0.7; }
 
 .doc-excerpt { max-height: 240px; overflow-y: auto; }
 
@@ -850,6 +893,7 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
 }
 
 .pagination a:hover { background: var(--hover-bg); }
+.pagination a:active { transform: scale(0.96); }
 .pagination .current { background: var(--primary); color: var(--header-text); border-color: var(--primary); }
 .pagination .disabled { color: var(--text-faint); opacity: 0.5; cursor: default; }
 .pagination-info { text-align: center; color: var(--text-muted); font-size: var(--font-size-sm2); margin-bottom: var(--space-2); }
@@ -910,10 +954,11 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
     border: none;
     border-radius: var(--radius-lg);
     cursor: pointer;
-    transition: background var(--transition-base);
+    transition: var(--transition-press);
 }
 
 .chat-input-row button:hover { background: var(--primary-hover); }
+.chat-input-row button:active { transform: scale(0.97); }
 .chat-input-row button:disabled { opacity: 0.5; cursor: default; }
 .chat-status { font-size: var(--font-size-sm2); color: var(--text-faint); }
 
@@ -958,10 +1003,11 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
     padding: var(--space-1) 10px;
     cursor: pointer;
     font-size: var(--font-size-sm2);
-    transition: background var(--transition-base);
+    transition: var(--transition-press);
 }
 
 .btn-new-chat:hover { background: var(--primary-hover); }
+.btn-new-chat:active { transform: scale(0.96); }
 
 .chat-session-list { display: flex; flex-direction: column; gap: var(--space-1); }
 
@@ -975,6 +1021,7 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
 }
 
 .chat-session-item:hover { background: var(--hover-bg); }
+.chat-session-item:active { transform: scale(0.98); }
 .chat-session-item.active { background: var(--hover-bg); border-color: var(--primary); }
 
 .chat-session-title {
@@ -1053,12 +1100,14 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
     border-radius: var(--radius-lg);
     cursor: pointer;
     font-size: var(--font-size-base);
-    transition: background var(--transition-base);
+    transition: var(--transition-press);
 }
 
 .btn-save:hover { background: var(--primary-hover); }
+.btn-save:active { transform: scale(0.97); }
 .btn-cancel { color: var(--text-muted); text-decoration: none; transition: color var(--transition-base); }
 .btn-cancel:hover { text-decoration: underline; }
+.btn-cancel:active { opacity: 0.7; }
 
 /* ================================================================
  * 18. Footer
@@ -1127,6 +1176,7 @@ footer { text-align: center; padding: var(--space-6); color: var(--text-faint); 
 }
 
 .date-range-selector a:hover { background: var(--hover-bg); }
+.date-range-selector a:active { transform: scale(0.96); }
 
 .date-range-selector a.active {
     background: var(--primary);
@@ -1173,6 +1223,7 @@ footer { text-align: center; padding: var(--space-6); color: var(--text-faint); 
 }
 
 .toc-list a:hover { background: var(--hover-bg); color: var(--text); }
+.toc-list a:active { transform: scale(0.97); }
 .toc-list a.active { background: var(--primary); color: var(--header-text); font-weight: 600; }
 
 .viewer-toolbar {
@@ -1222,6 +1273,7 @@ footer { text-align: center; padding: var(--space-6); color: var(--text-faint); 
 }
 
 .search-nav-btns button:hover { background: var(--hover-bg); }
+.search-nav-btns button:active:not(:disabled) { transform: scale(0.94); }
 .search-nav-btns button:disabled { opacity: 0.4; cursor: default; }
 .match-count { font-size: var(--font-size-sm); color: var(--text-faint); min-width: 60px; }
 
@@ -1316,6 +1368,7 @@ footer { text-align: center; padding: var(--space-6); color: var(--text-faint); 
 }
 
 .viewer-pagination .vp-btn:hover:not(.disabled) { background: var(--hover-bg); }
+.viewer-pagination .vp-btn:active:not(.disabled) { transform: scale(0.96); }
 .viewer-pagination .vp-btn.disabled { color: var(--text-faint); opacity: 0.5; cursor: default; }
 
 .viewer-pagination .page-jump {
@@ -1355,6 +1408,7 @@ footer { text-align: center; padding: var(--space-6); color: var(--text-faint); 
 }
 
 .btn-viewer-back:hover { text-decoration: underline; }
+.btn-viewer-back:active { opacity: 0.7; }
 
 /* ================================================================
  * 21. Faceted Filter Panel (Task 8.4 — mobile-friendly)
@@ -1367,7 +1421,11 @@ footer { text-align: center; padding: var(--space-6); color: var(--text-faint); 
     cursor: pointer;
     font-weight: 600;
     padding: var(--space-2) 0;
+    transition: color var(--transition-base);
 }
+
+.filter-panel summary:hover { color: var(--nav-link); }
+.filter-panel summary:active { opacity: 0.7; }
 
 #facet-filter-form {
     margin: var(--space-2) 0;
@@ -1404,6 +1462,7 @@ footer { text-align: center; padding: var(--space-6); color: var(--text-faint); 
 }
 
 .date-preset-btn:hover { background: var(--hover-bg); }
+.date-preset-btn:active { transform: scale(0.95); }
 
 /* ================================================================
  * 22. Bulk Actions Bar
@@ -1505,6 +1564,13 @@ td input[type="checkbox"]:checked::after {
     width: 100%;
     max-width: 380px;
     margin: var(--space-5);
+
+    transition: var(--transition-lift);
+}
+
+.login-card:hover {
+    box-shadow: var(--shadow-lg);
+    transform: translateY(-2px);
 }
 
 .login-card h1 {
@@ -1558,7 +1624,7 @@ td input[type="checkbox"]:checked::after {
     cursor: pointer;
     font-size: var(--font-size-base);
     font-weight: 600;
-    transition: background var(--transition-base);
+    transition: var(--transition-press);
 }
 
 .btn-login:hover { background: var(--primary-hover); }
@@ -1796,6 +1862,7 @@ td input[type="checkbox"]:checked::after {
 .kbd-modal-close:hover {
     background: var(--surface-alt);
 }
+.kbd-modal-close:active { transform: scale(0.92); }
 
 .kbd-modal-body {
     padding: var(--space-4) var(--space-5);
