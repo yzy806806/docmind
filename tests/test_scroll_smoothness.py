@@ -231,10 +231,12 @@ class TestMomentumScrolling:
     ) -> None:
         css = _read_css()
         rule = _extract_rule(css, selector)
-        prop = "overscroll-behavior" if axis == "y" else "overscroll-behavior-x"
-        assert _has_token(rule, prop.replace("overscroll-behavior", "overscroll-behavior")), (
-            f"{selector} must reference var(--overscroll-behavior) via "
-            f"{prop} to prevent scroll chaining to the body"
+        # The property name differs by axis (overscroll-behavior vs
+        # overscroll-behavior-x), but both reference the same token:
+        # var(--overscroll-behavior).
+        assert _has_token(rule, "overscroll-behavior"), (
+            f"{selector} must reference var(--overscroll-behavior) to "
+            f"prevent scroll chaining to the body"
         )
 
     @pytest.mark.parametrize(

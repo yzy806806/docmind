@@ -229,15 +229,6 @@
     /* Lift transition for cards: shadow + transform together for a tactile hover rise */
     --transition-lift: box-shadow var(--transition-base), transform var(--transition-base);
 
-    /* — Focus ring — keyboard navigation visibility (WCAG 2.4.7) */
-    --focus-ring-width: 2px;
-    --focus-ring-color: var(--nav-link);
-    --focus-ring-offset: 2px;
-
-    /* — Disabled state — */
-    --opacity-disabled: 0.5;
-    --cursor-disabled: not-allowed;
-
     /* — Border widths — */
     --border-w-1: 1px;        /* subtle separators, card outlines */
     --border-w-2: 2px;        /* form inputs, emphasis borders */
@@ -987,7 +978,7 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
 .collection-tree-item.active { background: var(--primary); color: var(--header-text); font-weight: 600; }
 
 .collection-tree-actions { display: inline-flex; gap: var(--space-1); margin-left: var(--space-1); }
-.collection-action-link { text-decoration: none; font-size: var(--font-size-sm2); padding: 0 var(--space-1); opacity: 0.6; transition: opacity var(--transition-base); }
+.collection-action-link { text-decoration: none; font-size: var(--font-size-sm2); padding: 0 var(--space-1); opacity: 0.6; transition: opacity var(--transition-base), transform var(--transition-fast); }
 .collection-action-link:hover { opacity: 1; }
 .collection-action-link:active { transform: scale(0.92); }
 
