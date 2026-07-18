@@ -4,8 +4,15 @@
     <div class="card">
         <h2>搜索文档</h2>
         {% if error %}<div class="error">{{ error }}</div>{% endif %}
-        <form action="/search" method="get" class="search-box">
-            <input type="text" name="q" placeholder="按关键词或自然语言搜索…" required autofocus>
+        <form action="/search" method="get" class="search-box"
+              hx-get="/search"
+              hx-target="#search-live-region"
+              hx-swap="innerHTML"
+              hx-trigger="keyup delay:250ms from:find input[name='q'], submit"
+              hx-push-url="false"
+              hx-indicator="#search-loading">
+            <input type="text" name="q" placeholder="按关键词或自然语言搜索…" required autofocus
+                   autocomplete="off">
             <button type="submit" name="submit_search" value="1">搜索</button>
             <div class="vector-weight-control">
                 <label for="vw-slider">
@@ -25,4 +32,5 @@
     <div id="search-loading" class="htmx-indicator search-live-loading" aria-live="polite" role="status">
         <span class="spinner"></span> 正在搜索…
     </div>
+    <div id="search-live-region" aria-live="polite" aria-busy="false"></div>
 {% endblock %}
