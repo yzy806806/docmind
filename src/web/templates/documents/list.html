@@ -14,7 +14,8 @@
         <div id="doc-table-region">
         <div class="pagination-info">显示第 {{ start }}–{{ end }} 条，共 {{ total }} 条</div>
         {% if documents %}
-        <form id="bulk-delete-form" action="/documents/bulk-delete" method="post" onsubmit="return confirmBulkDelete();">
+        <form id="bulk-delete-form" action="/documents/bulk-delete" method="post" onsubmit="return confirmBulkDelete();"
+              data-optimistic-action="bulk-delete">
         <div class="table-scroll">
         <table><tr><th><input type="checkbox" id="select-all" title="全选" onclick="toggleSelectAll(this);"></th><th>文档</th><th>状态</th><th>来源</th><th>类型</th><th>日期</th>{{ tags_col_header }}<th>操作</th></tr>
         <tbody id="doc-tbody">
@@ -54,12 +55,14 @@
             <span class="bulk-actions-label">批量操作：</span>
             <span id="selected-count-label" style="font-size:0.85em;">已选：<span id="selected-count">0</span></span>
             <button type="submit" form="bulk-delete-form" id="delete-selected-btn" class="btn btn-danger btn-sm" disabled style="padding:4px 12px;font-size:0.85em;cursor:not-allowed;opacity:0.5;">🗑 删除所选</button>
-            <form id="bulk-tag-form" action="/documents/bulk-tag" method="post" style="display:flex;gap:4px;align-items:center;">
+            <form id="bulk-tag-form" action="/documents/bulk-tag" method="post" style="display:flex;gap:4px;align-items:center;"
+                  data-optimistic-action="bulk-tag">
                 <input type="hidden" name="doc_ids" id="bulk-tag-doc-ids">
                 <input type="text" name="tag" placeholder="标签名称" style="padding:4px;width:120px;font-size:0.85em;" id="bulk-tag-input">
                 <button type="submit" id="tag-selected-btn" class="btn btn-secondary btn-sm" disabled style="padding:4px 12px;font-size:0.85em;cursor:not-allowed;opacity:0.5;">🏷 标记所选</button>
             </form>
-            <form id="bulk-move-form" action="/documents/bulk-move-collection" method="post" style="display:flex;gap:4px;align-items:center;">
+            <form id="bulk-move-form" action="/documents/bulk-move-collection" method="post" style="display:flex;gap:4px;align-items:center;"
+                  data-optimistic-action="bulk-move">
                 <input type="hidden" name="doc_ids" id="bulk-move-doc-ids">
                 <select name="collection_id" id="bulk-move-select" style="padding:4px;font-size:0.85em;" disabled>
                     <option value="">-- 合集 --</option>

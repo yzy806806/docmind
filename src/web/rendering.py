@@ -1073,7 +1073,7 @@ def _render_document_detail(
                 f'<span class="tag-pill">{_escape(t)}'
                 f'<form action="/documents/{doc.get("id", "?")}/tags/{_escape(t)}/delete" '
                 f'method="post" style="display:inline;">'
-                f'<button type="submit" class="tag-remove" title="Remove tag">✕</button>'
+                f'<button type="submit" class="tag-remove" title="Remove tag" data-optimistic-action="tag-remove">✕</button>'
                 f'</form></span>'
             )
         tag_badges_html += "</div>"

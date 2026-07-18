@@ -35,7 +35,8 @@
                 {% endif %}
             </div>
             <form action="/documents/{{ doc.id or '?' }}/assign-collection" method="post"
-                  class="collection-assign-row">
+                  class="collection-assign-row"
+                  data-optimistic-action="collection-assign">
                 <select name="collection_id">
                     <option value="">— 未分配 —</option>
                     {% for col in all_collections %}
@@ -52,7 +53,8 @@
         <div class="doc-tags-section">
             <div class="field"><span class="field-label">标签：</span>
                 {% if tag_badges_html %}{{ tag_badges_html }}{% else %}<em>暂无标签 — <a href="#" onclick="document.querySelector('.tag-input-row input').focus();return false;">添加标签</a></em>{% endif %}</div>
-            <form action="/documents/{{ doc.id or '?' }}/tags" method="post" class="tag-input-row">
+            <form action="/documents/{{ doc.id or '?' }}/tags" method="post" class="tag-input-row"
+                  data-optimistic-action="single-tag-add">
                 <input type="text" name="tag" placeholder="添加标签…" required maxlength="50">
                 <button type="submit">添加标签</button>
             </form>
@@ -90,7 +92,8 @@
 
         <div class="doc-actions">
             <form action="/documents/{{ doc.id or '?' }}/delete" method="post"
-                  onsubmit="return confirm('确认删除文档 {{ doc.id or '?' }}？此操作不可撤销。');">
+                  onsubmit="return confirm('确认删除文档 {{ doc.id or '?' }}？此操作不可撤销。');"
+                  data-optimistic-action="single-delete">
                 <button type="submit" class="btn btn-danger">🗑 删除文档</button>
             </form>
         </div>
