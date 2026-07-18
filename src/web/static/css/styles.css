@@ -305,6 +305,13 @@
        iOS and the page-scroll-chaining scroll-to-top glitch on
        infinite-list views). */
     --overscroll-behavior: contain;
+
+    /* — Focus ring & disabled states — */
+    --focus-ring-width: 2px;
+    --focus-ring-color: var(--nav-link);
+    --focus-ring-offset: 2px;
+    --opacity-disabled: 0.5;
+    --cursor-disabled: not-allowed;
 }
 
 /* ================================================================
