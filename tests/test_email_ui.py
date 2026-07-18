@@ -188,7 +188,7 @@ async def test_email_accounts_list_page_empty(asgi_client, tmp_db_path):
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
         resp = await c.get("/email-accounts")
         assert resp.status_code == 200
-        assert "No email accounts configured" in resp.text
+        assert "暂无邮件账户" in resp.text
 
     await db.disconnect()
     server._db = original_db
@@ -351,7 +351,7 @@ async def test_email_account_logs_page_status_filter(asgi_client):
     # Filter by a non-matching status
     resp2 = await asgi_client.get("/email-accounts/1/logs?status=failed")
     assert resp2.status_code == 200
-    assert "No ingestion logs found" in resp2.text
+    assert "暂无接收日志" in resp2.text
 
 
 # ── Search Integration ──────────────────────────────────────────

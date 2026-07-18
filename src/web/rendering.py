@@ -1146,9 +1146,9 @@ def _render_pagination(
 
     # Prev button
     if page > 1:
-        parts.append(f'<a href="{base}&page={page - 1}">← Prev</a>')
+        parts.append(f'<a href="{base}&page={page - 1}">← 上一页</a>')
     else:
-        parts.append('<span class="disabled">← Prev</span>')
+        parts.append('<span class="disabled">← 上一页</span>')
 
     # Page numbers (show up to 7 pages with ellipsis)
     max_show = 7
@@ -1178,9 +1178,9 @@ def _render_pagination(
 
     # Next button
     if page < total_pages:
-        parts.append(f'<a href="{base}&page={page + 1}">Next →</a>')
+        parts.append(f'<a href="{base}&page={page + 1}">下一页 →</a>')
     else:
-        parts.append('<span class="disabled">Next →</span>')
+        parts.append('<span class="disabled">下一页 →</span>')
 
     parts.append("</div>")
     return "\n".join(parts)
