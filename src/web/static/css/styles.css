@@ -300,13 +300,6 @@
        iOS and the page-scroll-chaining scroll-to-top glitch on
        infinite-list views). */
     --overscroll-behavior: contain;
-
-    /* — Focus ring & disabled states — */
-    --focus-ring-width: 2px;
-    --focus-ring-color: var(--nav-link);
-    --focus-ring-offset: 2px;
-    --opacity-disabled: 0.5;
-    --cursor-disabled: not-allowed;
 }
 
 /* ================================================================
@@ -370,6 +363,12 @@
  * 3. Global Reset & Base
  * ================================================================ */
 * { box-sizing: border-box; margin: 0; padding: 0; }
+
+html {
+    scroll-behavior: var(--scroll-behavior);
+    scroll-padding-top: var(--scroll-padding-top);
+    overscroll-behavior-y: none;
+}
 
 body {
     font-family: var(--font-family);
@@ -486,7 +485,7 @@ header nav a:active { opacity: 0.7; transform: scale(0.97); }
     font-size: var(--font-size-xl);
     cursor: pointer;
     padding: var(--space-1) var(--space-2);
-    transition: var(--transition-opacity);
+    transition: opacity var(--transition-fast), transform var(--transition-fast);
 }
 
 .nav-toggle:hover { opacity: 0.7; }
@@ -498,6 +497,7 @@ header nav a:active { opacity: 0.7; transform: scale(0.97); }
  *
  * Reusable component classes built entirely from design tokens.
  * Templates use .btn + .btn-primary / .btn-secondary / .btn-danger
+
  * / .btn-ghost instead of duplicating per-page button styles.
  * .input provides the same for text inputs, selects, and textareas.
  * ================================================================ */
@@ -690,6 +690,8 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
 .table-scroll {
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: var(--overscroll-behavior);
+    scroll-behavior: var(--scroll-behavior);
 }
 
 /* ================================================================
@@ -998,6 +1000,7 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
     margin: var(--space-3) 0;
     display: flex;
     align-items: center;
+
     flex-wrap: wrap;
     gap: var(--space-1);
     font-size: var(--font-size-md);
@@ -1254,7 +1257,13 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
 .btn-view-link:hover { text-decoration: underline; }
 .btn-view-link:active { opacity: 0.7; }
 
-.doc-excerpt { max-height: 240px; overflow-y: auto; }
+.doc-excerpt {
+    max-height: 240px;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: var(--overscroll-behavior);
+    scroll-behavior: var(--scroll-behavior);
+}
 
 /* ================================================================
  * 15. Pagination (with touch-friendly sizing — Task 8.7)
@@ -1296,6 +1305,9 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
     min-height: 300px;
     max-height: 500px;
     overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: var(--overscroll-behavior);
+    scroll-behavior: var(--scroll-behavior);
     border: var(--border-w-1) solid var(--border);
     border-radius: var(--radius-lg);
     padding: var(--space-3);
@@ -1373,6 +1385,9 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
     padding: var(--space-3);
     max-height: 600px;
     overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: var(--overscroll-behavior);
+    scroll-behavior: var(--scroll-behavior);
 }
 
 .chat-sidebar-header {
@@ -1499,6 +1514,7 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
 .btn-cancel:hover { text-decoration: underline; }
 .btn-cancel:active { opacity: 0.7; }
 
+
 /* ================================================================
  * 18. Footer
  * ================================================================ */
@@ -1597,6 +1613,9 @@ footer { text-align: center; padding: var(--space-6); color: var(--text-faint); 
     top: var(--space-3);
     max-height: calc(100vh - 140px);
     overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: var(--overscroll-behavior);
+    scroll-behavior: var(--scroll-behavior);
 }
 
 .doc-toc h3 { margin-top: 0; color: var(--primary); font-size: var(--font-size-base); }
@@ -1688,6 +1707,9 @@ footer { text-align: center; padding: var(--space-6); color: var(--text-faint); 
     padding: var(--space-3-5);
     border-radius: var(--radius-lg);
     overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: var(--overscroll-behavior);
+    scroll-behavior: var(--scroll-behavior);
     font-size: var(--font-size-md);
 }
 
@@ -1999,6 +2021,7 @@ td input[type="checkbox"]:checked::after {
     transition: border-color var(--transition-base);
 }
 
+
 .login-field input[type="password"]:focus {
     outline: none;
     border-color: var(--nav-link);
@@ -2234,6 +2257,9 @@ td input[type="checkbox"]:checked::after {
     width: 90%;
     max-height: 80vh;
     overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: var(--overscroll-behavior);
+    scroll-behavior: var(--scroll-behavior);
     box-shadow: var(--shadow-lg);
     /* Bidirectional scale+fade transition (replaces one-shot animation) */
     transform: scale(0.95);
@@ -2498,6 +2524,7 @@ kbd {
 /* Skeleton row in a table — full-width shimmering placeholder */
 .skeleton-row td {
     padding: var(--space-2) var(--space-2);
+
 }
 
 /* Skeleton block for lazy-loaded content areas (e.g. document excerpt) */
