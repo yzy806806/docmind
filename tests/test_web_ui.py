@@ -225,8 +225,8 @@ class TestPaginationRendering:
 
         result = _render_pagination(2, 20, 60, 3, "")
         assert "pagination" in result
-        assert "Prev" in result
-        assert "Next" in result
+        assert "上一页" in result
+        assert "下一页" in result
 
     def test_pagination_current_page_marked(self):
         """Current page should be marked with 'current' class."""
@@ -242,7 +242,7 @@ class TestPaginationRendering:
         result = _render_pagination(1, 20, 60, 3, "")
         assert "disabled" in result
         # Next should still work
-        assert "Next" in result
+        assert "下一页" in result
         assert "page=2" in result
 
     def test_pagination_last_page_no_next_link(self):
@@ -251,7 +251,7 @@ class TestPaginationRendering:
 
         result = _render_pagination(3, 20, 60, 3, "")
         assert "disabled" in result
-        assert "Prev" in result
+        assert "上一页" in result
         assert "page=2" in result
 
     def test_pagination_many_pages_has_ellipsis(self):
@@ -266,7 +266,7 @@ class TestPaginationRendering:
         from src.web.server import _render_documents_list
 
         html = _render_documents_list([], "", 1, 20, 0, 0)
-        assert "document(s)" in html
+        assert "条" in html
 
     def test_documents_list_shows_range(self):
         """Documents list should show the item range."""
@@ -280,7 +280,7 @@ class TestPaginationRendering:
             25,
             2,
         )
-        assert "Showing" in html
+        assert "显示" in html
         assert "25" in html
 
 
@@ -320,7 +320,7 @@ class TestDeleteFormHandler:
         """POST form delete should return success HTML page."""
         resp = await asgi_client.post("/documents/2/delete")
         assert resp.status_code == 200
-        assert "Deleted" in resp.text or "deleted" in resp.text
+        assert "文档已删除" in resp.text
 
     @pytest.mark.asyncio
     async def test_delete_form_nonexistent(self, asgi_client):
@@ -346,7 +346,7 @@ class TestDocumentDetailDeleteButton:
         doc = {"id": 42, "title": "Test Doc", "status": "indexed", "body": "content"}
         html = _render_document_detail(doc)
         assert "btn btn-danger" in html
-        assert "Delete" in html
+        assert "删除" in html
 
     def test_detail_page_has_confirm_dialog(self):
         """Delete form should have JavaScript confirm() dialog."""
@@ -417,7 +417,7 @@ class TestPaginationRoute:
         """GET /documents should default to page 1, 20 per page."""
         resp = await asgi_client.get("/documents")
         assert resp.status_code == 200
-        assert "Showing" in resp.text
+        assert "显示" in resp.text
         assert "20" in resp.text  # per_page=20
 
     @pytest.mark.asyncio
@@ -570,7 +570,7 @@ class TestBulkDeleteFormHandler:
             data={"doc_ids": ["6", "7", "8"]},
         )
         assert resp.status_code == 200
-        assert "Bulk Delete" in resp.text or "Deleted" in resp.text
+        assert "批量删除" in resp.text or "已删除" in resp.text
         assert "6" in resp.text
         assert "7" in resp.text
         assert "8" in resp.text
@@ -654,8 +654,8 @@ class TestBulkDeleteListUI:
                  "ext": ".txt", "created_at": "2025-01-01"}]
         html = _render_documents_list(docs, "", 1, 20, 1, 1,
                                        tags_map={1: []})
-        assert "delete-selected-btn" in html
-        assert "Delete Selected" in html
+        assert "删除所选" in html
+        assert "删除所选" in html
 
     def test_list_template_has_confirmation_js(self):
         """Documents list should have JavaScript confirmation for bulk delete.
