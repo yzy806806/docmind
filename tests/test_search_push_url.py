@@ -316,7 +316,7 @@ class TestSearchFormSubmitButton:
         """search_form.html submit button has name='submit_search'."""
         html = _read("src/web/templates/search_form.html")
         button_match = re.search(
-            r'<button[^>]*type="submit"[^>]*>Search</button>', html
+            r'<button[^>]*type="submit"[^>]*>[^<]*</button>', html
         )
         assert button_match, "Submit button not found in search_form.html"
         button_tag = button_match.group(0)
@@ -328,7 +328,7 @@ class TestSearchFormSubmitButton:
         """search_results.html submit button has name='submit_search'."""
         html = _read("src/web/templates/search_results.html")
         button_match = re.search(
-            r'<button[^>]*type="submit"[^>]*>Search</button>', html
+            r'<button[^>]*type="submit"[^>]*>[^<]*</button>', html
         )
         assert button_match, "Submit button not found in search_results.html"
         button_tag = button_match.group(0)
