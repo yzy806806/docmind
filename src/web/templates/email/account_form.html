@@ -111,13 +111,13 @@
             </div>
 
             <div class="settings-actions">
-                <button type="submit" class="btn-save">
+                <button type="submit" class="btn btn-primary">
                     {{ 'Update Account' if mode == 'edit' else 'Create Account' }}
                 </button>
                 {% if mode == 'edit' %}
-                <a href="/email-accounts/{{ account.id }}/test" class="btn-view-link" style="padding:6px 12px;text-decoration:none;border:1px solid var(--border);border-radius:4px;">🔌 Test Connection</a>
+                <a href="/email-accounts/{{ account.id }}/test" class="btn btn-secondary btn-sm">🔌 Test Connection</a>
                 {% endif %}
-                <a href="/email-accounts" class="btn-cancel">Cancel</a>
+                <a href="/email-accounts" class="btn btn-ghost">Cancel</a>
             </div>
         </form>
     </div>

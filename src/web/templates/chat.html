@@ -15,8 +15,7 @@
             <div class="chat-header-row" style="display:flex;justify-content:space-between;align-items:center;">
                 <h2 id="chat-title">Chat with Your Documents</h2>
                 <div class="chat-export-dropdown" style="position:relative;display:inline-block;">
-                    <button id="chat-export-btn" onclick="toggleExportMenu()" class="btn-export"
-                            style="padding:6px 14px;font-size:0.85em;cursor:pointer;border:1px solid var(--border);border-radius:6px;background:var(--surface);"
+                    <button id="chat-export-btn" onclick="toggleExportMenu()" class="btn btn-secondary btn-sm"
                             title="Export conversation">⬇ Export</button>
                     <div id="chat-export-menu" style="display:none;position:absolute;right:0;top:100%;
                          background:var(--surface);border:1px solid var(--border);border-radius:6px;
@@ -42,7 +41,7 @@
                     <div class="chat-msg bot">Connecting...</div>
                 </div>
                 <div class="chat-input-row">
-                    <input type="text" id="chat-input" placeholder="Ask a question..."
+                    <input type="text" id="chat-input" class="input" placeholder="Ask a question..."
                            onkeydown="if(event.key==='Enter')sendChat()" autofocus>
                     <button id="chat-send-btn" onclick="sendChat()">Send</button>
                 </div>

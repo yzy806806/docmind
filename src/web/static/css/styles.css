@@ -277,6 +277,21 @@
     --progress-bar-z: 9999;
     --progress-bar-duration-active: 1.2s;
     --progress-bar-duration-complete: 0.4s;
+
+    /* — Scroll behavior — */
+    /* smooth: native CSS smooth scrolling for anchor jumps and
+       scrollIntoView calls. The prefers-reduced-motion media query
+       below overrides this to auto for users who request less motion. */
+    --scroll-behavior: smooth;
+    /* Offset for anchor navigation so targets aren't hidden under the
+       sticky header. Matches header padding (16px) + h1 line (≈32px) +
+       nav row (≈28px) + a small visual gap (8px) ≈ 84px. */
+    --scroll-padding-top: 84px;
+    /* Contain overscroll within scrollable regions so list/card scrolls
+       don't propagate to the body (prevents accidental page bounce on
+       iOS and the page-scroll-chaining scroll-to-top glitch on
+       infinite-list views). */
+    --overscroll-behavior: contain;
 }
 
 /* ================================================================
@@ -372,6 +387,7 @@ body {
 input:focus-visible,
 select:focus-visible,
 textarea:focus-visible,
+.input:focus-visible,
 .search-box input:focus-visible,
 .tag-input-row input:focus-visible,
 .chat-input-row input:focus-visible,
@@ -535,6 +551,36 @@ header nav a:active { opacity: 0.7; transform: scale(0.97); }
     background: var(--surface-alt);
     color: var(--text);
 }
+
+/* — Button modifiers —
+ * .btn-sm    Compact padding for inline/table actions
+ * .btn-block Full-width block button (login, standalone CTAs)
+ * .btn-link  Link-styled button: no border/bg, underline on hover */
+.btn-sm {
+    padding: var(--space-1) var(--space-3);
+    font-size: var(--font-size-sm2);
+    border-radius: var(--radius-md);
+}
+
+.btn-block {
+    display: block;
+    width: 100%;
+}
+
+.btn-link {
+    background: none;
+    border: none;
+    color: var(--nav-link);
+    text-decoration: none;
+    font-size: var(--font-size-sm2);
+    padding: 0;
+    cursor: pointer;
+    transition: color var(--transition-base);
+}
+
+.btn-link:hover { text-decoration: underline; }
+.btn-link:active { opacity: 0.7; }
+
 
 /* — Input base — */
 .input {
@@ -940,7 +986,7 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
     text-decoration: none;
     padding: var(--space-0-5) var(--space-1);
     border-radius: var(--radius-md);
-    transition: var(--transition-color);
+    transition: var(--transition-press), opacity var(--transition-fast);
 }
 
 .collection-breadcrumb-link:hover { background: var(--hover-bg); text-decoration: underline; }
@@ -1084,6 +1130,7 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
 .file-item.file-failed {
     border-color: var(--error-text);
     background: var(--error-tint);
+    transition: border-color var(--transition-base), background var(--transition-base);
 }
 
 .file-info {
@@ -1208,7 +1255,7 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
     min-height: 36px;
     display: inline-flex;
     align-items: center;
-    transition: var(--transition-color);
+    transition: var(--transition-press);
 }
 
 .pagination a:hover { background: var(--hover-bg); }
@@ -1560,7 +1607,7 @@ footer { text-align: center; padding: var(--space-6); color: var(--text-faint); 
 
 .viewer-toolbar .tool-group { display: flex; align-items: center; gap: var(--space-1); }
 .viewer-toolbar label { font-size: var(--font-size-sm2); color: var(--text-muted); }
-.viewer-toolbar input[type="range"] { width: 100px; }
+.viewer-toolbar input[type="range"] { width: 100px; transition: var(--transition-color); }
 .viewer-toolbar .search-in-doc { display: flex; align-items: center; gap: var(--space-1); margin-left: auto; }
 
 .viewer-toolbar input[type="search"] {
@@ -1825,6 +1872,7 @@ footer { text-align: center; padding: var(--space-6); color: var(--text-faint); 
     width: var(--checkbox-size);
     height: var(--checkbox-size);
     cursor: pointer;
+    transition: var(--transition-color);
 }
 
 /* Wrap checkbox in a larger tap area */
@@ -2117,7 +2165,7 @@ td input[type="checkbox"]:checked::after {
     .skeleton { animation: none; }
     /* Spinners show a static semi-transparent ring instead of spinning */
     .spinner { animation: none; opacity: 0.5; }
-    /* Progress bar shows instantly without animating width */
+    /* Progress bar shows instantly without animating transform */
     .progress-bar.active { transition: none; }
 }
 

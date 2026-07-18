@@ -20,11 +20,11 @@
         </div>
 
         <div style="margin: 12px 0; display: flex; gap: 8px; flex-wrap: wrap;">
-            <a href="/collections/{{ collection.id }}/edit" class="btn-view-link" style="padding: 5px 14px; text-decoration: none;">✏️ Edit</a>
+            <a href="/collections/{{ collection.id }}/edit" class="btn btn-secondary btn-sm">✏️ Edit</a>
             <form method="post" action="/collections/{{ collection.id }}/delete" style="display: inline;" onsubmit="return confirm('Delete this collection? Documents will be moved to All Documents.');">
-                <button type="submit" class="btn-delete" style="padding: 5px 14px; cursor: pointer;">🗑 Delete</button>
+                <button type="submit" class="btn btn-danger btn-sm">🗑 Delete</button>
             </form>
-            <a href="/collections/new" class="btn-view-link" style="padding: 5px 14px; text-decoration: none;">＋ New Collection</a>
+            <a href="/collections/new" class="btn btn-secondary btn-sm">＋ New Collection</a>
         </div>
 
         <h3>Sub-Collections</h3>

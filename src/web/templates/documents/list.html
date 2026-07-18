@@ -42,7 +42,7 @@
             <td>{{ doc.ext or '' }}</td>
             <td>{{ fmt_date(doc.created_at) }}</td>
             <td>{{ doc._tag_badges_html }}</td>
-            <td><a href="/documents/{{ doc.id }}/view" class="btn-view-link" title="View document">📖 View</a></td>
+            <td><a href="/documents/{{ doc.id }}/view" class="btn btn-link" title="View document">📖 View</a></td>
         </tr>
         {% endfor %}
         </tbody>
@@ -68,31 +68,31 @@
         <div class="bulk-actions" id="bulk-actions-bar">
             <span class="bulk-actions-label">Bulk Actions:</span>
             <span id="selected-count-label" style="font-size:0.85em;">Selected: <span id="selected-count">0</span></span>
-            <button type="submit" form="bulk-delete-form" id="delete-selected-btn" class="btn-delete" disabled style="padding:4px 12px;font-size:0.85em;cursor:not-allowed;opacity:0.5;">🗑 Delete Selected</button>
+            <button type="submit" form="bulk-delete-form" id="delete-selected-btn" class="btn btn-danger btn-sm bulk-btn-compact bulk-btn-disabled" disabled>🗑 Delete Selected</button>
             <form id="bulk-tag-form" action="/documents/bulk-tag" method="post" style="display:flex;gap:4px;align-items:center;"
                 data-optimistic data-optimistic-action="bulk-tag">
                 <input type="hidden" name="doc_ids" id="bulk-tag-doc-ids">
-                <input type="text" name="tag" placeholder="tag name" style="padding:4px;width:120px;font-size:0.85em;" id="bulk-tag-input">
-                <button type="submit" id="tag-selected-btn" class="btn-tag" disabled style="padding:4px 12px;font-size:0.85em;cursor:not-allowed;opacity:0.5;">🏷 Tag Selected</button>
+                <input type="text" name="tag" placeholder="tag name" class="input bulk-input-compact" id="bulk-tag-input">
+                <button type="submit" id="tag-selected-btn" class="btn btn-secondary btn-sm bulk-btn-compact bulk-btn-disabled" disabled>🏷 Tag Selected</button>
             </form>
             <form id="bulk-move-form" action="/documents/bulk-move-collection" method="post" style="display:flex;gap:4px;align-items:center;"
                 data-optimistic data-optimistic-action="bulk-move">
                 <input type="hidden" name="doc_ids" id="bulk-move-doc-ids">
-                <select name="collection_id" id="bulk-move-select" style="padding:4px;font-size:0.85em;" disabled>
+                <select name="collection_id" id="bulk-move-select" class="input bulk-select-compact" disabled>
                     <option value="">-- Collection --</option>
                     {% for col in all_collections_list or [] %}
                     <option value="{{ col.id }}">{{ col.name }}</option>
                     {% endfor %}
                 </select>
-                <button type="submit" id="move-selected-btn" class="btn-move" disabled style="padding:4px 12px;font-size:0.85em;cursor:not-allowed;opacity:0.5;">📦 Move Selected</button>
+                <button type="submit" id="move-selected-btn" class="btn btn-secondary btn-sm bulk-btn-compact bulk-btn-disabled" disabled>📦 Move Selected</button>
             </form>
             <form id="bulk-export-form" action="/documents/bulk-export" method="get" style="display:flex;gap:4px;align-items:center;">
                 <input type="hidden" name="doc_ids" id="bulk-export-doc-ids">
-                <select name="format" id="bulk-export-format" style="padding:4px;font-size:0.85em;" disabled>
+                <select name="format" id="bulk-export-format" class="input bulk-select-compact" disabled>
                     <option value="csv">CSV</option>
                     <option value="json">JSON</option>
                 </select>
-                <button type="submit" id="export-selected-btn" class="btn-export" disabled style="padding:4px 12px;font-size:0.85em;cursor:not-allowed;opacity:0.5;">⬇ Export Selected</button>
+                <button type="submit" id="export-selected-btn" class="btn btn-secondary btn-sm bulk-btn-compact bulk-btn-disabled" disabled>⬇ Export Selected</button>
             </form>
         </div>
         {% else %}
@@ -116,7 +116,7 @@
                   hx-indicator="#doc-table-skeleton">
                 <label>
                     Source Type
-                    <select name="source" class="facet-select">
+                    <select name="source" class="input class="facet-select">
                         <option value="">All sources</option>
                         {% for facet in source_facets %}
                         <option value="{{ facet.source_type }}" {{ "selected" if active_source == facet.source_type }}>{{ facet.source_type }} ({{ facet.count }})</option>
@@ -125,7 +125,7 @@
                 </label>
                 <label>
                     File Type
-                    <select name="file_type" class="facet-select">
+                    <select name="file_type" class="input class="facet-select">
                         <option value="">All types</option>
                         {% for facet in file_type_facets %}
                         <option value="{{ facet.ext }}" {{ "selected" if file_type == facet.ext }}>{{ facet.ext or '(none)' }} ({{ facet.count }})</option>
@@ -134,15 +134,15 @@
                 </label>
                 <label>
                     Tag
-                    <input type="text" name="tag" value="{{ active_tag or '' }}" class="facet-select" placeholder="tag">
+                    <input type="text" name="tag" class="input facet-select" value="{{ active_tag or '' }}" class="facet-select" placeholder="tag">
                 </label>
                 <label>
                     Date From
-                    <input type="date" name="date_from" value="{{ date_from or '' }}" class="facet-date">
+                    <input type="date" name="date_from" class="input facet-date" value="{{ date_from or '' }}" class="facet-date">
                 </label>
                 <label>
                     Date To
-                    <input type="date" name="date_to" value="{{ date_to or '' }}" class="facet-date">
+                    <input type="date" name="date_to" class="input facet-date" value="{{ date_to or '' }}" class="facet-date">
                 </label>
                 <div style="display:flex;flex-direction:column;font-size:0.85em;gap:4px;">
                     Quick Range
