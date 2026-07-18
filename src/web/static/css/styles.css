@@ -8,6 +8,99 @@
  * radius, shadows, transitions, and z-index are defined as CSS custom
  * properties in :root and overridden per-theme in the dark-theme block below.
  * Interactive elements use subtle transitions for hover/focus/active states.
+ *
+ * ================================================================
+ * DESIGN TOKEN TAXONOMY
+ * ================================================================
+ *
+ * All visual values are defined as CSS custom properties (variables) in
+ * the :root block (section 1). Dark theme overrides color and shadow
+ * tokens in [data-theme="dark"] (section 2). No hardcoded color values
+ * should appear outside these definition blocks — use var(--token).
+ *
+ * Token groups and naming conventions:
+ *
+ *   Colors — surfaces & text:
+ *     --bg              Page background
+ *     --surface         Card/panel background
+ *     --surface-alt     Subtle alternating-row or hover overlay
+ *     --text            Primary text color
+ *     --text-muted      Secondary text (captions, metadata)
+ *     --text-faint      Tertiary text (placeholders, disabled)
+ *
+ *   Colors — header & nav:
+ *     --header-bg       Header bar background
+ *     --header-text     Header bar text
+ *     --nav-link        Navigation link color
+ *     --nav-link-soft   Nav-link at 15% opacity (hover backgrounds)
+ *     --nav-link-soft-12  Nav-link at 12% opacity (drag-over states)
+ *
+ *   Colors — primary actions:
+ *     --primary         Primary button / active state background
+ *     --primary-hover   Primary button hover state
+ *
+ *   Colors — accent & semantic:
+ *     --accent          Accent/highlight color (email meta borders, etc.)
+ *     --danger          Error/danger color (error borders, alert text)
+ *
+ *   Colors — borders & inputs:
+ *     --border          Standard border color
+ *     --table-header-bg  Table header row background
+ *     --hover-bg        Hover row background
+ *     --input-border    Form input border
+ *     --input-bg        Form input background
+ *     --code-bg         Code block background
+ *
+ *   Colors — semantic badges:
+ *     --badge-{status}-bg     Badge background for {indexed,summarized,
+ *                             pending,error,processing,completed,failed}
+ *     --badge-{status}-text   Badge text for same statuses
+ *
+ *   Colors — feedback messages:
+ *     --error-bg / --error-text      Error message box
+ *     --success-bg / --success-text  Success message box
+ *     --success-tint                 Success at 6% opacity (file states)
+ *     --error-tint                   Error at 6% opacity (file states)
+ *
+ *   Colors — syntax highlighting (theme-independent):
+ *     --syntax-{key,string,num,bool,tag,attr}   Code token colors
+ *     --syntax-search-hit / -current / -text    Search highlight colors
+ *
+ *   Shadows:
+ *     --shadow / --shadow-sm / --shadow-lg     Box shadow scales
+ *     --shadow-kbd                             Keyboard element shadow
+ *     --shadow-overlay                         Modal overlay backdrop
+ *
+ *   Spacing (4px base scale):
+ *     --space-1 through --space-8   (4, 8, 12, 16, 20, 24, 32 px)
+ *
+ *   Typography:
+ *     --font-family / --font-mono     Font stacks
+ *     --font-size-{xs,sm,sm2,base,md,lg,xl}  Relative em sizes
+ *
+ *   Border radius:
+ *     --radius-{sm,md,lg,xl,2xl,3xl,pill,full}
+ *
+ *   Transitions:
+ *     --transition-fast / --transition-base   Duration presets
+ *     --transition-theme / --transition-color / --transition-opacity  Composed
+ *
+ *   Z-index:
+ *     --z-base / --z-dropdown / --z-modal
+ *
+ *   Layout:
+ *     --container-max         Max content width
+ *     --reader-line-height    Doc reader line height
+ *     --reader-font-size      Doc reader font size
+ *
+ * HOW TO ADD A NEW TOKEN:
+ *   1. Add the variable to :root (section 1) with a comment.
+ *   2. If it's a color or shadow, add a dark-theme override in
+ *      [data-theme="dark"] (section 2).
+ *   3. Use it via var(--token-name) in component rules.
+ *   4. Never hardcode hex/rgba values in component rules — always
+ *      define a token first.
+ * ================================================================
  */
 
 /* ================================================================
@@ -56,6 +149,16 @@
     --error-bg: #ffebee;   --error-text: #c62828;
     --success-bg: #e8f5e9; --success-text: #2e7d32;
 
+    /* — Colors: accent & semantic — */
+    --accent: #4a90d9;
+    --danger: #e74c3c;
+
+    /* — Colors: soft / tint backgrounds (semi-transparent) — */
+    --nav-link-soft: rgba(168, 218, 220, 0.15);
+    --nav-link-soft-12: rgba(168, 218, 220, 0.12);
+    --success-tint: rgba(46, 125, 50, 0.06);
+    --error-tint: rgba(198, 40, 40, 0.06);
+
     /* — Colors: syntax highlighting (theme-independent) — */
     --syntax-key: #c792ea;
     --syntax-string: #c3e88d;
@@ -76,18 +179,23 @@
 
     /* — Spacing scale (4px base, with half-steps for common odd values) — */
     --space-0: 0;
+    --space-px: 1px;        /* borders, fine detail */
+    --space-0-5: 2px;      /* tight gaps, badge padding */
     --space-1: 4px;
+    --space-1-25: 5px;     /* inline-code padding */
     --space-1-5: 6px;
     --space-2: 8px;
     --space-2-5: 10px;
     --space-3: 12px;
     --space-3-5: 14px;
     --space-4: 16px;
+    --space-4-5: 18px;
     --space-5: 20px;
     --space-6: 24px;
     --space-7: 28px;
     --space-8: 32px;
     --space-9: 36px;
+    --space-10: 40px;
 
     /* — Typography — */
     --font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -130,6 +238,24 @@
     --container-max: 960px;
     --reader-line-height: 1.7;
     --reader-font-size: 16px;
+
+    /* — Loading & skeleton states — */
+    --skeleton-base: rgba(128, 128, 128, 0.12);
+    --skeleton-shine: rgba(128, 128, 128, 0.04);
+    --skeleton-gradient: linear-gradient(90deg, var(--skeleton-base) 25%, var(--skeleton-shine) 37%, var(--skeleton-base) 63%);
+    --skeleton-animation-duration: 1.4s;
+    --skeleton-radius: var(--radius-sm);
+
+    --spinner-color: var(--text-muted);
+    --spinner-size: 1em;
+    --spinner-thickness: 2px;
+    --spinner-animation-duration: 0.7s;
+
+    --progress-bar-height: 3px;
+    --progress-bar-color: var(--nav-link);
+    --progress-bar-z: 9999;
+    --progress-bar-duration-active: 1.2s;
+    --progress-bar-duration-complete: 0.4s;
 }
 
 /* ================================================================
@@ -165,13 +291,20 @@
     --badge-failed-bg: #3a1a1a; --badge-failed-text: #ef5350;
     --error-bg: #3a1a1a; --error-text: #ef5350;
     --success-bg: #1a3a2a; --success-text: #81c784;
-    --nav-link-soft-12: rgba(168, 218, 220, 0.12);
+    --nav-link-soft: rgba(168, 218, 220, 0.12);
+    --accent: #5b9fd9;
+    --danger: #e74c3c;
     --success-tint: rgba(129, 199, 132, 0.06);
     --error-tint: rgba(239, 83, 80, 0.06);
     --shadow: 0 2px 4px rgba(0,0,0,0.3);
     --shadow-sm: 0 1px 3px rgba(0,0,0,0.3);
     --shadow-lg: 0 8px 32px rgba(0,0,0,0.5);
     --shadow-overlay: rgba(0, 0, 0, 0.7);
+
+    /* — Loading & skeleton states (dark overrides) — */
+    --skeleton-base: rgba(255, 255, 255, 0.08);
+    --skeleton-shine: rgba(255, 255, 255, 0.02);
+    --spinner-color: var(--text-muted);
 }
 
 /* ================================================================
@@ -211,6 +344,26 @@ body {
     outline: none;
 }
 
+/* Inputs set outline:none on :focus to show a border-color change instead.
+   Restore the keyboard focus ring for accessibility — these have higher
+   specificity than the per-input :focus rules so the ring wins on Tab. */
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+.search-box input:focus-visible,
+.tag-input-row input:focus-visible,
+.chat-input-row input:focus-visible,
+.settings-field input:focus-visible,
+.settings-field select:focus-visible,
+.viewer-toolbar input:focus-visible,
+.viewer-pagination .page-jump:focus-visible,
+#state-filter:focus-visible,
+.login-field input:focus-visible {
+    outline: 2px solid var(--nav-link);
+    outline-offset: -1px;
+    border-color: var(--nav-link);
+}
+
 /* ================================================================
  * 4. Header & Navigation
  * ================================================================ */
@@ -241,11 +394,13 @@ header nav a {
     color: var(--nav-link);
     text-decoration: none;
     margin-right: var(--space-4);
-    transition: color var(--transition-base);
+    padding: var(--space-1) 0;
+    border-radius: var(--radius-sm);
+    transition: var(--transition-color);
 }
 
-header nav a:hover { text-decoration: underline; }
-header nav a:active { opacity: 0.7; }
+header nav a:hover { text-decoration: underline; opacity: 0.85; }
+header nav a:active { opacity: 0.7; transform: scale(0.97); }
 
 .theme-toggle {
     background: none;
@@ -368,7 +523,7 @@ header nav a:active { opacity: 0.7; }
     background: var(--input-bg);
     border: 2px solid var(--input-border);
     border-radius: var(--radius-lg);
-    transition: var(--transition-color);
+    transition: border-color var(--transition-base), background var(--transition-base);
     width: 100%;
     box-sizing: border-box;
 }
@@ -454,7 +609,7 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
 
 .search-box input {
     flex: 1;
-    padding: 10px 14px;
+    padding: var(--space-2-5) var(--space-3-5);
     border: 2px solid var(--input-border);
     border-radius: var(--radius-lg);
     font-size: var(--font-size-base);
@@ -469,7 +624,7 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
 }
 
 .search-box button {
-    padding: 10px var(--space-6);
+    padding: var(--space-2-5) var(--space-6);
     background: var(--primary);
     color: var(--header-text);
     border: none;
@@ -511,14 +666,26 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
     gap: var(--space-3);
 }
 
-.search-export-bar .export-links {
-    margin-left: auto;
+/* --- Documents list: quick date-range button row -------------- */
+.date-range-row {
     display: flex;
     gap: var(--space-1);
 }
 
+/* --- Filter panel: Apply button ------------------------------- */
+.btn-filter {
+    padding: var(--space-1) var(--space-3);
+    cursor: pointer;
+}
+
+/* --- Filter panel: Clear link -------------------------------- */
+.facet-clear-btn {
+    padding: var(--space-1) var(--space-2);
+    text-decoration: none;
+}
+
 .search-export-bar .btn-export {
-    padding: var(--space-1) 14px;
+    padding: var(--space-1) var(--space-3-5);
     font-size: var(--font-size-sm2);
     text-decoration: none;
     border: 1px solid var(--border);
@@ -596,7 +763,7 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
  * ================================================================ */
 .badge {
     display: inline-block;
-    padding: 2px var(--space-2);
+    padding: var(--space-0-5) var(--space-2);
     border-radius: var(--radius-pill);
     font-size: var(--font-size-xs);
     font-weight: 600;
@@ -612,7 +779,7 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
 
 .tag-pill {
     display: inline-block;
-    padding: 2px 10px;
+    padding: var(--space-0-5) var(--space-2-5);
     border-radius: var(--radius-pill);
     font-size: var(--font-size-xs);
     font-weight: 500;
@@ -620,7 +787,7 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
     background: var(--surface);
     color: var(--text);
     border: 1px solid var(--input-border);
-    margin: 2px;
+    margin: var(--space-0-5);
     transition: var(--transition-color);
 }
 
@@ -718,7 +885,7 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
     background: var(--code-bg);
     color: var(--text);
     border: 1px solid var(--input-border);
-    margin: 2px 0;
+    margin: var(--space-0-5) 0;
     transition: var(--transition-color);
 }
 
@@ -736,7 +903,7 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
 .collection-breadcrumb {
     background: var(--surface);
     border-radius: var(--radius-xl);
-    padding: 10px var(--space-4);
+    padding: var(--space-2-5) var(--space-4);
     box-shadow: var(--shadow-sm);
     margin: var(--space-3) 0;
     display: flex;
@@ -749,15 +916,15 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
 .collection-breadcrumb-link {
     color: var(--nav-link);
     text-decoration: none;
-    padding: 2px var(--space-1);
+    padding: var(--space-0-5) var(--space-1);
     border-radius: var(--radius-md);
     transition: var(--transition-color);
 }
 
 .collection-breadcrumb-link:hover { background: var(--hover-bg); text-decoration: underline; }
 .collection-breadcrumb-link:active { opacity: 0.7; }
-.collection-breadcrumb-sep { color: var(--text-faint); margin: 0 2px; }
-.collection-breadcrumb-current { color: var(--text); font-weight: 600; padding: 2px var(--space-1); }
+.collection-breadcrumb-sep { color: var(--text-faint); margin: 0 var(--space-0-5); }
+.collection-breadcrumb-current { color: var(--text); font-weight: 600; padding: var(--space-0-5) var(--space-1); }
 
 /* ================================================================
  * 11. Tag Input & Document Detail
@@ -766,7 +933,7 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
 
 .tag-input-row input {
     flex: 1;
-    padding: var(--space-2) 12px;
+    padding: var(--space-2) var(--space-3);
     border-radius: var(--radius-lg);
     border: 1px solid var(--input-border);
     background: var(--input-bg);
@@ -831,10 +998,10 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
     transform: translateY(-2px);
 }
 
-.upload-form input[type="file"] { margin: 12px 0; }
+.upload-form input[type="file"] { margin: var(--space-3) 0; }
 
 .upload-form button {
-    padding: 10px var(--space-6);
+    padding: var(--space-2-5) var(--space-6);
     background: var(--primary);
     color: var(--header-text);
     border: none;
@@ -850,7 +1017,7 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
 .drop-zone {
     border: 2px dashed var(--border);
     border-radius: var(--radius-3xl);
-    padding: 40px var(--space-5);
+    padding: var(--space-10) var(--space-5);
     text-align: center;
     cursor: pointer;
     transition: background var(--transition-base), border-color var(--transition-base);
@@ -880,7 +1047,7 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
     display: flex;
     align-items: center;
     gap: var(--space-3);
-    padding: 10px 12px;
+    padding: var(--space-2-5) var(--space-3);
     border: 1px solid var(--border);
     border-radius: var(--radius-xl);
     margin-bottom: var(--space-2);
@@ -889,19 +1056,19 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
 
 .file-item.file-done {
     border-color: var(--success-text);
-    background: rgba(46,125,50,0.06);
+    background: var(--success-tint);
 }
 
 .file-item.file-failed {
     border-color: var(--error-text);
-    background: rgba(198,40,40,0.06);
+    background: var(--error-tint);
 }
 
 .file-info {
     flex: 1;
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: var(--space-0-5);
     min-width: 0;
 }
 
@@ -964,7 +1131,7 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
 .doc-actions { margin-top: var(--space-5); display: flex; gap: var(--space-3); }
 
 .btn-delete {
-    padding: 10px var(--space-6);
+    padding: var(--space-2-5) var(--space-6);
     background: var(--badge-error-bg);
     color: var(--badge-error-text);
     border: 1px solid var(--badge-error-text);
@@ -979,7 +1146,7 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
 
 .btn-read-full {
     display: inline-block;
-    padding: var(--space-2) 18px;
+    padding: var(--space-2) var(--space-4-5);
     background: var(--primary);
     color: var(--header-text);
     border-radius: var(--radius-lg);
@@ -1010,7 +1177,7 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
 }
 
 .pagination a, .pagination span {
-    padding: var(--space-2) 14px;
+    padding: var(--space-2) var(--space-3-5);
     border-radius: var(--radius-lg);
     text-decoration: none;
     border: 1px solid var(--input-border);
@@ -1044,8 +1211,8 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
 }
 
 .chat-msg {
-    margin: 6px 0;
-    padding: var(--space-2) 14px;
+    margin: var(--space-1-5) 0;
+    padding: var(--space-2) var(--space-3-5);
     border-radius: var(--radius-2xl);
     max-width: 85%;
     word-wrap: break-word;
@@ -1063,7 +1230,7 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
 
 .chat-input-row input {
     flex: 1;
-    padding: 10px 14px;
+    padding: var(--space-2-5) var(--space-3-5);
     border: 2px solid var(--input-border);
     border-radius: var(--radius-lg);
     font-size: var(--font-size-base);
@@ -1078,7 +1245,7 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
 }
 
 .chat-input-row button {
-    padding: 10px var(--space-6);
+    padding: var(--space-2-5) var(--space-6);
     background: var(--primary);
     color: var(--header-text);
     border: none;
@@ -1111,7 +1278,7 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
     background: var(--surface);
     border-radius: var(--radius-xl);
     box-shadow: var(--shadow);
-    padding: 12px;
+    padding: var(--space-3);
     max-height: 600px;
     overflow-y: auto;
 }
@@ -1130,7 +1297,7 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
     color: var(--header-text);
     border: none;
     border-radius: var(--radius-lg);
-    padding: var(--space-1) 10px;
+    padding: var(--space-1) var(--space-2-5);
     cursor: pointer;
     font-size: var(--font-size-sm2);
     transition: var(--transition-press);
@@ -1143,7 +1310,7 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
 
 .chat-session-item {
     position: relative;
-    padding: var(--space-2) 10px;
+    padding: var(--space-2) var(--space-2-5);
     border-radius: var(--radius-lg);
     cursor: pointer;
     border: 1px solid transparent;
@@ -1170,7 +1337,7 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    margin-top: 2px;
+    margin-top: var(--space-0-5);
 }
 
 .chat-session-del {
@@ -1183,7 +1350,7 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
     cursor: pointer;
     font-size: 1.2em;
     line-height: 1;
-    padding: 2px var(--space-1);
+    padding: var(--space-0-5) var(--space-1);
     border-radius: var(--radius-md);
     transition: var(--transition-color);
 }
@@ -1202,7 +1369,7 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
 .settings-field input[type="password"],
 .settings-field select {
     width: 100%;
-    padding: var(--space-2) 12px;
+    padding: var(--space-2) var(--space-3);
     border: 2px solid var(--input-border);
     border-radius: var(--radius-lg);
     font-size: var(--font-size-base);
@@ -1223,7 +1390,7 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
 .settings-actions { margin-top: var(--space-5); display: flex; gap: var(--space-3); align-items: center; }
 
 .btn-save {
-    padding: 10px var(--space-6);
+    padding: var(--space-2-5) var(--space-6);
     background: var(--primary);
     color: var(--header-text);
     border: none;
@@ -1257,7 +1424,7 @@ footer { text-align: center; padding: var(--space-6); color: var(--text-faint); 
 .chart-slice:hover { opacity: 0.85; }
 .chart-axis-label { font-size: 10px; fill: var(--text-faint); font-family: sans-serif; }
 .chart-bar-value { font-size: 10px; fill: var(--text-muted); font-family: sans-serif; }
-.chart-empty { color: var(--text-faint); text-align: center; padding: 40px; font-style: italic; }
+.chart-empty { color: var(--text-faint); text-align: center; padding: var(--space-10); font-style: italic; }
 
 .analytics-grid {
     display: grid;
@@ -1279,9 +1446,9 @@ footer { text-align: center; padding: var(--space-6); color: var(--text-faint); 
 .job-failure {
     background: var(--badge-error-bg);
     color: var(--badge-error-text);
-    padding: var(--space-2) 12px;
+    padding: var(--space-2) var(--space-3);
     border-radius: var(--radius-lg);
-    margin: 6px 0;
+    margin: var(--space-1-5) 0;
     font-size: var(--font-size-sm2);
 }
 
@@ -1333,7 +1500,7 @@ footer { text-align: center; padding: var(--space-6); color: var(--text-faint); 
     box-shadow: var(--shadow);
     padding: var(--space-4);
     position: sticky;
-    top: 12px;
+    top: var(--space-3);
     max-height: calc(100vh - 140px);
     overflow-y: auto;
 }
@@ -1363,7 +1530,7 @@ footer { text-align: center; padding: var(--space-6); color: var(--text-faint); 
     gap: var(--space-3);
     background: var(--surface);
     border-radius: var(--radius-xl);
-    padding: 12px var(--space-4);
+    padding: var(--space-3) var(--space-4);
     box-shadow: var(--shadow-sm);
     margin-bottom: var(--space-4);
 }
@@ -1374,7 +1541,7 @@ footer { text-align: center; padding: var(--space-6); color: var(--text-faint); 
 .viewer-toolbar .search-in-doc { display: flex; align-items: center; gap: var(--space-1); margin-left: auto; }
 
 .viewer-toolbar input[type="search"] {
-    padding: var(--space-1) 10px;
+    padding: var(--space-1) var(--space-2-5);
     border: 2px solid var(--input-border);
     border-radius: var(--radius-lg);
     background: var(--surface);
@@ -1410,7 +1577,7 @@ footer { text-align: center; padding: var(--space-6); color: var(--text-faint); 
 .doc-reader {
     background: var(--surface);
     border-radius: var(--radius-xl);
-    padding: 28px 32px;
+    padding: var(--space-7) var(--space-8);
     box-shadow: var(--shadow);
     line-height: var(--reader-line-height);
     font-size: var(--reader-font-size);
@@ -1424,14 +1591,14 @@ footer { text-align: center; padding: var(--space-6); color: var(--text-faint); 
 
 .doc-reader pre {
     background: var(--code-bg);
-    padding: 14px;
+    padding: var(--space-3-5);
     border-radius: var(--radius-lg);
     overflow-x: auto;
     font-size: var(--font-size-md);
 }
 
 .doc-reader code { font-family: var(--font-mono); }
-.doc-reader .md-inline-code { background: var(--code-bg); padding: 1px 5px; border-radius: var(--radius-sm); }
+.doc-reader .md-inline-code { background: var(--code-bg); padding: var(--space-px) var(--space-1-25); border-radius: var(--radius-sm); }
 
 .doc-reader blockquote {
     border-left: 3px solid var(--primary);
@@ -1444,9 +1611,9 @@ footer { text-align: center; padding: var(--space-6); color: var(--text-faint); 
 .doc-reader ul, .doc-reader ol { margin: 0.6em 0 0.6em 1.6em; }
 .doc-reader hr { border: none; border-top: 1px solid var(--border); margin: 1.4em 0; }
 
-.doc-reader table.csv-table { width: 100%; border-collapse: collapse; margin: 12px 0; }
+.doc-reader table.csv-table { width: 100%; border-collapse: collapse; margin: var(--space-3) 0; }
 .doc-reader table.csv-table th, .doc-reader table.csv-table td {
-    padding: var(--space-2) 10px;
+    padding: var(--space-2) var(--space-2-5);
     border: 1px solid var(--border);
     text-align: left;
 }
@@ -1455,14 +1622,14 @@ footer { text-align: center; padding: var(--space-6); color: var(--text-faint); 
 .doc-reader table.text-lines { width: 100%; border-collapse: collapse; font-family: var(--font-mono); }
 .doc-reader table.text-lines .line-no {
     width: 48px;
-    padding: 2px var(--space-2);
+    padding: var(--space-0-5) var(--space-2);
     text-align: right;
     color: var(--text-faint);
     user-select: none;
     border-right: 1px solid var(--border);
     background: var(--code-bg);
 }
-.doc-reader table.text-lines .line-text { padding: 2px 12px; white-space: pre-wrap; }
+.doc-reader table.text-lines .line-text { padding: var(--space-0-5) var(--space-3); white-space: pre-wrap; }
 
 /* JSON/XML syntax highlighting */
 .doc-reader .json-key { color: var(--syntax-key); }
@@ -1482,13 +1649,13 @@ footer { text-align: center; padding: var(--space-6); color: var(--text-faint); 
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 10px;
+    gap: var(--space-2-5);
     margin: var(--space-5) 0;
     flex-wrap: wrap;
 }
 
 .viewer-pagination .vp-btn {
-    padding: var(--space-1) 14px;
+    padding: var(--space-1) var(--space-3-5);
     border-radius: var(--radius-lg);
     text-decoration: none;
     border: 1px solid var(--input-border);
@@ -1519,7 +1686,7 @@ footer { text-align: center; padding: var(--space-6); color: var(--text-faint); 
 
 .viewer-meta {
     display: flex;
-    gap: 18px;
+    gap: var(--space-4-5);
     flex-wrap: wrap;
     color: var(--text-muted);
     font-size: var(--font-size-sm2);
@@ -1559,12 +1726,12 @@ footer { text-align: center; padding: var(--space-6); color: var(--text-faint); 
 
 #facet-filter-form {
     margin: var(--space-2) 0;
-    padding: 12px;
+    padding: var(--space-3);
     background: var(--code-bg);
     border-radius: var(--radius-lg);
     display: flex;
     flex-wrap: wrap;
-    gap: 12px;
+    gap: var(--space-3);
     align-items: flex-end;
 }
 
@@ -1604,7 +1771,7 @@ footer { text-align: center; padding: var(--space-6); color: var(--text-faint); 
     border-radius: var(--radius-lg);
     display: flex;
     flex-wrap: wrap;
-    gap: 12px;
+    gap: var(--space-3);
     align-items: center;
 }
 
@@ -1614,7 +1781,7 @@ footer { text-align: center; padding: var(--space-6); color: var(--text-faint); 
  * 23. Jobs State Filter
  * ================================================================ */
 #state-filter {
-    padding: var(--space-1) 10px;
+    padding: var(--space-1) var(--space-2-5);
     border-radius: var(--radius-lg);
     border: 1px solid var(--input-border);
     background: var(--surface);
@@ -1689,7 +1856,7 @@ td input[type="checkbox"]:checked::after {
 .login-card {
     background: var(--surface);
     border-radius: var(--radius-2xl);
-    padding: 36px 32px;
+    padding: var(--space-9) var(--space-8);
     box-shadow: var(--shadow);
     width: 100%;
     max-width: 380px;
@@ -1728,7 +1895,7 @@ td input[type="checkbox"]:checked::after {
 
 .login-field input[type="password"] {
     width: 100%;
-    padding: 10px 14px;
+    padding: var(--space-2-5) var(--space-3-5);
     border: 2px solid var(--input-border);
     border-radius: var(--radius-lg);
     font-size: var(--font-size-base);
@@ -1746,7 +1913,7 @@ td input[type="checkbox"]:checked::after {
 
 .btn-login {
     width: 100%;
-    padding: 12px;
+    padding: var(--space-3);
     background: var(--primary);
     color: var(--header-text);
     border: none;
@@ -1763,9 +1930,9 @@ td input[type="checkbox"]:checked::after {
 .error-msg {
     background: var(--error-bg);
     color: var(--error-text);
-    padding: 10px 14px;
+    padding: var(--space-2-5) var(--space-3-5);
     border-radius: var(--radius-lg);
-    margin: 12px 0;
+    margin: var(--space-3) 0;
     font-size: var(--font-size-md);
     text-align: center;
 }
@@ -1787,7 +1954,7 @@ td input[type="checkbox"]:checked::after {
 
 /* ---- Tablet portrait / large phone (≤768px) ---- */
 @media (max-width: 768px) {
-    .container { padding: 16px; }
+    .container { padding: var(--space-4); }
     .header-row { flex-direction: column; align-items: flex-start; }
     .nav-toggle { display: block; }
 
@@ -1861,19 +2028,19 @@ td input[type="checkbox"]:checked::after {
     }
 
     /* Bulk actions bar wraps more tightly */
-    .bulk-actions { gap: 8px; }
+    .bulk-actions { gap: var(--space-2); }
 }
 
 /* ---- Small phone (≤480px) ---- */
 @media (max-width: 480px) {
-    .container { padding: 10px; }
+    .container { padding: var(--space-2-5); }
 
     /* Stats: single column on very small screens */
     .stats { grid-template-columns: 1fr; }
 
     /* Smaller font for tables */
     table { font-size: 0.85em; }
-    th, td { padding: 6px 8px; }
+    th, td { padding: var(--space-1-5) var(--space-2); }
 
     /* Document actions stack vertically */
     .doc-actions { flex-direction: column; }
@@ -1883,7 +2050,7 @@ td input[type="checkbox"]:checked::after {
     .chat-input-row button { width: 100%; }
 
     /* Viewer: reduce padding on mobile (Task 8.6) */
-    .doc-reader { padding: 12px; font-size: 15px; }
+    .doc-reader { padding: var(--space-3); font-size: 15px; }
 
     /* Search-in-doc input narrower */
     .viewer-toolbar input[type="search"] { width: 120px; }
@@ -1892,16 +2059,16 @@ td input[type="checkbox"]:checked::after {
     .chart-svg { max-height: 200px; }
 
     /* Card padding reduced */
-    .card { padding: 14px; }
+    .card { padding: var(--space-3-5); }
 
     /* Header padding reduced */
-    header { padding: 12px 16px; }
+    header { padding: var(--space-3) var(--space-4); }
     header h1 { font-size: 1.3em; }
 }
 
 /* Intermediate breakpoint for viewer padding (640px) */
 @media (max-width: 640px) {
-    .doc-reader { padding: 16px; }
+    .doc-reader { padding: var(--space-4); }
 }
 
 /* ================================================================
@@ -1932,18 +2099,27 @@ td input[type="checkbox"]:checked::after {
  * ================================================================ */
 
 .kbd-modal-overlay {
-    display: none;
     position: fixed;
     top: 0; left: 0;
     width: 100%; height: 100%;
     background: var(--shadow-overlay);
     z-index: 1000;
+    display: flex;
     justify-content: center;
     align-items: center;
+    /* Use opacity+visibility so both open and close are animatable.
+       display:none cannot transition, so we animate visibility via
+       a delayed transition. */
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity var(--transition-base) ease-out,
+                visibility 0s linear var(--transition-base);
 }
 
 .kbd-modal-overlay.open {
-    display: flex;
+    opacity: 1;
+    visibility: visible;
+    transition: opacity var(--transition-base) ease-out;
 }
 
 .kbd-modal-panel {
@@ -1956,12 +2132,16 @@ td input[type="checkbox"]:checked::after {
     max-height: 80vh;
     overflow-y: auto;
     box-shadow: var(--shadow-lg);
-    animation: kbd-modal-in var(--transition-fast) ease-out;
+    /* Bidirectional scale+fade transition (replaces one-shot animation) */
+    transform: scale(0.95);
+    opacity: 0;
+    transition: transform var(--transition-base) ease-out,
+                opacity var(--transition-base) ease-out;
 }
 
-@keyframes kbd-modal-in {
-    from { transform: scale(0.95); opacity: 0; }
-    to   { transform: scale(1);    opacity: 1; }
+.kbd-modal-overlay.open .kbd-modal-panel {
+    transform: scale(1);
+    opacity: 1;
 }
 
 .kbd-modal-header {
@@ -2026,7 +2206,7 @@ td input[type="checkbox"]:checked::after {
 }
 
 .kbd-table td {
-    padding: 5px var(--space-2);
+    padding: var(--space-1-25) var(--space-2);
     font-size: var(--font-size-md);
 }
 
@@ -2037,7 +2217,7 @@ td input[type="checkbox"]:checked::after {
 
 kbd {
     display: inline-block;
-    padding: 2px var(--space-1);
+    padding: var(--space-0-5) var(--space-1);
     font-family: var(--font-mono);
     font-size: var(--font-size-sm2);
     background: var(--surface-alt);
@@ -2056,5 +2236,195 @@ kbd {
     }
     .kbd-table td:first-child {
         width: 90px;
+    }
+}
+
+/* ================================================================
+ * 29. HTMX Loading Indicators & Skeleton States
+ *
+ * Provides visual feedback during async server round-trips:
+ *   - .progress-bar   — top-of-page bar for all HTMX/fetch requests
+ *   - .htmx-indicator — HTMX's built-in indicator class (show/hide
+ *                       during hx-get/hx-post requests)
+ *   - .skeleton       — shimmering placeholder blocks for table rows,
+ *                       search results, and lazy-loaded content
+ *   - .spinner        — CSS-only loading spinner
+ *   - .loading-state  — inline "loading..." text with spinner
+ *
+ * Progressive enhancement: if JS/HTMX is absent, all indicators
+ * remain hidden (display:none or opacity:0) and content renders
+ * server-side as normal.
+ * ================================================================ */
+
+/* — Top Progress Bar — */
+/* Fixed bar at the top of the viewport. Animated by progress-bar.js
+   via htmx:beforeRequest / htmx:afterRequest events. The bar starts
+   at width:0 / opacity:0, grows to 30% on .active, then to 100% on
+   .complete before fading out. */
+.progress-bar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 3px;
+    width: 0;
+    background: var(--nav-link);
+    box-shadow: 0 0 4px var(--nav-link);
+    z-index: var(--z-modal);
+    opacity: 0;
+    transition: width 0.3s ease-out, opacity var(--transition-fast);
+    pointer-events: none;
+}
+
+.progress-bar.active {
+    width: 30%;
+    opacity: 1;
+    transition: width 0.4s ease-out, opacity var(--transition-fast);
+}
+
+.progress-bar.complete {
+    width: 100%;
+    opacity: 1;
+    transition: width 0.2s ease-in, opacity 0.4s ease-out 0.2s;
+}
+
+/* Fade out after completion — .complete is removed by JS after 600ms */
+.progress-bar:not(.active):not(.complete) {
+    opacity: 0;
+}
+
+/* — HTMX Indicator — */
+/* HTMX toggles .htmx-indicator visibility via the htmx-request class
+   on the element (or its hx-indicator target). We use display:none
+   as the default and override to display:block when HTMX adds
+   .htmx-request during an active request. */
+.htmx-indicator {
+    display: none;
+}
+
+.htmx-request .htmx-indicator,
+.htmx-indicator.htmx-request {
+    display: block;
+}
+
+/* — Skeleton Loading Blocks — */
+/* Shimmering placeholder bars that mimic the shape of upcoming
+   content. Used in document table rows, search results, and
+   lazy-loaded excerpts. Animation is a left-to-right gradient sweep. */
+.skeleton {
+    display: inline-block;
+    background: linear-gradient(
+        90deg,
+        var(--surface-alt) 0%,
+        var(--border) 50%,
+        var(--surface-alt) 100%
+    );
+    background-size: 200% 100%;
+    border-radius: var(--radius-sm);
+    animation: skeleton-shimmer 1.5s ease-in-out infinite;
+    vertical-align: middle;
+    min-height: 1em;
+}
+
+@keyframes skeleton-shimmer {
+    0%   { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+
+/* Skeleton variants for different content shapes */
+.skeleton-text-sm  { width: 5em;  height: 0.8em; }
+.skeleton-text-lg  { width: 12em; height: 1em;  }
+.skeleton-badge    { width: 4em;  height: 1.2em; border-radius: var(--radius-pill); }
+.skeleton-title    { width: 60%;  height: 1.2em; margin-bottom: var(--space-1); }
+.skeleton-line     { width: 100%; height: 0.8em; margin-bottom: var(--space-1); }
+
+/* Skeleton row in a table — full-width shimmering placeholder */
+.skeleton-row td {
+    padding: var(--space-2) var(--space-2);
+}
+
+/* Skeleton block for lazy-loaded content areas (e.g. document excerpt) */
+.skeleton-block {
+    background: var(--surface-alt);
+    border-radius: var(--radius-md);
+    animation: skeleton-shimmer 1.5s ease-in-out infinite;
+}
+
+/* Skeleton result card for search lazy-load */
+.skeleton-result {
+    padding: var(--space-3);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    margin-bottom: var(--space-3);
+    background: var(--surface);
+}
+
+.skeleton-result .skeleton {
+    display: block;
+}
+
+/* Chat session list skeleton */
+.chat-session-skeleton {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    padding: var(--space-2) var(--space-3);
+}
+
+.chat-session-skeleton .skeleton {
+    display: block;
+    height: 0.8em;
+}
+
+/* — CSS Spinner — */
+/* Border-based spinner. Falls back to a static ring under
+   prefers-reduced-motion (see section 27). */
+.spinner {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border: 2px solid var(--border);
+    border-top-color: var(--nav-link);
+    border-radius: var(--radius-full);
+    animation: spinner-rotate 0.8s linear infinite;
+    vertical-align: middle;
+}
+
+@keyframes spinner-rotate {
+    to { transform: rotate(360deg); }
+}
+
+/* — Inline Loading State — */
+/* Used by lazy-load.js for the "loading more..." indicator below
+   the document table and search results. */
+.loading-state {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2);
+    padding: var(--space-2);
+    color: var(--text-muted);
+    font-size: var(--font-size-sm2);
+}
+
+/* — Reduced Motion — */
+/* Disable shimmer and spin animations; keep visibility so users
+   still see that something is loading. */
+@media (prefers-reduced-motion: reduce) {
+    .skeleton {
+        animation: none;
+        background: var(--surface-alt);
+    }
+    .skeleton-block {
+        animation: none;
+        background: var(--surface-alt);
+    }
+    .spinner {
+        animation: none;
+        border-top-color: var(--border);
+        opacity: 0.5;
+    }
+    .progress-bar.active,
+    .progress-bar.complete {
+        transition: none;
     }
 }
