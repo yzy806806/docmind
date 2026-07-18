@@ -562,6 +562,11 @@ def create_app() -> FastAPI:
             default=False,
             description="If true, return only result rows as HTML fragment (for lazy loading)"
         ),
+        submit_search: Optional[str] = Query(
+            default=None,
+            description="Internal: present when the search form was submitted via the Search button. Used to gate HX-Push-Url."
+        ),
+        request: Request = None,
     ):
         """Search page with results and citations.
 
@@ -675,6 +680,30 @@ def create_app() -> FastAPI:
         # For the full page, show the first `limit` results and set up
         # the lazy-load sentinel for subsequent pages.
         page_results = results[:limit]
+
+        # ── Browser back-button support for HTMX search ──────────
+        # When the search form is submitted via the Search button
+        # (submit_search param present) and the request came from
+        # HTMX, push the canonical /search URL into browser history
+        # so the back button works.  Keyup-triggered live search
+        # requests do NOT push (would flood history on every keystroke).
+        is_htmx = request is not None and request.headers.get("HX-Request") == "true"
+        if is_htmx and submit_search:
+            from urllib.parse import urlencode
+            push_params: dict[str, str] = {"q": validated_q}
+            if resolved_vw is not None:
+                push_params["vector_weight"] = f"{resolved_vw:.2f}"
+            push_url = f"/search?{urlencode(push_params)}"
+            html = _render_search_results(
+                validated_q, page_results,
+                vector_weight=resolved_vw,
+                offset=0, limit=limit, total=total,
+            )
+            return HTMLResponse(
+                content=html,
+                headers={"HX-Push-Url": push_url},
+            )
+
         html = _render_search_results(
             validated_q, page_results,
             vector_weight=resolved_vw,
@@ -821,7 +850,32 @@ def create_app() -> FastAPI:
             source_facets=source_facets,
             all_collections_list=all_collections_list,
         )
-        return HTMLResponse(content=html)
+        # Push the canonical /documents URL into browser history so the
+        # back button works after HTMX filter swaps.  The partial endpoint
+        # URL (/documents/partials/table) must NOT be pushed — it returns
+        # a fragment, not a full page.  We build the full-page URL with the
+        # same query params so pressing back reloads the full /documents
+        # page with filters applied.
+        from urllib.parse import urlencode
+        push_params: dict[str, str | int] = {"per_page": per_page}
+        if source:
+            push_params["source"] = source
+        if tag:
+            push_params["tag"] = tag
+        if collection_id is not None:
+            push_params["collection_id"] = collection_id
+        if date_from:
+            push_params["date_from"] = date_from
+        if date_to:
+            push_params["date_to"] = date_to
+        if file_type:
+            push_params["file_type"] = file_type
+        push_params["page"] = page
+        push_url = f"/documents?{urlencode(push_params)}"
+        return HTMLResponse(
+            content=html,
+            headers={"HX-Push-Url": push_url},
+        )
 
     # ── HTMX Rows-Only Endpoint (Phase 9 lazy loading) ────────────
     # Returns just the <tr> elements for one page — used by the
