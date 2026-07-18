@@ -219,15 +219,29 @@
     --radius-full: 50%;
 
     /* — Transitions — */
+    /* All durations kept under 200ms for perceived instant response.
+       --transition-fast (150ms) for opacity/transform micro-interactions;
+       --transition-base (180ms) for color/background/border changes. */
     --transition-fast: 0.15s ease-out;
-    --transition-base: 0.2s ease-out;
+    --transition-base: 0.18s ease-out;
     --transition-theme: background var(--transition-base), color var(--transition-base);
     --transition-color: background var(--transition-base), color var(--transition-base), border-color var(--transition-base);
     --transition-opacity: opacity var(--transition-fast);
-    /* Combined transition for interactive elements that change color + scale on press */
-    --transition-press: background var(--transition-base), color var(--transition-base), transform var(--transition-fast);
+    /* Combined transition for interactive elements that change color +
+       border-color + scale on press. Used by buttons, tags, nav links,
+       and any element with :active { transform: scale() }. */
+    --transition-press: background var(--transition-base), color var(--transition-base), border-color var(--transition-base), transform var(--transition-fast);
     /* Lift transition for cards: shadow + transform together for a tactile hover rise */
     --transition-lift: box-shadow var(--transition-base), transform var(--transition-base);
+
+    /* — Focus ring — keyboard navigation visibility (WCAG 2.4.7) */
+    --focus-ring-width: 2px;
+    --focus-ring-color: var(--nav-link);
+    --focus-ring-offset: 2px;
+
+    /* — Disabled state — */
+    --opacity-disabled: 0.5;
+    --cursor-disabled: not-allowed;
 
     /* — Border widths — */
     --border-w-1: 1px;        /* subtle separators, card outlines */
@@ -446,7 +460,7 @@ header nav a {
     margin-right: var(--space-4);
     padding: var(--space-1) 0;
     border-radius: var(--radius-sm);
-    transition: var(--transition-color);
+    transition: var(--transition-press);
 }
 
 header nav a:hover { text-decoration: underline; opacity: 0.85; }
@@ -462,7 +476,7 @@ header nav a:active { opacity: 0.7; transform: scale(0.97); }
     font-size: var(--font-size-lg);
     margin-left: var(--space-2);
     line-height: 1;
-    transition: var(--transition-color);
+    transition: var(--transition-press);
 }
 
 .theme-toggle:hover { background: var(--nav-link-soft); }
@@ -2286,7 +2300,7 @@ td input[type="checkbox"]:checked::after {
     padding: var(--space-1) var(--space-2);
     border-radius: var(--radius-md);
     line-height: 1;
-    transition: var(--transition-color);
+    transition: var(--transition-press);
 }
 
 .kbd-modal-close:hover {
