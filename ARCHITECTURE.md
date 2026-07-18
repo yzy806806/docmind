@@ -592,13 +592,19 @@ Every page extends `base.html`. The base template provides:
 
 ### 5.4 CSS conventions
 
-1. All styling uses CSS custom properties defined in `base.html` under
-   `:root` (light) and `[data-theme="dark"]` (dark).
+1. All styling uses CSS custom properties (design tokens) defined in
+   `src/web/static/css/styles.css` under `:root` (light theme) and
+   `[data-theme="dark"]` (dark theme). Token groups: colors, spacing,
+   typography, border-radius, shadows, transitions, z-index, layout.
 2. No external CSS frameworks (no Bootstrap, Tailwind, etc.).
 3. Per-page CSS is injected via `{extra_head}` in the template.
 4. The colour palette, spacing, and component styles (`.card`, `.stat`,
    `.badge`, `.tag-pill`, `.collection-tree`, etc.) are defined in
-   `base.html` and reused across all templates.
+   `styles.css` and reused across all templates.
+5. Component rules reference tokens via `var(--token-name)` rather than
+   hardcoding px/em/color values. Spacing uses the 4px-base scale
+   (`--space-1` through `--space-8`); border-radius uses the `--radius-*`
+   scale; font sizes use the `--font-size-*` scale.
 
 ### 5.5 REST API and JSON endpoints
 
