@@ -229,6 +229,14 @@
     /* Lift transition for cards: shadow + transform together for a tactile hover rise */
     --transition-lift: box-shadow var(--transition-base), transform var(--transition-base);
 
+    /* — Focus ring — keyboard navigation visibility (WCAG 2.4.7) */
+    --focus-ring-width: 2px;
+    --focus-ring-color: var(--nav-link);
+    --focus-ring-offset: 2px;
+
+    /* — Disabled state — */
+    --opacity-disabled: 0.5;
+    --cursor-disabled: not-allowed;
 
     /* — Border widths — */
     --border-w-1: 1px;        /* subtle separators, card outlines */
@@ -1125,6 +1133,7 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
 .file-item.file-done {
     border-color: var(--success-text);
     background: var(--success-tint);
+    transition: border-color var(--transition-base), background var(--transition-base);
 }
 
 .file-item.file-failed {
@@ -1388,7 +1397,7 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
 
 .chat-session-item:hover { background: var(--hover-bg); }
 .chat-session-item:active { transform: scale(0.98); }
-.chat-session-item.active { background: var(--hover-bg); border-color: var(--primary); }
+.chat-session-item.active { background: var(--hover-bg); border-color: var(--primary); transition: var(--transition-color); }
 
 .chat-session-title {
     font-weight: 600;
@@ -1455,7 +1464,7 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
     border-color: var(--nav-link);
 }
 
-.settings-field input[type="range"] { width: 100%; }
+.settings-field input[type="range"] { width: 100%; transition: var(--transition-color); }
 .settings-hint { font-size: var(--font-size-sm2); color: var(--text-faint); margin-top: var(--space-1); }
 .settings-actions { margin-top: var(--space-5); display: flex; gap: var(--space-3); align-items: center; }
 
@@ -1549,6 +1558,7 @@ footer { text-align: center; padding: var(--space-6); color: var(--text-faint); 
     background: var(--primary);
     color: var(--header-text);
     border-color: var(--primary);
+    transition: var(--transition-color);
 }
 
 /* Analytics page uses 300px for full charts */
@@ -1591,7 +1601,7 @@ footer { text-align: center; padding: var(--space-6); color: var(--text-faint); 
 
 .toc-list a:hover { background: var(--hover-bg); color: var(--text); }
 .toc-list a:active { transform: scale(0.97); }
-.toc-list a.active { background: var(--primary); color: var(--header-text); font-weight: 600; }
+.toc-list a.active { background: var(--primary); color: var(--header-text); font-weight: 600; transition: var(--transition-color); }
 
 .viewer-toolbar {
     display: flex;
@@ -2337,39 +2347,46 @@ kbd {
 
 /* — Top Progress Bar — */
 /* Fixed bar at the top of the viewport. Animated by progress-bar.js
-   via htmx:beforeRequest / htmx:afterRequest events. The bar starts
-   at width:0 / opacity:0, grows to 30% on .active, then to 100% on
-   .complete before fading out. */
+   via htmx:beforeRequest / htmx:afterRequest events. The bar uses
+   transform: scaleX() instead of width to avoid layout/reflow —
+   transforms are compositor-only and don't trigger reflow.
+   transform-origin: left keeps the bar anchored at the left edge.
+   The bar starts at scaleX(0) / opacity:0, grows to 30% on .active,
+   then to 100% on .complete before fading out. */
 .progress-bar {
     position: fixed;
     top: 0;
     left: 0;
     height: 3px;
-    width: 0;
+    width: 100%;
     background: var(--nav-link);
     box-shadow: 0 0 4px var(--nav-link);
     z-index: var(--z-modal);
     opacity: 0;
-    transition: width var(--progress-bar-duration-active) ease-out, opacity var(--transition-fast);
+    transform: scaleX(0);
+    transform-origin: left;
+    transition: transform var(--progress-bar-duration-active) ease-out, opacity var(--transition-fast);
     pointer-events: none;
+    will-change: transform, opacity;
 }
 
 .progress-bar.active {
-    width: 30%;
+    transform: scaleX(0.3);
     opacity: 1;
-    transition: width var(--progress-bar-duration-complete) ease-out, opacity var(--transition-fast);
+    transition: transform var(--progress-bar-duration-complete) ease-out, opacity var(--transition-fast);
 }
 
 .progress-bar.complete {
-    width: 100%;
+    transform: scaleX(1);
     opacity: 1;
-    transition: width var(--transition-base) ease-in,
+    transition: transform var(--transition-base),
                 opacity var(--progress-bar-duration-complete) ease-out var(--transition-base);
 }
 
 /* Fade out after completion — .complete is removed by JS after 600ms */
 .progress-bar:not(.active):not(.complete) {
     opacity: 0;
+    transform: scaleX(0);
 }
 
 /* — HTMX Indicator — */
