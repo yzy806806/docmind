@@ -373,6 +373,11 @@
     --skeleton-base: rgba(255, 255, 255, 0.08);
     --skeleton-shine: rgba(255, 255, 255, 0.02);
     --spinner-color: var(--text-muted);
+
+    /* — Scrollbar (dark overrides) — thumb uses a lighter hex
+       against dark surfaces for visibility; hover is even lighter. */
+    --scrollbar-thumb: #3a3a5a;
+    --scrollbar-thumb-hover: #4a4a6a;
 }
 
 /* ================================================================
