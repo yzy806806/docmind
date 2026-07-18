@@ -148,6 +148,165 @@ header nav a:hover { text-decoration: underline; }
     padding: 4px 8px;
 }
 
+
+/* ================================================================
+ * 4b. Base UI Components — Buttons & Inputs
+ *
+ * Reusable component classes built entirely from design tokens.
+ * Templates use .btn + .btn-primary / .btn-secondary / .btn-danger
+ * / .btn-ghost instead of duplicating per-page button styles.
+ * .input provides the same for text inputs, selects, and textareas.
+ * ================================================================ */
+
+/* — Button base — */
+.btn {
+    display: inline-block;
+    padding: var(--space-2-5, 10px) var(--space-6, 24px);
+    font-family: var(--font-family, inherit);
+    font-size: var(--font-size-base, 1rem);
+    font-weight: 500;
+    border: none;
+    border-radius: var(--radius-lg, 8px);
+    cursor: pointer;
+    text-align: center;
+    text-decoration: none;
+    line-height: 1.4;
+    transition: background 0.2s ease-out, color 0.2s ease-out, transform 0.15s ease-out;
+}
+
+.btn:hover { text-decoration: none; }
+.btn:active { transform: scale(0.96); }
+.btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+}
+
+/* — Button: primary (filled, uses header color scheme) — */
+.btn-primary {
+    background: var(--primary, #457b9d);
+    color: var(--header-text, #fff);
+    border: 1px solid var(--primary, #457b9d);
+}
+
+.btn-primary:hover {
+    background: var(--primary-hover, #35617a);
+    border-color: var(--primary-hover, #35617a);
+}
+
+/* — Button: secondary (outlined, surface-colored) — */
+.btn-secondary {
+    background: var(--surface, #f1faee);
+    color: var(--text, #1d3557);
+    border: 1px solid var(--input-border, #a8dadc);
+}
+
+.btn-secondary:hover {
+    background: var(--hover-bg, #e8f4f1);
+    border-color: var(--nav-link, #a8dadc);
+}
+
+/* — Button: danger (destructive action) — */
+.btn-danger {
+    background: var(--badge-error-bg, #fee);
+    color: var(--badge-error-text, #c00);
+    border: 1px solid var(--badge-error-text, #c00);
+}
+
+.btn-danger:hover {
+    background: var(--error-bg, #fee);
+    color: var(--error-text, #c00);
+}
+
+/* — Button: ghost (transparent, text-only) — */
+.btn-ghost {
+    background: transparent;
+    color: var(--text-muted, #888);
+    border: 1px solid transparent;
+}
+
+.btn-ghost:hover {
+    background: var(--surface-alt, #f5f5f5);
+    color: var(--text, #333);
+}
+
+/* — Button modifiers —
+ * .btn-sm    Compact padding for inline/table actions
+ * .btn-block Full-width block button (login, standalone CTAs)
+ * .btn-link  Link-styled button: no border/bg, underline on hover */
+.btn-sm {
+    padding: var(--space-1, 4px) var(--space-3, 12px);
+    font-size: var(--font-size-sm2, 0.85em);
+    border-radius: var(--radius-md, 6px);
+}
+
+.btn-block {
+    display: block;
+    width: 100%;
+}
+
+.btn-link {
+    background: none;
+    border: none;
+    color: var(--nav-link, #a8dadc);
+    text-decoration: none;
+    font-size: var(--font-size-sm2, 0.85em);
+    padding: 0;
+    cursor: pointer;
+    transition: color 0.2s ease-out;
+}
+
+.btn-link:hover { text-decoration: underline; }
+.btn-link:active { opacity: 0.7; }
+
+/* — Input base — */
+.input {
+    padding: var(--space-2-5, 10px) var(--space-3-5, 14px);
+    font-family: var(--font-family, inherit);
+    font-size: var(--font-size-base, 1rem);
+    color: var(--text, #1d3557);
+    background: var(--input-bg, var(--surface, #f1faee));
+    border: 2px solid var(--input-border, #a8dadc);
+    border-radius: var(--radius-lg, 8px);
+    transition: border-color 0.2s ease-out, background 0.2s ease-out;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.input:focus {
+    outline: none;
+    border-color: var(--nav-link, #a8dadc);
+}
+
+.input::placeholder { color: var(--text-faint, #aaa); }
+
+/* — Form validation states — */
+.input.is-invalid {
+    border-color: var(--badge-error-text, #c00);
+    background: var(--error-bg, #fee);
+}
+
+.input.is-valid {
+    border-color: var(--badge-summarized-text, #080);
+    background: var(--success-bg, #efe);
+}
+
+.field-error {
+    display: block;
+    margin-top: var(--space-1, 4px);
+    color: var(--error-text, #c00);
+    font-size: var(--font-size-sm2, 0.85em);
+    font-weight: 500;
+}
+
+.field-success {
+    display: block;
+    margin-top: var(--space-1, 4px);
+    color: var(--success-text, #080);
+    font-size: var(--font-size-sm2, 0.85em);
+    font-weight: 500;
+}
+
 /* ================================================================
  * 5. Cards & Stats
  * ================================================================ */
