@@ -435,10 +435,10 @@ class TestBasePageTransitionContracts:
     _MAX_MS = 300  # Maximum acceptable transition duration (task spec)
 
     def test_timing_values_within_acceptable_bounds(self):
-        """All hardcoded timing values must be between 50ms and 500ms.
+        """All hardcoded timing values must be between 50ms and 300ms.
 
         Values outside this range are either imperceptibly fast (<50ms)
-        or so slow they degrade perceived performance (>500ms).
+        or so slow they degrade perceived performance (>300ms).
 
         Exception: ``0s`` values are permitted for the standard CSS
         ``visibility 0s linear <delay>`` pattern used to make

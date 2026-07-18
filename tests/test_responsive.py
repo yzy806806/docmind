@@ -240,10 +240,10 @@ class TestBreakpoint480px:
     """Verify rules inside the 480px (small phone) breakpoint."""
 
     def test_container_padding_reduced_at_480(self):
-        """At ≤480px, .container padding should reduce to 10px."""
+        """At ≤480px, .container padding should reduce."""
         block = _extract_media_block(_read_css(), "480px")
         assert ".container" in block
-        assert "10px" in block
+        assert "var(--space-2-5)" in block
 
     def test_stats_single_column_at_480(self):
         """At ≤480px, stats should become single column."""
@@ -274,10 +274,10 @@ class TestBreakpoint480px:
         assert "column" in block
 
     def test_doc_reader_padding_reduced_at_480(self):
-        """At ≤480px, .doc-reader padding should be 12px."""
+        """At ≤480px, .doc-reader padding should reduce."""
         block = _extract_media_block(_read_css(), "480px")
         assert ".doc-reader" in block
-        assert "12px" in block
+        assert "var(--space-3)" in block
 
     def test_chart_svg_max_height_reduced_at_480(self):
         """At ≤480px, .chart-svg max-height should reduce to 200px."""
@@ -286,10 +286,10 @@ class TestBreakpoint480px:
         assert "200px" in block
 
     def test_card_padding_reduced_at_480(self):
-        """At ≤480px, .card padding should reduce to 14px."""
+        """At ≤480px, .card padding should reduce."""
         block = _extract_media_block(_read_css(), "480px")
         assert ".card" in block
-        assert "14px" in block
+        assert "var(--space-3-5)" in block
 
     def test_header_padding_reduced_at_480(self):
         """At ≤480px, header padding should reduce."""
@@ -311,10 +311,10 @@ class TestBreakpoint640px:
     """Verify rules inside the 640px intermediate viewer breakpoint."""
 
     def test_doc_reader_padding_at_640(self):
-        """At ≤640px, .doc-reader padding should be 16px."""
+        """At ≤640px, .doc-reader padding should reduce."""
         block = _extract_media_block(_read_css(), "640px")
         assert ".doc-reader" in block
-        assert "16px" in block
+        assert "var(--space-4)" in block
 
 
 # ── prefers-reduced-motion Tests ─────────────────────────────────
@@ -996,7 +996,7 @@ class TestCSSStructuralIntegrity:
     def test_css_has_search_box_flex(self):
         """.search-box should use flex display."""
         css = _read_css()
-        idx = css.find(".search-box")
+        idx = css.find(".search-box {")
         block = css[idx:idx + 200]
         assert "display: flex" in block or "display:flex" in block
 
