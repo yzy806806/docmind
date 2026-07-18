@@ -2825,3 +2825,44 @@ kbd {
     .md-image { transition: none; opacity: 1; }
     .lazy-fade-in { animation: none; }
 }
+
+/* ================================================================
+ * 22. Custom Scrollbar Styling
+ *
+ * Slim, themed scrollbars for all scrollable containers (chat,
+ * sidebar, TOC, modal panels, code blocks).  Uses the standard
+ * scrollbar-width / scrollbar-color properties (Firefox + spec) and
+ * the ::-webkit-scrollbar pseudo-elements (Chrome/Safari/Edge).
+ * Inherits theme colors via design tokens so dark mode works.
+ * ================================================================ */
+
+/* Firefox + standards-track */
+* {
+    scrollbar-width: var(--scrollbar-width);
+    scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+}
+
+/* WebKit / Blink (Chrome, Safari, Edge) */
+::-webkit-scrollbar {
+    width: var(--scrollbar-width);
+    height: var(--scrollbar-width);
+}
+::-webkit-scrollbar-track {
+    background: var(--scrollbar-track);
+}
+::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb);
+    border-radius: var(--scrollbar-radius);
+    transition: background var(--transition-base);
+}
+::-webkit-scrollbar-thumb:hover {
+    background: var(--scrollbar-thumb-hover);
+}
+::-webkit-scrollbar-corner {
+    background: var(--scrollbar-track);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    ::-webkit-scrollbar-thumb { transition: none; }
+    :focus-visible { transition: none; }
+}
