@@ -2088,6 +2088,13 @@ td input[type="checkbox"]:checked::after {
     .chart-bar { transition: none; }
     .chart-slice { transition: none; }
     .drop-zone { transition: none; }
+
+    /* Skeletons show static shimmer instead of sweeping animation */
+    .skeleton { animation: none; }
+    /* Spinners show a static semi-transparent ring instead of spinning */
+    .spinner { animation: none; opacity: 0.5; }
+    /* Progress bar shows instantly without animating width */
+    .progress-bar.active { transition: none; }
 }
 
 /* ================================================================
@@ -2224,7 +2231,7 @@ kbd {
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
     box-shadow: var(--shadow-kbd);
-    margin-right: 2px;
+    margin-right: var(--space-0-5);
     color: var(--text);
 }
 
@@ -2294,16 +2301,63 @@ kbd {
 
 /* — HTMX Indicator — */
 /* HTMX toggles .htmx-indicator visibility via the htmx-request class
-   on the element (or its hx-indicator target). We use display:none
-   as the default and override to display:block when HTMX adds
-   .htmx-request during an active request. */
+   on the element (or its hx-indicator target). We use opacity transitions
+   for smooth show/hide rather than abrupt display:none/block. */
 .htmx-indicator {
-    display: none;
+    opacity: 0;
+    transition: opacity var(--transition-base);
+    pointer-events: none;
 }
 
 .htmx-request .htmx-indicator,
 .htmx-indicator.htmx-request {
-    display: block;
+    opacity: 1;
+}
+
+/* — HTMX Swap Transitions — */
+/* HTMX adds these lifecycle classes during content swaps:
+     .htmx-added     — applied to new content immediately after swap
+     .htmx-settling  — applied to the swap target during settle delay
+     .htmx-swapping  — applied to the swap target before old content is removed
+
+   By default, HTMX adds/removes these classes with a settle delay of 20ms
+   (configurable via hx-swap="... settle:Ms"). We define opacity transitions
+   so new content fades in smoothly and old content fades out before removal. */
+
+/* New content fades in from transparent to opaque */
+.htmx-added {
+    opacity: 0;
+}
+
+.htmx-settling .htmx-added,
+.htmx-settling.htmx-added {
+    opacity: 1;
+    transition: opacity var(--transition-base);
+}
+
+/* Swap target gets a subtle fade during the settling phase */
+.htmx-settling {
+    transition: opacity var(--transition-base);
+}
+
+/* Old content fades out before being swapped away */
+.htmx-swapping {
+    opacity: 0.6;
+    transition: opacity var(--transition-fast);
+}
+
+/* — HTMX Row Insertion Animation (lazy-loaded rows) — */
+/* When lazy-load.js appends new <tr> rows via hx-swap="beforeend",
+   HTMX adds .htmx-added to each new row. This gives them a gentle
+   fade-in as they appear at the bottom of the table. */
+#doc-tbody .htmx-added {
+    opacity: 0;
+    animation: htmx-row-fade-in var(--transition-base) ease-out forwards;
+}
+
+@keyframes htmx-row-fade-in {
+    from { opacity: 0; }
+    to   { opacity: 1; }
 }
 
 /* — Skeleton Loading Blocks — */
@@ -2426,5 +2480,26 @@ kbd {
     .progress-bar.active,
     .progress-bar.complete {
         transition: none;
+    }
+    /* HTMX swap transitions: disable opacity transitions and row animations */
+    .htmx-indicator {
+        transition: none;
+    }
+    .htmx-added {
+        opacity: 1;
+        animation: none;
+    }
+    .htmx-settling,
+    .htmx-settling .htmx-added,
+    .htmx-settling.htmx-added {
+        transition: none;
+    }
+    .htmx-swapping {
+        opacity: 1;
+        transition: none;
+    }
+    #doc-tbody .htmx-added {
+        opacity: 1;
+        animation: none;
     }
 }
