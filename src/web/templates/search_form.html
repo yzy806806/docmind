@@ -11,7 +11,7 @@
               hx-trigger="submit, keyup from:find([name='q']) changed delay:250ms, change"
               hx-include="this"
               hx-indicator="#search-loading">
-            <input type="text" name="q" class="input" placeholder="Enter your search query..." required autofocus
+            <input type="text" name="q" class="input" placeholder="Search by keyword or natural language…" required autofocus
                    autocomplete="off">
             <button type="submit" class="btn btn-primary">Search</button>
             <div class="vector-weight-control">
@@ -30,7 +30,7 @@
     </div>
 
     <div id="search-loading" class="htmx-indicator search-live-loading" aria-live="polite" role="status">
-        <span class="spinner"></span> 正在搜索…
+        <span class="spinner"></span> Searching…
     </div>
     <div id="search-live-region" aria-live="polite" aria-busy="false"></div>
 {% endblock %}

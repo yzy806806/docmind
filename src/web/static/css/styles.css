@@ -300,6 +300,13 @@
        iOS and the page-scroll-chaining scroll-to-top glitch on
        infinite-list views). */
     --overscroll-behavior: contain;
+
+    /* — Focus ring & disabled states — */
+    --focus-ring-width: 2px;
+    --focus-ring-color: var(--nav-link);
+    --focus-ring-offset: 2px;
+    --opacity-disabled: 0.5;
+    --cursor-disabled: not-allowed;
 }
 
 /* ================================================================
@@ -345,6 +352,13 @@
     --shadow-sm: 0 1px 3px rgba(0,0,0,0.3);
     --shadow-lg: 0 8px 32px rgba(0,0,0,0.5);
     --shadow-overlay: rgba(0, 0, 0, 0.7);
+
+    /* Border widths are theme-independent but match the -border pattern,
+       so they are repeated here to satisfy the dark-theme completeness
+       contract (same values as :root). */
+    --border-w-1: 1px;
+    --border-w-2: 2px;
+    --border-w-3: 3px;
 
     /* — Loading & skeleton states (dark overrides) — */
     --skeleton-base: rgba(255, 255, 255, 0.08);

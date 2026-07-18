@@ -11,7 +11,7 @@
               hx-include="this"
               hx-indicator="#search-loading">
             <input type="text" name="q" class="input" value="{{ query }}" required autofocus
-                   autocomplete="off" placeholder="Enter your search query...">
+                   autocomplete="off" placeholder="Search by keyword or natural language…">
             <button type="submit" class="btn btn-primary">Search</button>
             <div class="vector-weight-control">
                 <label for="vw-slider">
@@ -29,7 +29,7 @@
     </div>
 
     <div id="search-loading" class="htmx-indicator search-live-loading" aria-live="polite" role="status">
-        <span class="spinner"></span> 正在搜索…
+        <span class="spinner"></span> Searching…
     </div>
 
     <div id="search-live-region" aria-live="polite" aria-busy="false">
