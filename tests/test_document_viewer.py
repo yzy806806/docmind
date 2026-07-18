@@ -982,7 +982,7 @@ class TestDocumentDetailImprovements:
 
         doc = {"id": 42, "title": "T", "status": "indexed", "body": "x"}
         html = _render_document_detail(doc)
-        assert "btn-delete" in html
+        assert "btn btn-danger" in html
         assert "Delete" in html
 
     def test_detail_keeps_metadata(self):

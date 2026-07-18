@@ -345,7 +345,7 @@ class TestDocumentDetailDeleteButton:
 
         doc = {"id": 42, "title": "Test Doc", "status": "indexed", "body": "content"}
         html = _render_document_detail(doc)
-        assert "btn-delete" in html
+        assert "btn btn-danger" in html
         assert "Delete" in html
 
     def test_detail_page_has_confirm_dialog(self):
