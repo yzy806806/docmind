@@ -411,6 +411,10 @@ body {
 :focus-visible {
     outline: var(--focus-ring-width) solid var(--focus-ring-color);
     outline-offset: var(--focus-ring-offset);
+    /* Smooth focus-ring appearance — the outline transitions in/out
+       rather than snapping, giving a polished feel for keyboard
+       navigators. Disabled in @media (prefers-reduced-motion). */
+    transition: outline-offset var(--transition-fast), outline-color var(--transition-fast);
 }
 
 /* Remove default outline for mouse focus (non-keyboard) */
@@ -437,13 +441,6 @@ textarea:focus-visible,
     outline: var(--focus-ring-width) solid var(--focus-ring-color);
     outline-offset: -1px;
     border-color: var(--nav-link);
-}
-
-/* Smooth focus-ring appearance — the outline transitions in/out rather
-   than snapping, giving a polished feel for keyboard navigators.
-   outline-offset animates from 0 to the target offset on focus. */
-:focus-visible {
-    transition: outline-offset var(--transition-fast), outline-color var(--transition-fast);
 }
 
 /* Buttons and links get explicit focus-visible so the ring is always
