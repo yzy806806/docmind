@@ -50,6 +50,7 @@ async def asgi_client(tmp_db_path: str):
     mock_queue.enqueue = AsyncMock(
         side_effect=lambda **kwargs: MagicMock(id=f"job-{kwargs.get('document_title','x')}")
     )
+    mock_queue.complete = AsyncMock(return_value=None)
 
     original_db = server._db
     original_queue = server._queue
@@ -338,5 +339,5 @@ class TestSubmitEndpoint:
         )
         assert r.status_code == 202
         data = r.json()
-        assert data["status"] == "pending"
+        assert data["status"] == "completed"
         assert "job_id" in data

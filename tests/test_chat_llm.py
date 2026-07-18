@@ -37,9 +37,9 @@ class TestLLMConfig:
         assert cfg.model == "gpt-4o-mini"
         assert cfg.api_key == ""
         assert cfg.base_url == ""
-        assert cfg.max_tokens == 1000
+        assert cfg.max_tokens == 8000
         assert cfg.temperature == 0.3
-        assert cfg.timeout_seconds == 30.0
+        assert cfg.timeout_seconds == 3600.0
 
     def test_env_loading(self, monkeypatch):
         """Config should read from DOCMIND_LLM_* env vars."""
@@ -77,7 +77,7 @@ class TestLLMConfig:
         assert cfg.provider == ""
         assert cfg.model == "gpt-4o-mini"
         assert cfg.api_key == ""
-        assert cfg.max_tokens == 1000
+        assert cfg.max_tokens == 8000
 
 
 # ── build_rag_prompt tests ───────────────────────────────────────
@@ -101,7 +101,8 @@ class TestBuildRagPrompt:
         system = messages[0]["content"]
         assert "DocMind" in system
         assert "[1]" in system  # citation instruction
-        assert "context" in system.lower()
+        # System prompt is now in Chinese; 上下文 = "context"
+        assert "上下文" in system
 
     def test_user_message_contains_context(self):
         """User message should include the context and question."""
@@ -280,18 +281,32 @@ class TestLLMClientGenerate:
 
     @pytest.mark.asyncio
     async def test_openai_generate_success(self):
-        """Should call OpenAI API and return response."""
+        """Should call OpenAI API via streaming and return response."""
         cfg = LLMConfig(provider="openai", api_key="sk-test")
         client = LLMClient(cfg)
 
-        # Mock the httpx client
+        # SSE lines simulating a streaming OpenAI response
+        sse_lines = [
+            'data: {"choices":[{"delta":{"content":"LLM answer from [1]."}}]}',
+            'data: [DONE]',
+        ]
+
         mock_response = MagicMock()
         mock_response.raise_for_status = MagicMock()
-        mock_response.json.return_value = {
-            "choices": [{"message": {"content": "LLM answer from [1]."}}]
-        }
+
+        async def mock_aiter_lines():
+            for line in sse_lines:
+                yield line
+
+        mock_response.aiter_lines = mock_aiter_lines
+
+        # client.stream(...) must be an async context manager
+        mock_stream_cm = AsyncMock()
+        mock_stream_cm.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_stream_cm.__aexit__ = AsyncMock(return_value=False)
+
         mock_http_client = AsyncMock()
-        mock_http_client.post = AsyncMock(return_value=mock_response)
+        mock_http_client.stream = MagicMock(return_value=mock_stream_cm)
         mock_http_client.is_closed = False
         client._client = mock_http_client
 
@@ -299,11 +314,7 @@ class TestLLMClientGenerate:
         answer = await client.generate("question?", results)
 
         assert answer == "LLM answer from [1]."
-        mock_http_client.post.assert_called_once()
-        # Check URL
-        call_args = mock_http_client.post.call_args
-        assert "chat/completions" in call_args[1].get("json", {}).get("model", "") or \
-               "chat/completions" in str(call_args)
+        mock_http_client.stream.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_ollama_generate_success(self):
@@ -333,8 +344,9 @@ class TestLLMClientGenerate:
         cfg = LLMConfig(provider="openai", api_key="sk-test")
         client = LLMClient(cfg)
 
+        # client.stream() raises, simulating a connection error
         mock_http_client = AsyncMock()
-        mock_http_client.post = AsyncMock(side_effect=Exception("API error"))
+        mock_http_client.stream = MagicMock(side_effect=Exception("API error"))
         mock_http_client.is_closed = False
         client._client = mock_http_client
 

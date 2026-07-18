@@ -668,19 +668,41 @@ class TestSummarizerIntegration:
 
     @pytest.mark.asyncio
     async def test_generate_summary_with_llm_adapter(self) -> None:
-        """_SyncLLMAdapter should bridge async LLM to sync chat()."""
+        """_SyncLLMAdapter should make a streaming LLM call and return content."""
         from src.web.server import _SyncLLMAdapter
 
+        mock_config = MagicMock()
+        mock_config.api_key = "sk-test"
+        mock_config.model = "gpt-4o-mini"
+        mock_config.temperature = 0.3
+        mock_config.timeout_seconds = 60.0
+        mock_config.base_url = "https://api.openai.com/v1"
+
         mock_async_client = MagicMock()
-
-        async def mock_generate(question, context_chunks, max_tokens=None):
-            return f"LLM answer to: {question[:30]}"
-
-        mock_async_client.generate = mock_generate
+        mock_async_client.config = mock_config
 
         adapter = _SyncLLMAdapter(mock_async_client)
-        result = adapter.chat("What is the summary?", max_tokens=100)
+
+        # Patch httpx.stream to return SSE lines simulating a streaming response
+        sse_lines = [
+            'data: {"choices":[{"delta":{"content":"LLM answer"}}]}',
+            'data: {"choices":[{"delta":{"content":" to: test"}}]}',
+            'data: [DONE]',
+        ]
+
+        mock_response = MagicMock()
+        mock_response.raise_for_status = MagicMock()
+        mock_response.iter_lines = MagicMock(return_value=iter(sse_lines))
+
+        mock_cm = MagicMock()
+        mock_cm.__enter__ = MagicMock(return_value=mock_response)
+        mock_cm.__exit__ = MagicMock(return_value=False)
+
+        with patch("httpx.stream", return_value=mock_cm) as mock_stream:
+            result = adapter.chat("What is the summary?", max_tokens=100)
+
         assert "LLM answer" in result
+        mock_stream.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_generate_summary_llm_adapter_handles_error(self) -> None:
