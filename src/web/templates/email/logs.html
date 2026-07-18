@@ -31,7 +31,7 @@
                   style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px;">
                 <label>
                     Status
-                    <select name="status" class="input class="facet-select">
+                    <select name="status" class="facet-select">
                         <option value="">All</option>
                         <option value="completed" {{ 'selected' if status_filter == 'completed' }}>Completed</option>
                         <option value="failed" {{ 'selected' if status_filter == 'failed' }}>Failed</option>
@@ -40,7 +40,7 @@
                         <option value="processing" {{ 'selected' if status_filter == 'processing' }}>Processing</option>
                     </select>
                 </label>
-                <button type="submit" class="btn btn-secondary btn-sm">Apply</button>
+                <button type="submit" style="padding:5px 14px;cursor:pointer;">Apply</button>
                 <a href="/email-accounts/{{ account.id if account else 0 }}/logs" class="facet-clear-btn">Clear</a>
             </form>
         </details>
@@ -91,11 +91,11 @@
         {% if total_pages > 1 %}
         <div class="pagination" style="margin-top:12px;display:flex;gap:4px;justify-content:center;">
             {% if page > 1 %}
-                <a href="/email-accounts/{{ account.id if account else 0 }}/logs?page={{ page - 1 }}{% if status_filter %}&status={{ status_filter }}{% endif %}" class="btn btn-link">← Prev</a>
+                <a href="/email-accounts/{{ account.id if account else 0 }}/logs?page={{ page - 1 }}{% if status_filter %}&status={{ status_filter }}{% endif %}" class="btn-view-link">← Prev</a>
             {% endif %}
             <span>Page {{ page }} of {{ total_pages }}</span>
             {% if page < total_pages %}
-                <a href="/email-accounts/{{ account.id if account else 0 }}/logs?page={{ page + 1 }}{% if status_filter %}&status={{ status_filter }}{% endif %}" class="btn btn-link">Next →</a>
+                <a href="/email-accounts/{{ account.id if account else 0 }}/logs?page={{ page + 1 }}{% if status_filter %}&status={{ status_filter }}{% endif %}" class="btn-view-link">Next →</a>
             {% endif %}
         </div>
         {% endif %}

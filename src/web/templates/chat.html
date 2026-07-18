@@ -8,14 +8,15 @@
                 <button id="new-chat-btn" class="btn-new-chat" title="Start a new chat">+ New</button>
             </div>
             <div class="chat-session-list" id="chat-session-list">
-                <p class="pagination-info">Loading conversations…</p>
+                <p class="pagination-info">Loading...</p>
             </div>
         </aside>
         <div class="card chat-main">
             <div class="chat-header-row" style="display:flex;justify-content:space-between;align-items:center;">
                 <h2 id="chat-title">Chat with Your Documents</h2>
                 <div class="chat-export-dropdown" style="position:relative;display:inline-block;">
-                    <button id="chat-export-btn" onclick="toggleExportMenu()" class="btn btn-secondary btn-sm"
+                    <button id="chat-export-btn" onclick="toggleExportMenu()" class="btn-export"
+                            style="padding:6px 14px;font-size:0.85em;cursor:pointer;border:1px solid var(--border);border-radius:6px;background:var(--surface);"
                             title="Export conversation">⬇ Export</button>
                     <div id="chat-export-menu" style="display:none;position:absolute;right:0;top:100%;
                          background:var(--surface);border:1px solid var(--border);border-radius:6px;
@@ -38,10 +39,10 @@
             <p class="pagination-info">Ask questions and get AI-powered answers with citation tracking.</p>
             <div class="chat-box">
                 <div class="chat-messages" id="chat-messages">
-                    <div class="chat-msg bot">Connecting to assistant…</div>
+                    <div class="chat-msg bot">Connecting...</div>
                 </div>
                 <div class="chat-input-row">
-                    <input type="text" id="chat-input" class="input" placeholder="Ask a question about your documents…"
+                    <input type="text" id="chat-input" placeholder="Ask a question..."
                            onkeydown="if(event.key==='Enter')sendChat()" autofocus>
                     <button id="chat-send-btn" onclick="sendChat()">Send</button>
                 </div>

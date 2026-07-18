@@ -22,7 +22,7 @@
     <td>{{ doc.ext or '' }}</td>
     <td>{{ fmt_date(doc.created_at) }}</td>
     <td>{{ doc._tag_badges_html }}</td>
-    <td><a href="/documents/{{ doc.id }}/view" class="btn btn-link"
+    <td><a href="/documents/{{ doc.id }}/view" class="btn-view-link"
            title="View document">📖 View</a></td>
 </tr>
 {% endfor %}

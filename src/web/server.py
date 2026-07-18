@@ -137,7 +137,6 @@ from .rendering import (
     _render_search_form,
     _render_search_results,
     _render_search_result_row,
-    _render_search_results_live,
     _render_documents_list,
     _render_documents_table_partial,
     _render_document_rows_partial,
@@ -233,9 +232,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         stored = await _db.get_all_settings()
         apply_auth_settings_from_db(stored)
-        _reload_llm_config_from_db(stored)
     except Exception:
-        logger.exception("Failed to hydrate config from DB — auth/LLM may be misconfigured")
+        logger.exception("Failed to hydrate auth config from DB — auth may be misconfigured")
     # Ensure env-var-supplied api_key still wins if no DB value is set.
     if not config.auth.api_key and config.auth.enabled:
         logger.warning("Auth is enabled but no API key is configured — generating one")
@@ -333,7 +331,7 @@ def create_app() -> FastAPI:
             routes=app.routes,
             servers=[
                 {"url": "/api/v1", "description": "API v1 base path"},
-                {"url": "http://localhost:9980", "description": "Local development"},
+                {"url": "http://localhost:8080", "description": "Local development"},
             ],
         )
 
@@ -564,7 +562,6 @@ def create_app() -> FastAPI:
             default=False,
             description="If true, return only result rows as HTML fragment (for lazy loading)"
         ),
-        request: Request = None,
     ):
         """Search page with results and citations.
 
@@ -576,12 +573,6 @@ def create_app() -> FastAPI:
         ``HybridSearchEngine.search()`` to tune the FTS/vector balance
         for this query without re-instantiating the engine.
         Non-numeric input returns a 400 error.
-
-        When the request comes from HTMX (HX-Request header present)
-        and is not an export or lazy-load partial, the response is a
-        live-search fragment — only the inner content of
-        #search-live-region — so the debounced keyup search swaps
-        results without reloading the entire page.
         """
         if not q.strip():
             return HTMLResponse(content=_render_search_form())
@@ -684,22 +675,6 @@ def create_app() -> FastAPI:
         # For the full page, show the first `limit` results and set up
         # the lazy-load sentinel for subsequent pages.
         page_results = results[:limit]
-
-        # ── Live HTMX search fragment ────────────────────────
-        # When the request originates from an HTMX-triggered keyup
-        # (debounced at 250ms in the template), the HX-Request header
-        # is set to "true".  In that case we return only the inner
-        # content of #search-live-region — not a full page — so the
-        # client can swap it in via hx-swap="innerHTML" without
-        # reloading the form, slider, or page chrome.
-        if request is not None and request.headers.get("HX-Request") == "true":
-            live_html = _render_search_results_live(
-                validated_q, page_results,
-                vector_weight=resolved_vw,
-                limit=limit, total=total,
-            )
-            return HTMLResponse(content=live_html)
-
         html = _render_search_results(
             validated_q, page_results,
             vector_weight=resolved_vw,
@@ -846,32 +821,7 @@ def create_app() -> FastAPI:
             source_facets=source_facets,
             all_collections_list=all_collections_list,
         )
-        # Push the canonical /documents URL into browser history so the
-        # back button works after HTMX filter swaps.  The partial endpoint
-        # URL (/documents/partials/table) must NOT be pushed — it returns
-        # a fragment, not a full page.  We build the full-page URL with the
-        # same query params so pressing back reloads the full /documents
-        # page with filters applied.
-        from urllib.parse import urlencode
-        push_params: dict[str, str | int] = {"per_page": per_page}
-        if source:
-            push_params["source"] = source
-        if tag:
-            push_params["tag"] = tag
-        if collection_id is not None:
-            push_params["collection_id"] = collection_id
-        if date_from:
-            push_params["date_from"] = date_from
-        if date_to:
-            push_params["date_to"] = date_to
-        if file_type:
-            push_params["file_type"] = file_type
-        push_params["page"] = page
-        push_url = f"/documents?{urlencode(push_params)}"
-        return HTMLResponse(
-            content=html,
-            headers={"HX-Push-Url": push_url},
-        )
+        return HTMLResponse(content=html)
 
     # ── HTMX Rows-Only Endpoint (Phase 9 lazy loading) ────────────
     # Returns just the <tr> elements for one page — used by the
@@ -1271,43 +1221,37 @@ def create_app() -> FastAPI:
                     size=len(raw),
                 )
 
-                # Auto-detect type + generate summary in background
-                async def _post_process_upload(local_db, local_doc_id, local_title, local_body, local_ext):
-                    if config.auto_detection.enabled:
-                        try:
-                            doc_type, method = await _detect_document_type(
-                                local_title, local_body, local_ext
-                            )
-                            await local_db.update_document_type(local_doc_id, doc_type)
-                        except Exception:
-                            logger.warning(
-                                "Type detection failed for doc %s, continuing",
-                                local_doc_id,
-                            )
+                # Auto-detect document type (best-effort)
+                if config.auto_detection.enabled:
                     try:
-                        summary = await _generate_summary_for_doc(
-                            {"title": local_title, "body": local_body}
+                        doc_type, method = await _detect_document_type(
+                            display_title, body, ext or ""
                         )
-                        if summary:
-                            await local_db.update_summary(local_doc_id, summary)
+                        await db.update_document_type(doc_id, doc_type)
                     except Exception:
                         logger.warning(
-                            "Summary generation failed for doc %s, continuing",
-                            local_doc_id,
+                            "Type detection failed for doc %s, continuing",
+                            doc_id,
                         )
 
-                import asyncio as _aio
-                _aio.create_task(_post_process_upload(
-                    db, doc_id, display_title, body, ext or ""
-                ))
+                # Auto-generate summary on upload (best-effort)
+                try:
+                    summary = await _generate_summary_for_doc(
+                        {"title": display_title, "body": body}
+                    )
+                    if summary:
+                        await db.update_summary(doc_id, summary)
+                except Exception:
+                    logger.warning(
+                        "Summary generation failed for doc %s, continuing",
+                        doc_id,
+                    )
 
                 job = await queue.enqueue(
                     document_path=f"/uploads/{f.filename or 'unknown'}",
                     document_title=display_title,
                     source_name="web-upload",
                 )
-                # Document is already ingested; mark job as completed immediately.
-                await queue.complete(job.id, doc_id)
 
                 results.append({
                     "title": display_title,
@@ -2600,52 +2544,41 @@ def create_app() -> FastAPI:
             metadata=doc.metadata,
         )
 
-        # Auto-detect document type and generate summary in background
-        # so the upload endpoint returns immediately (202 Accepted).
-        async def _post_process():
-            doc_title = doc.title
-            doc_body = doc.body
-            doc_ext = doc.ext
-            local_doc_id = doc_id
-            # Type detection (best-effort)
-            if config.auto_detection.enabled:
-                try:
-                    doc_type, method = await _detect_document_type(
-                        doc_title, doc_body, doc_ext
-                    )
-                    await db.update_document_type(local_doc_id, doc_type)
-                except Exception:
-                    logger.warning(
-                        "Type detection failed for doc %s, continuing", local_doc_id
-                    )
-            # Auto-generate summary (best-effort)
+        # Auto-detect document type (best-effort)
+        if config.auto_detection.enabled:
             try:
-                summary = await _generate_summary_for_doc(
-                    {"title": doc_title, "body": doc_body}
+                doc_type, method = await _detect_document_type(
+                    doc.title, doc.body, doc.ext
                 )
-                if summary:
-                    await db.update_summary(local_doc_id, summary)
+                await db.update_document_type(doc_id, doc_type)
             except Exception:
                 logger.warning(
-                    "Summary generation failed for doc %s, continuing", local_doc_id
+                    "Type detection failed for doc %s, continuing", doc_id
                 )
 
-        import asyncio as _asyncio
-        _asyncio.create_task(_post_process())
+        # Auto-generate summary on submit (best-effort)
+        try:
+            summary = await _generate_summary_for_doc(
+                {"title": doc.title, "body": doc.body}
+            )
+            if summary:
+                await db.update_summary(doc_id, summary)
+        except Exception:
+            logger.warning(
+                "Summary generation failed for doc %s, continuing", doc_id
+            )
 
         job = await queue.enqueue(
             document_path=doc.path,
             document_title=doc.title,
             source_name=doc.source_name,
         )
-        # Document is already ingested; mark job as completed immediately.
-        await queue.complete(job.id, doc_id)
 
         logger.info("Document %s submitted → job %s", doc.path, job.id)
 
         return SubmissionAccepted(
             job_id=job.id,
-            status="completed",
+            status="pending",
             document_path=doc.path,
         )
 

@@ -35,8 +35,7 @@
                 {% endif %}
             </div>
             <form action="/documents/{{ doc.id or '?' }}/assign-collection" method="post"
-                  class="collection-assign-row"
-                  data-optimistic data-optimistic-action="collection-assign">
+                  class="collection-assign-row">
                 <select name="collection_id">
                     <option value="">— Unassigned —</option>
                     {% for col in all_collections %}
@@ -52,28 +51,27 @@
 
         <div class="doc-tags-section">
             <div class="field"><span class="field-label">Tags:</span>
-                {% if tag_badges_html %}{{ tag_badges_html }}{% else %}<em>No tags yet — <a href="#" onclick="document.querySelector('.tag-input-row input').focus();return false;">add one</a></em>{% endif %}
+                {% if tag_badges_html %}{{ tag_badges_html }}{% else %}<em>No tags yet</em>{% endif %}
             </div>
-            <form action="/documents/{{ doc.id or '?' }}/tags" method="post" class="tag-input-row"
-                  data-optimistic data-optimistic-action="single-tag-add">
-                <input type="text" name="tag" class="input" placeholder="Add a tag…" required maxlength="50">
+            <form action="/documents/{{ doc.id or '?' }}/tags" method="post" class="tag-input-row">
+                <input type="text" name="tag" placeholder="Add a tag…" required maxlength="50">
                 <button type="submit">Add Tag</button>
             </form>
         </div>
 
         <h3>Summary</h3>
         <div class="summary-section">
-            <p>{{ doc.summary or '<em>No summary available — regenerate to create one</em>' }}</p>
+            <p>{{ doc.summary or '<em>No summary available</em>' }}</p>
             <div class="summary-actions" style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">
                 <form action="/documents/{{ doc.id or '?' }}/regenerate-summary" method="post"
                       style="display:inline;"
                       onsubmit="return confirm('Regenerate summary for document {{ doc.id or '?' }}?');">
-                    <button type="submit" class="btn btn-secondary btn-sm">🔄 Regenerate Summary</button>
+                    <button type="submit" class="btn-regenerate" style="padding:4px 12px;font-size:0.85em;cursor:pointer;">🔄 Regenerate Summary</button>
                 </form>
                 <a href="/documents/{{ doc.id or '?' }}/summary/export?format=md"
-                   class="btn btn-secondary btn-sm">⬇ Summary .md</a>
+                   class="btn-export" style="padding:4px 12px;font-size:0.85em;text-decoration:none;border:1px solid var(--border);border-radius:4px;">⬇ Summary .md</a>
                 <a href="/documents/{{ doc.id or '?' }}/summary/export?format=txt"
-                   class="btn btn-secondary btn-sm">⬇ Summary .txt</a>
+                   class="btn-export" style="padding:4px 12px;font-size:0.85em;text-decoration:none;border:1px solid var(--border);border-radius:4px;">⬇ Summary .txt</a>
             </div>
         </div>
 
@@ -85,13 +83,12 @@
         <div id="doc-excerpt-lazy" data-doc-id="{{ doc.id or '?' }}" style="min-height:2em;">
             <pre class="doc-excerpt">{{ escape(excerpt) }}</pre>
         </div>
-        <p><a href="/documents/{{ doc.id or '?' }}/view" class="btn btn-primary">📖 Read Full Document</a></p>
+        <p><a href="/documents/{{ doc.id or '?' }}/view" class="btn-read-full">📖 Read Full Document</a></p>
 
         <div class="doc-actions">
             <form action="/documents/{{ doc.id or '?' }}/delete" method="post"
-                  data-optimistic data-optimistic-action="single-delete"
                   onsubmit="return confirm('Are you sure you want to delete document {{ doc.id or '?' }}? This cannot be undone.');">
-                <button type="submit" class="btn btn-danger">🗑 Delete Document</button>
+                <button type="submit" class="btn-delete">🗑 Delete Document</button>
             </form>
         </div>
     </div>

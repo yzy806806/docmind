@@ -5,7 +5,7 @@
         <h2>📧 Email Accounts</h2>
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
             <p class="pagination-info">Manage IMAP accounts for email-based document ingestion.</p>
-            <a href="/email-accounts/new" class="btn btn-primary btn-sm">+ Add Account</a>
+            <a href="/email-accounts/new" class="btn-save" style="text-decoration:none;padding:6px 16px;">+ Add Account</a>
         </div>
 
         {% if accounts %}
@@ -47,16 +47,16 @@
                     {% endif %}
                 </td>
                 <td>
-                    <a href="/email-accounts/{{ acct.id }}" class="btn btn-link" title="View details">📖</a>
-                    <a href="/email-accounts/{{ acct.id }}/edit" class="btn btn-link" title="Edit">✏️</a>
-                    <a href="/email-accounts/{{ acct.id }}/logs" class="btn btn-link" title="Logs">📋</a>
+                    <a href="/email-accounts/{{ acct.id }}" class="btn-view-link" title="View details">📖</a>
+                    <a href="/email-accounts/{{ acct.id }}/edit" class="btn-view-link" title="Edit">✏️</a>
+                    <a href="/email-accounts/{{ acct.id }}/logs" class="btn-view-link" title="Logs">📋</a>
                     <form method="post" action="/email-accounts/{{ acct.id }}/sync" style="display:inline;"
                           onsubmit="return confirm('Sync account {{ acct.name }} now?');">
-                        <button type="submit" class="btn btn-secondary btn-sm" title="Sync now">🔄</button>
+                        <button type="submit" style="padding:2px 8px;font-size:0.85em;cursor:pointer;" title="Sync now">🔄</button>
                     </form>
                     <form method="post" action="/email-accounts/{{ acct.id }}/delete" style="display:inline;"
                           onsubmit="return confirm('Delete account {{ acct.name }}? Ingestion logs will be removed.');">
-                        <button type="submit" class="btn btn-danger btn-sm" title="Delete">🗑</button>
+                        <button type="submit" class="btn-delete" style="padding:2px 8px;font-size:0.85em;" title="Delete">🗑</button>
                     </form>
                 </td>
             </tr>

@@ -12,7 +12,7 @@
         {% if collection.description %}
         <p class="pagination-info">{{ collection.description }}</p>
         {% else %}
-        <p class="pagination-info" style="color: var(--text-muted, #888);">No description yet. <a href="/collections/{{ collection.id }}/edit">Add one</a> to help organize your collection.</p>
+        <p class="pagination-info" style="color: var(--text-muted, #888);">No description.</p>
         {% endif %}
 
         <div style="margin: 12px 0; display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
@@ -20,11 +20,11 @@
         </div>
 
         <div style="margin: 12px 0; display: flex; gap: 8px; flex-wrap: wrap;">
-            <a href="/collections/{{ collection.id }}/edit" class="btn btn-secondary btn-sm">✏️ Edit</a>
+            <a href="/collections/{{ collection.id }}/edit" class="btn-view-link" style="padding: 5px 14px; text-decoration: none;">✏️ Edit</a>
             <form method="post" action="/collections/{{ collection.id }}/delete" style="display: inline;" onsubmit="return confirm('Delete this collection? Documents will be moved to All Documents.');">
-                <button type="submit" class="btn btn-danger btn-sm">🗑 Delete</button>
+                <button type="submit" class="btn-delete" style="padding: 5px 14px; cursor: pointer;">🗑 Delete</button>
             </form>
-            <a href="/collections/new" class="btn btn-secondary btn-sm">＋ New Collection</a>
+            <a href="/collections/new" class="btn-view-link" style="padding: 5px 14px; text-decoration: none;">＋ New Collection</a>
         </div>
 
         <h3>Sub-Collections</h3>

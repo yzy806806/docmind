@@ -1,33 +1,34 @@
 # Project Context
 
 **Project:** docmind
-**Goal:** 美化项目前端界面，提升流畅度
+**Goal:** 持续开发docmind
 **Status:** active
+
+## Description
+
+持续开发https://github.com/yzy806806/docmind项目,团队共同讨论开发方向。
 
 ## Stop Condition
 
-The project should stop when: 网页操作流畅度得到大幅提升。
+The project should stop when: 易用性与性能达到最优，对比同类项目，功能无缺失。
 If the stop condition appears to be met, the leader should raise a motion for the team to vote on whether to stop.
 
-**Heartbeat Member:** leader (woken every 15 min)
+**Heartbeat Member:** leader (woken every 60 min)
 
 ## Team Members
 
-| Profile Name | Role (Template) |
-|---|---|
-| leader (heartbeat) | leader — Team Leader |
-| developer | developer — Developer |
-| writer | writer — Writer |
-| researcher | researcher — Researcher |
-| tester | tester — Tester |
-| reviewer | reviewer — Reviewer |
-| architect | architect — Architect |
+| Name | Role |
+|------|------|
+| leader (heartbeat) | Team Leader |
+| developer | Developer |
+| writer | Writer |
+| researcher | Researcher |
+| tester | Tester |
+| reviewer | Reviewer |
+| architect | Architect |
 
-Assign tasks by role name (e.g. `assignee='developer'`). The system routes to the correct worker automatically.
-
-## Active Discussions
-
-- `[motion-a31852c00d3e]` Frontend Beautification Phase 3: Current State Assessment an (steps 0/30, discussing)
+When creating follow-up tasks, assign them to the appropriate team member above.
+Use `hermes profile list` to verify member availability.
 
 ## Workflow
 

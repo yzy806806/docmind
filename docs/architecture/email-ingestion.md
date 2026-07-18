@@ -307,7 +307,7 @@ You can verify your IMAP credentials without waiting for the next poll
 cycle. Use the API endpoint:
 
 ```bash
-curl -X POST http://localhost:9980/api/v1/email-accounts/1/test
+curl -X POST http://localhost:8080/api/v1/email-accounts/1/test
 ```
 
 A successful response:

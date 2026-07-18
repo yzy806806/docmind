@@ -512,100 +512,6 @@ def _render_search_results(
     )
 
 
-def _render_search_results_live(
-    query: str,
-    results: list[dict],
-    vector_weight: float | None = None,
-    *,
-    limit: int = 20,
-    total: int | None = None,
-) -> str:
-    """Render the search results region as an HTML fragment for live HTMX search.
-
-    Returns only the content that goes inside #search-live-region:
-    the export bar, results list (or "no results" message). No page
-    chrome, no <form>, no <html> wrapper. The HTMX client swaps this
-    into #search-live-region via hx-swap="innerHTML".
-    """
-    prepared = []
-    for r in results:
-        prepared.append({
-            "id": r.get("id", "?"),
-            "title": r.get("title", "Untitled"),
-            "snippet": r.get("snippet", r.get("raw_preview", "")),
-            "summary": r.get("summary", ""),
-            "status": r.get("status", "pending"),
-            "rank": r.get("rank", 0),
-        })
-    vw_current = vector_weight if vector_weight is not None else 0.6
-    actual_total = total if total is not None else len(prepared)
-
-    # Build the fragment directly — this mirrors the inner content of
-    # search_results.html's #search-live-region div.
-    from html import escape as _esc
-
-    parts: list[str] = []
-
-    # Export bar
-    parts.append('<div class="search-export-bar">')
-    parts.append(
-        f'<p style="margin:0;">Found {actual_total} result(s) for: '
-        f'<strong>{_esc(query)}</strong>'
-    )
-    if actual_total > limit:
-        parts.append(f' (showing first {limit})')
-    parts.append('</p>')
-    if prepared:
-        vw_str = f"{vw_current:.2f}"
-        parts.append('<div class="export-links">')
-        parts.append(
-            f'<a href="/search?q={_esc(query)}&vector_weight={vw_str}&export=csv" '
-            f'class="btn-export">⬇ Export CSV</a>'
-        )
-        parts.append(
-            f'<a href="/search?q={_esc(query)}&vector_weight={vw_str}&export=json" '
-            f'class="btn-export">⬇ Export JSON</a>'
-        )
-        parts.append('</div>')
-    parts.append('</div>')
-
-    # Results list or no-results message
-    if prepared:
-        parts.append('<div id="search-results-list">')
-        for r in prepared:
-            rank_html = f' | Score: {r["rank"]:.2f}' if r["rank"] else ''
-            summary_html = (
-                f'<div class="snippet"><strong>Summary:</strong> {_esc(r["summary"])}</div>'
-                if r["summary"] else ''
-            )
-            snippet_html = (
-                f'<div class="snippet">{_esc(r["snippet"][:300])}</div>'
-                if r["snippet"] else ''
-            )
-            parts.append(
-                f'<div class="result">'
-                f'<h3><a href="/documents/{_esc(str(r["id"]))}">'
-                f'[{_esc(str(r["id"]))}] {_esc(r["title"])}</a></h3>'
-                f'<div class="meta">'
-                f'Status: <span class="badge badge-{_esc(r["status"])}">{_esc(r["status"])}</span>'
-                f'{rank_html}'
-                f'</div>'
-                f'{summary_html}'
-                f'{snippet_html}'
-                f'</div>'
-            )
-        parts.append('</div>')
-    else:
-        parts.append(
-            '<p>No results found for "'
-            f'<strong>{_esc(query)}</strong>'
-            '". Try different keywords, or '
-            '<a href="/search">start a new search</a>.</p>'
-        )
-
-    return "".join(parts)
-
-
 def _find_collection_name(
     tree: list[dict], target_id: int
 ) -> str | None:
@@ -1125,8 +1031,7 @@ def _render_document_detail(
             tag_badges_html += (
                 f'<span class="tag-pill">{_escape(t)}'
                 f'<form action="/documents/{doc.get("id", "?")}/tags/{_escape(t)}/delete" '
-                f'method="post" style="display:inline;" '
-                f'data-optimistic data-optimistic-action="tag-remove">'
+                f'method="post" style="display:inline;">'
                 f'<button type="submit" class="tag-remove" title="Remove tag">✕</button>'
                 f'</form></span>'
             )

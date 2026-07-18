@@ -206,7 +206,7 @@ client IP. The proxy should strip or overwrite any incoming
 
 ```nginx
 location / {
-    proxy_pass http://127.0.0.1:9980;
+    proxy_pass http://127.0.0.1:8080;
     proxy_set_header X-Forwarded-For $remote_addr;
     # $remote_addr is the real client IP as seen by nginx
 }
@@ -215,7 +215,7 @@ location / {
 **Caddy:**
 
 ```
-reverse_proxy 127.0.0.1:9980 {
+reverse_proxy 127.0.0.1:8080 {
     header_up X-Forwarded-For {remote_host}
 }
 ```

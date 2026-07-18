@@ -10,7 +10,7 @@
         <form action="/settings" method="post" id="settings-form">
             <div class="settings-field">
                 <label for="provider"><strong>LLM Provider</strong></label>
-                <select name="provider" id="provider" class="input" onchange="toggleBaseUrl()">
+                <select name="provider" id="provider" onchange="toggleBaseUrl()">
                     <option value="" {% if not provider %}selected{% endif %}>(none — extractive fallback)</option>
                     <option value="openai" {% if provider == 'openai' %}selected{% endif %}>OpenAI</option>
                     <option value="openai-compat" {% if provider == 'openai-compat' %}selected{% endif %}>OpenAI-compatible (vLLM, LM Studio, etc.)</option>
@@ -20,13 +20,13 @@
 
             <div class="settings-field">
                 <label for="model"><strong>Model Name</strong></label>
-                <input type="text" name="model" id="model" class="input" value="{{ model }}"
+                <input type="text" name="model" id="model" value="{{ model }}"
                        placeholder="e.g. gpt-4o-mini, llama3, qwen2.5">
             </div>
 
             <div class="settings-field">
                 <label for="api_key"><strong>API Key</strong></label>
-                <input type="password" name="api_key" id="api_key" class="input"
+                <input type="password" name="api_key" id="api_key"
                        value="{{ masked_key }}"
                        placeholder="Leave as-is to keep current key, or type a new one">
                 <p class="settings-hint">Current key: {% if masked_key %}{{ masked_key }}{% else %}(not set){% endif %} — only the last 4 characters are shown for security.</p>
@@ -34,14 +34,14 @@
 
             <div class="settings-field" id="base_url_row" style="display:{{ base_url_row_display }}">
                 <label for="base_url"><strong>Base URL</strong></label>
-                <input type="text" name="base_url" id="base_url" class="input" value="{{ base_url }}"
+                <input type="text" name="base_url" id="base_url" value="{{ base_url }}"
                        placeholder="https://api.openai.com/v1 or http://localhost:11434">
                 <p class="settings-hint">Required for OpenAI-compatible and Ollama providers.</p>
             </div>
 
             <div class="settings-field">
                 <label for="max_tokens"><strong>Max Tokens</strong> <span id="max_tokens_val">{{ max_tokens }}</span></label>
-                <input type="range" name="max_tokens" id="max_tokens" min="4000" max="64000" step="500"
+                <input type="range" name="max_tokens" id="max_tokens" min="100" max="4000" step="100"
                        value="{{ max_tokens }}" oninput="document.getElementById('max_tokens_val').textContent=this.value">
             </div>
 
@@ -71,15 +71,15 @@
 
             <div class="settings-field">
                 <label for="auth_api_key"><strong>Password / API Key</strong></label>
-                <input type="password" name="auth_api_key" id="auth_api_key" class="input"
+                <input type="password" name="auth_api_key" id="auth_api_key"
                        value="{{ masked_auth_key }}"
                        placeholder="Leave as-is to keep current key, or type a new one">
                 <p class="settings-hint">Current key: {% if masked_auth_key %}{{ masked_auth_key }}{% else %}(not set — a random one will be generated on enable){% endif %} — only the last 4 characters are shown. For API access, send this value in the <code>X-API-Key</code> header.</p>
             </div>
 
             <div class="settings-actions">
-                <button type="submit" class="btn btn-primary">💾 Save Settings</button>
-                <a href="/" class="btn btn-ghost">Cancel</a>
+                <button type="submit" class="btn-save">💾 Save Settings</button>
+                <a href="/" class="btn-cancel">Cancel</a>
             </div>
         </form>
     </div>

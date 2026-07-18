@@ -10,7 +10,7 @@
         <form method="post" action="{{ form_action }}" class="settings-form" style="margin-top:16px;">
             <div class="settings-field">
                 <label for="name">Collection Name</label>
-                <input type="text" id="name" name="name" class="input" required
+                <input type="text" id="name" name="name" required
                        value="{{ collection.name if collection else '' }}"
                        placeholder="e.g. Research Papers"
                        style="width:100%;padding:8px 12px;border:2px solid var(--input-border);border-radius:6px;font-size:1em;background:var(--surface);color:var(--text);">
@@ -18,14 +18,14 @@
 
             <div class="settings-field">
                 <label for="description">Description (optional)</label>
-                <textarea id="description" name="description" rows="3" class="input"
+                <textarea id="description" name="description" rows="3"
                           placeholder="A short description of this collection"
                           style="width:100%;padding:8px 12px;border:2px solid var(--input-border);border-radius:6px;font-size:1em;background:var(--surface);color:var(--text);">{{ collection.description if collection else '' }}</textarea>
             </div>
 
             <div class="settings-field">
                 <label for="parent_id">Parent Collection (optional)</label>
-                <select id="parent_id" name="parent_id" class="input"
+                <select id="parent_id" name="parent_id"
                         style="width:100%;padding:8px 12px;border:2px solid var(--input-border);border-radius:6px;font-size:1em;background:var(--surface);color:var(--text);">
                     <option value="">— None (top-level) —</option>
                     {% for col in parent_choices %}
@@ -41,17 +41,17 @@
             </div>
 
             <div class="settings-actions">
-                <button type="submit" class="btn btn-primary">
+                <button type="submit" class="btn-save">
                     {{ 'Update Collection' if mode == 'edit' else 'Create Collection' }}
                 </button>
                 {% if mode == 'edit' %}
                 <button type="submit" formaction="{{ delete_action }}" formmethod="post"
-                        class="btn btn-danger"
+                        class="btn-delete"
                         onclick="return confirm('Delete this collection? Documents will be moved to All Documents. Child collections will also be deleted.');">
                     Delete Collection
                 </button>
                 {% endif %}
-                <a href="/documents" class="btn btn-ghost">Cancel</a>
+                <a href="/documents" class="btn-cancel">Cancel</a>
             </div>
         </form>
     </div>

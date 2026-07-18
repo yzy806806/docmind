@@ -23,13 +23,11 @@ class ChunkSummarizer:
         chunk_size: int = 4000,
         chunk_overlap: int = 200,
         min_completion_ratio: float = 0.6,
-        max_tokens: int = 8000,
     ):
         self.llm = llm_client
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
         self.min_completion_ratio = min_completion_ratio
-        self.max_tokens = max_tokens
 
     # ── public API ────────────────────────────────────────────────
 
@@ -94,15 +92,15 @@ class ChunkSummarizer:
         """Summarize a short-enough document in one LLM call."""
         truncated = body[:limit]
         prompt = (
-            f"请用中文总结以下文档，2-3句话，"
-            f"重点说明：文档内容、关键主题和文档类型"
-            f"（如合同、报告、发票、发言稿）。\n\n"
-            f"标题：{title}\n\n"
-            f"内容：\n{truncated}\n\n"
-            f"摘要："
+            f"Summarize the following document in 2-3 sentences. "
+            f"Focus on: what it is about, key topics, and document type "
+            f"(e.g., contract, report, invoice, speech).\n\n"
+            f"Title: {title}\n\n"
+            f"Content:\n{truncated}\n\n"
+            f"Summary:"
         )
         try:
-            response = self.llm.chat(prompt, max_tokens=self.max_tokens)
+            response = self.llm.chat(prompt, max_tokens=150)
             return response.strip() if response else None
         except Exception as e:
             print(f"[ChunkSummarizer] LLM call failed: {e}")
@@ -141,13 +139,15 @@ class ChunkSummarizer:
     ) -> str:
         """Summarize one chunk with positional context."""
         prompt = (
-            f"你正在阅读标题为'{title}'的长文档的第 {chunk_idx + 1}/{total_chunks} 节。"
-            f"请用1-2句话总结本节的关键内容。\n\n"
-            f"内容（第 {chunk_idx + 1}/{total_chunks} 节）：\n"
+            f"You are reading section {chunk_idx + 1} of {total_chunks} of a "
+            f"longer document titled '{title}'. "
+            f"Summarize this section in 1-2 sentences, capturing the key "
+            f"information it contains.\n\n"
+            f"Content (section {chunk_idx + 1}/{total_chunks}):\n"
             f"{chunk}\n\n"
-            f"摘要："
+            f"Summary:"
         )
-        response = self.llm.chat(prompt, max_tokens=self.max_tokens)
+        response = self.llm.chat(prompt, max_tokens=120)
         return response.strip() if response else ""
 
     def _reduce_summaries(self, title: str, chunk_summaries: list[str]) -> str:
@@ -157,12 +157,13 @@ class ChunkSummarizer:
             for i, s in enumerate(chunk_summaries)
         )
         prompt = (
-            f"以下是标题为'{title}'的长文档各节摘要。"
-            f"请将它们合并成一段连贯的中文总结，3-5句话，概括整篇文档。\n\n"
+            f"Below are summaries of individual sections of a longer document "
+            f"titled '{title}'. Combine them into a single coherent summary "
+            f"of 3-5 sentences that captures the overall document.\n\n"
             f"{joined}\n\n"
-            f"合并摘要："
+            f"Combined summary:"
         )
-        response = self.llm.chat(prompt, max_tokens=self.max_tokens)
+        response = self.llm.chat(prompt, max_tokens=250)
         return response.strip() if response else " ".join(chunk_summaries)
 
     def _retry_summarize(
@@ -289,7 +290,6 @@ class Summarizer:
         llm_client=None,
         tpm_limit: int = 5,
         chunk_size: int = 4000,
-        max_tokens: int = 8000,
     ):
         self.llm = llm_client
         self.tpm_limit = tpm_limit
@@ -298,7 +298,6 @@ class Summarizer:
         self._chunk_summarizer = ChunkSummarizer(
             llm_client=self.llm,
             chunk_size=chunk_size,
-            max_tokens=max_tokens,
         )
         self._extractive = ExtractiveFallbackSummarizer()
 
