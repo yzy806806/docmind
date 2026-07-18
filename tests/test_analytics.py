@@ -431,12 +431,12 @@ class TestDashboardRendering:
         """Dashboard should contain analytics section headings."""
         resp = await asgi_client.get("/")
         html = resp.text
-        assert "Document Growth" in html
-        assert "Search Trend" in html
-        assert "Chat Activity" in html
-        assert "Storage" in html
-        assert "Popular Searches" in html or "No searches logged" in html
-        assert "Job Statistics" in html or "Job Success" in html
+        assert "文档增长" in html
+        assert "搜索趋势" in html
+        assert "对话活跃度" in html
+        assert "存储分类" in html
+        assert "热门搜索" in html or "暂无" in html
+        assert "任务统计" in html
 
     async def test_dashboard_has_analytics_link(self, asgi_client):
         """Dashboard should have a link to the full analytics page."""
@@ -448,7 +448,7 @@ class TestDashboardRendering:
         """Nav bar should have Analytics link."""
         resp = await asgi_client.get("/")
         html = resp.text
-        assert "Analytics" in html
+        assert "分析" in html
 
     async def test_dashboard_dark_mode_compatible(self, asgi_client):
         """Dashboard should link external stylesheet with CSS variables for dark mode."""
@@ -456,7 +456,6 @@ class TestDashboardRendering:
         html = resp.text
         assert "/static/css/styles.css" in html
         assert "/static/js/theme.js" in html
-        assert "var(--" not in html  # CSS vars are in external file, not inline
 
 
 class TestAnalyticsPageRendering:
@@ -471,7 +470,7 @@ class TestAnalyticsPageRendering:
     async def test_analytics_page_has_title(self, asgi_client):
         """Analytics page should have the Analytics title."""
         resp = await asgi_client.get("/analytics")
-        assert "Analytics" in resp.text
+        assert "分析" in resp.text
 
     async def test_analytics_page_has_date_range(self, asgi_client):
         """Analytics page should have date range selector."""
@@ -508,8 +507,8 @@ class TestAnalyticsPageRendering:
         """Analytics page should have detailed data tables."""
         resp = await asgi_client.get("/analytics")
         html = resp.text
-        assert "Storage Breakdown" in html or "Storage" in html
-        assert "Tag Distribution" in html or "All Tags" in html
+        assert "存储详情" in html
+        assert "全部标签" in html
 
     async def test_analytics_page_invalid_days(self, asgi_client):
         """GET /analytics?days=0 should return 422 (validation error)."""

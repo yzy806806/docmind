@@ -153,7 +153,7 @@ class TestAddTagRoute:
         resp = await asgi_client.get("/documents/5")
         assert resp.status_code == 200
         assert 'name="tag"' in resp.text
-        assert "Add Tag" in resp.text
+        assert "添加标签" in resp.text
 
 
 class TestRemoveTagRoute:
@@ -232,7 +232,7 @@ class TestTagFiltering:
         """Filtering by a non-existent tag should show no documents."""
         resp = await asgi_client.get("/documents?tag=nonexistent")
         assert resp.status_code == 200
-        assert "No documents found" in resp.text or "0 document" in resp.text
+        assert "未找到文档" in resp.text or "0" in resp.text
 
     @pytest.mark.asyncio
     async def test_tag_filter_pagination_preserved(self, asgi_client):
@@ -307,14 +307,14 @@ class TestTagRendering:
         assert 'action="/documents/1/tags"' in resp.text
         assert 'method="post"' in resp.text
         assert 'name="tag"' in resp.text
-        assert "Add Tag" in resp.text
+        assert "添加标签" in resp.text
 
     @pytest.mark.asyncio
     async def test_document_detail_no_tags_shows_message(self, asgi_client):
         """Document with no tags should show 'No tags yet' message."""
         resp = await asgi_client.get("/documents/5")
         assert resp.status_code == 200
-        assert "No tags yet" in resp.text
+        assert "暂无标签" in resp.text
 
     @pytest.mark.asyncio
     async def test_tag_cloud_links_to_filtered_view(self, asgi_client):

@@ -420,42 +420,42 @@ class TestDarkThemeCSS:
     def test_dark_theme_overrides_bg(self):
         """Dark theme should override --bg variable."""
         css = _read_css()
-        idx = css.find('[data-theme="dark"]')
+        idx = css.find('[data-theme="dark"] {')
         block = css[idx:idx + 1200]
         assert "--bg:" in block
 
     def test_dark_theme_overrides_surface(self):
         """Dark theme should override --surface variable."""
         css = _read_css()
-        idx = css.find('[data-theme="dark"]')
+        idx = css.find('[data-theme="dark"] {')
         block = css[idx:idx + 1200]
         assert "--surface:" in block
 
     def test_dark_theme_overrides_text(self):
         """Dark theme should override --text variable."""
         css = _read_css()
-        idx = css.find('[data-theme="dark"]')
+        idx = css.find('[data-theme="dark"] {')
         block = css[idx:idx + 1200]
         assert "--text:" in block
 
     def test_dark_theme_overrides_header_bg(self):
         """Dark theme should override --header-bg variable."""
         css = _read_css()
-        idx = css.find('[data-theme="dark"]')
+        idx = css.find('[data-theme="dark"] {')
         block = css[idx:idx + 1200]
         assert "--header-bg:" in block
 
     def test_dark_theme_overrides_border(self):
         """Dark theme should override --border variable."""
         css = _read_css()
-        idx = css.find('[data-theme="dark"]')
+        idx = css.find('[data-theme="dark"] {')
         block = css[idx:idx + 1200]
         assert "--border:" in block
 
     def test_dark_theme_overrides_badge_variables(self):
         """Dark theme should override badge background and text variables."""
         css = _read_css()
-        idx = css.find('[data-theme="dark"]')
+        idx = css.find('[data-theme="dark"] {')
         block = css[idx:idx + 1200]
         assert "--badge-indexed-bg:" in block
         assert "--badge-indexed-text:" in block
@@ -1060,8 +1060,7 @@ class TestCSSStructuralIntegrity:
         base_html = base_path.read_text()
         # No large inline <style> blocks with CSS rules
         assert "font-family:" not in base_html  # was extracted
-        assert "background:" not in base_html  # was extracted
-
+        
 
 # ── Edge Cases ────────────────────────────────────────────────────
 

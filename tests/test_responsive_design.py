@@ -368,7 +368,7 @@ class TestResponsiveDesignExtras:
         assert ".doc-reader" in chunk, (
             "640px breakpoint should contain .doc-reader rules"
         )
-        assert "16px" in chunk or "padding: 16px" in chunk, (
+        assert "var(--space-4)" in chunk, (
             "Document viewer should have padding: 16px at ≤640px"
         )
 
@@ -385,6 +385,6 @@ class TestResponsiveDesignExtras:
         assert ".doc-reader" in chunk, (
             "480px breakpoint should contain .doc-reader rules"
         )
-        assert "padding: 12px" in chunk, (
+        assert "var(--space-3)" in chunk, (
             "Document viewer should have padding: 12px at ≤480px"
         )

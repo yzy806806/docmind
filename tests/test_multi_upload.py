@@ -84,7 +84,7 @@ class TestUploadFormTemplate:
 
         html = _render_upload_form()
         assert "drop-zone" in html
-        assert "Drop files here" in html
+        assert "拖拽文件到此处" in html
 
     def test_form_has_multi_file_input(self):
         """The file input must have the ``multiple`` attribute."""
@@ -138,7 +138,7 @@ class TestUploadBatchRender:
         from src.web.rendering import _render_upload_batch
 
         html = _render_upload_batch([], [])
-        assert "0 file(s) uploaded" in html
+        assert "0 个文件已上传并排队" in html
 
     def test_with_results(self):
         from src.web.rendering import _render_upload_batch
@@ -147,7 +147,7 @@ class TestUploadBatchRender:
             [{"title": "doc1.txt", "doc_id": 1, "job_id": "j-1"}],
             [],
         )
-        assert "1 file(s) uploaded" in html
+        assert "1 个文件已上传并排队" in html
         assert "doc1.txt" in html
         assert "/documents/1" in html
         assert "j-1" in html
@@ -159,7 +159,7 @@ class TestUploadBatchRender:
             [],
             [{"filename": "bad.xyz", "error": "Unsupported file type: .xyz"}],
         )
-        assert "1 failed" in html
+        assert "1 个失败" in html
         assert "bad.xyz" in html
         assert "Unsupported file type" in html
 
@@ -170,8 +170,8 @@ class TestUploadBatchRender:
             [{"title": "ok.txt", "doc_id": 2, "job_id": "j-2"}],
             [{"filename": "bad.txt", "error": "Extraction failed: boom"}],
         )
-        assert "1 file(s) uploaded" in html
-        assert "1 failed" in html
+        assert "1 个文件已上传并排队" in html
+        assert "1 个失败" in html
         assert "ok.txt" in html
         assert "bad.txt" in html
 
@@ -188,7 +188,7 @@ class TestUploadRoutes:
         r = await asgi_client.get("/upload")
         assert r.status_code == 200
         assert "drop-zone" in r.text
-        assert "Drop files here" in r.text
+        assert "拖拽文件到此处" in r.text
 
     @pytest.mark.asyncio
     async def test_get_upload_done_banner(self, asgi_client):
@@ -214,7 +214,7 @@ class TestUploadRoutes:
         )
         assert r.status_code == 200
         # Single-file success → upload_success.html markers
-        assert "Upload Successful" in r.text
+        assert "上传成功" in r.text
         assert "legacy.txt" in r.text
         assert "/documents/" in r.text
 
@@ -230,8 +230,8 @@ class TestUploadRoutes:
         )
         assert r.status_code == 200
         # Batch results page markers
-        assert "Upload Results" in r.text
-        assert "2 file(s) uploaded" in r.text
+        assert "上传结果" in r.text
+        assert "2 个文件已上传并排队" in r.text
         assert "a.txt" in r.text
         assert "b.txt" in r.text
 
@@ -247,8 +247,8 @@ class TestUploadRoutes:
             ],
         )
         assert r.status_code == 200
-        assert "1 file(s) uploaded" in r.text
-        assert "1 failed" in r.text
+        assert "1 个文件已上传并排队" in r.text
+        assert "1 个失败" in r.text
         assert "good.txt" in r.text
         assert "bad.xyz" in r.text
         assert "Unsupported file type" in r.text
@@ -264,8 +264,8 @@ class TestUploadRoutes:
             ],
         )
         assert r.status_code == 200
-        assert "0 file(s) uploaded" in r.text
-        assert "2 failed" in r.text
+        assert "0 个文件已上传并排队" in r.text
+        assert "2 个失败" in r.text
 
     @pytest.mark.asyncio
     async def test_post_mixed_legacy_and_new_field(self, asgi_client):
@@ -279,8 +279,8 @@ class TestUploadRoutes:
             ],
         )
         assert r.status_code == 200
-        assert "Upload Results" in r.text
-        assert "2 file(s) uploaded" in r.text
+        assert "上传结果" in r.text
+        assert "2 个文件已上传并排队" in r.text
         assert "single.txt" in r.text
         assert "multi.txt" in r.text
 
@@ -298,7 +298,7 @@ class TestUploadRoutes:
         assert r.status_code == 200
         # Should be 1 file, not 2 — single success page or batch with 1.
         # Since only one distinct file, and no errors → single success page.
-        assert "Upload Successful" in r.text
+        assert "上传成功" in r.text
         assert "dup.txt" in r.text
 
     @pytest.mark.asyncio
@@ -316,7 +316,7 @@ class TestUploadRoutes:
                 files=[("files", _make_file_tuple("big.txt", "x" * 100))],
             )
             assert r.status_code == 200
-            assert "1 failed" in r.text
+            assert "1 个失败" in r.text
             assert "File too large" in r.text
         finally:
             config.document_limits.max_file_size_bytes = original

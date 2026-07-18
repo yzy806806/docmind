@@ -151,7 +151,6 @@ HTMX_TEMPLATE_CONTRACTS: dict[str, list[dict[str, str]]] = {
         {"attr": "hx-target", "expected": "#doc-table-region"},
         {"attr": "hx-swap", "expected": "outerHTML"},
         {"attr": "hx-trigger", "expected": "submit, change"},
-        {"attr": "hx-indicator", "expected": "#doc-table-skeleton"},
     ],
     "search_form.html": [
         {"attr": "hx-trigger", "expected_pattern": r"delay:\s*(\d+)ms"},

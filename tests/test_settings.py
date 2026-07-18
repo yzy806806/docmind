@@ -328,7 +328,7 @@ class TestSettingsPageRendering:
 
         html = _render_settings_page({})
         assert 'type="submit"' in html
-        assert "Save" in html
+        assert "保存设置" in html
 
     def test_render_success_banner_when_saved(self):
         """When success=True, a success banner should appear."""
@@ -336,7 +336,7 @@ class TestSettingsPageRendering:
 
         html = _render_settings_page({}, success=True)
         assert "success" in html.lower()
-        assert "saved" in html.lower()
+        assert "已保存" in html
 
     def test_render_no_success_banner_by_default(self):
         """When success=False (default), no success banner."""
@@ -378,7 +378,7 @@ class TestSettingsPageRendering:
         from src.web.server import _render_settings_page
 
         html = _render_settings_page({})
-        assert "not set" in html
+        assert "未设置" in html
 
     def test_render_has_settings_nav_link(self):
         """The base page nav should include a Settings link."""
@@ -486,7 +486,7 @@ class TestSettingsRoute:
         """GET /settings?saved=1 should show the success banner."""
         resp = await asgi_client.get("/settings?saved=1")
         assert resp.status_code == 200
-        assert "saved" in resp.text.lower()
+        assert "已保存" in resp.text
 
     @pytest.mark.asyncio
     async def test_get_settings_no_success_banner_without_query_param(self, asgi_client):
@@ -782,7 +782,7 @@ class TestSettingsPostHandler:
             follow_redirects=True,
         )
         assert resp.status_code == 200
-        assert "saved" in resp.text.lower()
+        assert "已保存" in resp.text
 
     @pytest.mark.asyncio
     async def test_post_settings_persists_across_new_request(self, asgi_client):
