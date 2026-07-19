@@ -22,3 +22,7 @@ config/config.yaml
 # OS
 .DS_Store
 Thumbs.db
+
+# SQLite WAL files
+data/*.db-shm
+data/*.db-wal
