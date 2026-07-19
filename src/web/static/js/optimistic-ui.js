@@ -433,14 +433,18 @@
         }
     }
 
-    document.addEventListener('DOMContentLoaded', function () {
+    var _initialised = false;
+    function init() {
+        if (_initialised) return;
+        _initialised = true;
         ensureToastContainer();
         document.addEventListener('submit', interceptSubmit, true);
-    });
+    }
 
-    if (document.readyState !== 'loading') {
-        ensureToastContainer();
-        document.addEventListener('submit', interceptSubmit, true);
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
     }
 
     window.OptimisticUI = {

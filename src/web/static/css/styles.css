@@ -255,7 +255,6 @@
     /* — Component sizes — */
     --checkbox-size: 18px;     /* custom checkbox width/height */
     --slider-track-height: 6px;
-    --slider-thumb-size: 18px;
     --file-progress-width: 140px;
     --file-progress-height: 8px;
     --match-count-min-width: 60px;
@@ -264,8 +263,6 @@
     --chart-font-size: 10px;
 
     /* — Z-index scale — */
-    --z-base: 1;
-    --z-dropdown: 100;
     --z-modal: 1000;
 
     /* — Layout — */
@@ -276,18 +273,9 @@
     /* — Loading & skeleton states — */
     --skeleton-base: rgba(128, 128, 128, 0.12);
     --skeleton-shine: rgba(128, 128, 128, 0.04);
-    --skeleton-gradient: linear-gradient(90deg, var(--skeleton-base) 25%, var(--skeleton-shine) 37%, var(--skeleton-base) 63%);
-    --skeleton-animation-duration: 1.4s;
-    --skeleton-radius: var(--radius-sm);
 
-    --spinner-color: var(--text-muted);
-    --spinner-size: 1em;
-    --spinner-thickness: 2px;
-    --spinner-animation-duration: 0.7s;
 
     --progress-bar-height: 3px;
-    --progress-bar-color: var(--nav-link);
-    --progress-bar-z: 9999;
     --progress-bar-duration-active: 1.2s;
     --progress-bar-duration-complete: 0.4s;
 
@@ -315,6 +303,56 @@
     --scrollbar-thumb: var(--border);
     --scrollbar-thumb-hover: var(--text-faint);
     --scrollbar-radius: var(--radius-full);
+
+    /* — Layout (sizing & widths not covered by spacing/radius scale) — */
+    /* Grid + chart sizing */
+    --layout-stats-min-cell: 160px;            /* .stats auto-fit min cell width */
+    --layout-stats-min-cell-md: 140px;         /* .stats min cell on tablet */
+    --layout-chart-max-height: 250px;          /* default chart-svg max-height */
+    --layout-chart-large-max: 300px;           /* analytics-page full chart height */
+    --layout-chart-mobile-max: 200px;          /* chart max-height on narrow screens */
+    --layout-pie-svg-max: 200px;               /* pie-svg max-width */
+
+    /* Sliders + form controls */
+    --layout-vw-slider-max: 300px;             /* viewer zoom slider max-width */
+    --layout-viewer-range-w: 100px;            /* viewer-toolbar range input width */
+    --layout-viewer-search-w: 200px;            /* viewer search input width */
+    --layout-viewer-search-w-sm: 120px;         /* viewer search input width (mobile) */
+    --layout-page-jump-w: 64px;                /* viewer page-jump input width */
+    --layout-touch-target: 44px;               /* WCAG min touch target (checkboxes) */
+    --layout-checkbox-mark-size: 12px;         /* font-size of ✓ inside custom checkbox */
+    --layout-pag-min-height: 36px;             /* pagination btn min-height */
+
+    /* Doc reader / viewer layout */
+    --layout-doc-excerpt-max: 240px;           /* .doc-excerpt max-height */
+    --layout-doc-toc-width: 240px;             /* .doc-toc width */
+    --layout-doc-toc-max-h: calc(100vh - 140px); /* .doc-toc sticky max-height */
+    --layout-doc-toc-max-h-md: 240px;          /* .doc-toc max-height on tablet */
+    --layout-line-no-w: 48px;                  /* width of line-number column in text viewer */
+    --layout-reader-font-mobile: 15px;         /* doc-reader font-size on mobile */
+
+    /* Chat layout */
+    --layout-chat-min-h: 300px;                /* .chat-messages min-height */
+    --layout-chat-max-h: 500px;                /* .chat-messages max-height */
+    --layout-chat-sidebar-width: 260px;        /* .chat-sidebar width */
+    --layout-chat-sidebar-max-h: 600px;        /* .chat-sidebar max-height */
+    --layout-chat-sidebar-md-width: 220px;     /* .chat-sidebar width on tablet landscape */
+    --layout-chat-sidebar-max-h-md: 350px;     /* .chat-sidebar max-height on tablet */
+
+    /* File upload */
+    --layout-file-progress-min: 200px;         /* .file-progress-wrap min-width */
+
+    /* Login + modal */
+    --layout-login-max-w: 380px;               /* .login-card max-width */
+    --layout-login-min-h: calc(100vh - 200px); /* .login-container min-height */
+    --layout-kbd-modal-max: 560px;             /* .kbd-modal-panel max-width */
+    --layout-kbd-col-w: 110px;                 /* .kbd-table first column width */
+    --layout-kbd-col-w-sm: 90px;               /* .kbd-table first column width (mobile) */
+
+    /* Toasts + spinners + progress bar */
+    --layout-toast-max-w: 360px;               /* .optimistic-toast-msg max-width */
+    --layout-optimistic-spinner-size: 14px;    /* spinner inline-block size */
+    --layout-progress-bar-glow: 0 0 4px var(--nav-link); /* fixed top progress bar glow */
 
 }
 
@@ -372,7 +410,6 @@
     /* — Loading & skeleton states (dark overrides) — */
     --skeleton-base: rgba(255, 255, 255, 0.08);
     --skeleton-shine: rgba(255, 255, 255, 0.02);
-    --spinner-color: var(--text-muted);
 
     /* — Scrollbar (dark overrides) — thumb uses a lighter hex
        against dark surfaces for visibility; hover is even lighter. */
@@ -732,7 +769,7 @@ select {
 
 .stats {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(var(--layout-stats-min-cell), 1fr));
     gap: var(--space-4);
     margin: var(--space-4) 0;
 }
@@ -905,7 +942,7 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
 
 .vw-slider {
     width: 100%;
-    max-width: 300px;
+    max-width: var(--layout-vw-slider-max);
     height: var(--slider-track-height);
     -webkit-appearance: none;
     appearance: none;
@@ -1272,7 +1309,7 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
     display: flex;
     align-items: center;
     gap: var(--space-2);
-    min-width: 200px;
+    min-width: var(--layout-file-progress-min);
 }
 
 .file-progress { width: var(--file-progress-width); height: var(--file-progress-height); }
@@ -1350,7 +1387,7 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
 .btn-view-link:active { opacity: 0.7; }
 
 .doc-excerpt {
-    max-height: 240px;
+    max-height: var(--layout-doc-excerpt-max);
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
     overscroll-behavior: var(--overscroll-behavior);
@@ -1376,7 +1413,7 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
     border: var(--border-w-1) solid var(--input-border);
     color: var(--text);
     background: var(--surface);
-    min-height: 36px;
+    min-height: var(--layout-pag-min-height);
     display: inline-flex;
     align-items: center;
     transition: var(--transition-press);
@@ -1394,8 +1431,8 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
 .chat-box { display: flex; flex-direction: column; gap: var(--space-2); }
 
 .chat-messages {
-    min-height: 300px;
-    max-height: 500px;
+    min-height: var(--layout-chat-min-h);
+    max-height: var(--layout-chat-max-h);
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
     overscroll-behavior: var(--overscroll-behavior);
@@ -1469,13 +1506,13 @@ tr:hover { background: var(--hover-bg); transition: background var(--transition-
 .chat-layout { display: flex; gap: var(--space-4); align-items: flex-start; margin: var(--space-4) 0; }
 
 .chat-sidebar {
-    width: 260px;
+    width: var(--layout-chat-sidebar-width);
     flex-shrink: 0;
     background: var(--surface);
     border-radius: var(--radius-xl);
     box-shadow: var(--shadow);
     padding: var(--space-3);
-    max-height: 600px;
+    max-height: var(--layout-chat-sidebar-max-h);
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
     overscroll-behavior: var(--overscroll-behavior);
@@ -1615,7 +1652,7 @@ footer { text-align: center; padding: var(--space-6); color: var(--text-faint); 
 /* ================================================================
  * 19. Chart & Analytics Styles (from dashboard.html, analytics.html)
  * ================================================================ */
-.chart-svg { width: 100%; height: auto; max-height: 250px; }
+.chart-svg { width: 100%; height: auto; max-height: var(--layout-chart-max-height); }
 .chart-grid { stroke: var(--border); stroke-width: 0.5; stroke-dasharray: 3,3; }
 .chart-line { stroke-linejoin: round; stroke-linecap: round; }
 .chart-point { stroke: var(--surface); stroke-width: 1.5; }
@@ -1637,7 +1674,7 @@ footer { text-align: center; padding: var(--space-6); color: var(--text-faint); 
 .analytics-grid-full { grid-column: 1 / -1; }
 
 .pie-chart-container { display: flex; align-items: center; gap: var(--space-4); flex-wrap: wrap; }
-.pie-svg { max-width: 200px; flex-shrink: 0; }
+.pie-svg { max-width: var(--layout-pie-svg-max); flex-shrink: 0; }
 .pie-legend { flex: 1; }
 .pie-legend-item { font-size: var(--font-size-sm2); margin: var(--space-1) 0; display: flex; align-items: center; gap: var(--space-1); }
 .pie-legend-color { display: inline-block; width: var(--icon-size-sm); height: var(--icon-size-sm); border-radius: var(--radius-sm); }
@@ -1683,8 +1720,8 @@ footer { text-align: center; padding: var(--space-6); color: var(--text-faint); 
     transition: var(--transition-color);
 }
 
-/* Analytics page uses 300px for full charts */
-.analytics-page .chart-svg { max-height: 300px; }
+/* Analytics page uses larger max-height for full charts */
+.analytics-page .chart-svg { max-height: var(--layout-chart-large-max); }
 
 .export-link { float: right; font-size: var(--font-size-sm2); transition: color var(--transition-base); }
 
@@ -1695,7 +1732,7 @@ footer { text-align: center; padding: var(--space-6); color: var(--text-faint); 
 .viewer-main { flex: 1; min-width: 0; }
 
 .doc-toc {
-    width: 240px;
+    width: var(--layout-doc-toc-width);
     flex-shrink: 0;
     background: var(--surface);
     border-radius: var(--radius-xl);
@@ -1703,7 +1740,7 @@ footer { text-align: center; padding: var(--space-6); color: var(--text-faint); 
     padding: var(--space-4);
     position: sticky;
     top: var(--space-3);
-    max-height: calc(100vh - 140px);
+    max-height: var(--layout-doc-toc-max-h);
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
     overscroll-behavior: var(--overscroll-behavior);
@@ -1742,7 +1779,7 @@ footer { text-align: center; padding: var(--space-6); color: var(--text-faint); 
 
 .viewer-toolbar .tool-group { display: flex; align-items: center; gap: var(--space-1); }
 .viewer-toolbar label { font-size: var(--font-size-sm2); color: var(--text-muted); }
-.viewer-toolbar input[type="range"] { width: 100px; transition: var(--transition-color); }
+.viewer-toolbar input[type="range"] { width: var(--layout-viewer-range-w); transition: var(--transition-color); }
 .viewer-toolbar .search-in-doc { display: flex; align-items: center; gap: var(--space-1); margin-left: auto; }
 
 .viewer-toolbar input[type="search"] {
@@ -1752,7 +1789,7 @@ footer { text-align: center; padding: var(--space-6); color: var(--text-faint); 
     background: var(--surface);
     color: var(--text);
     font-size: var(--font-size-md);
-    width: 200px;
+    width: var(--layout-viewer-search-w);
     transition: border-color var(--transition-base);
 }
 
@@ -1829,7 +1866,7 @@ footer { text-align: center; padding: var(--space-6); color: var(--text-faint); 
 
 .doc-reader table.text-lines { width: 100%; border-collapse: collapse; font-family: var(--font-mono); }
 .doc-reader table.text-lines .line-no {
-    width: 48px;
+    width: var(--layout-line-no-w);
     padding: var(--space-0-5) var(--space-2);
     text-align: right;
     color: var(--text-faint);
@@ -1849,7 +1886,7 @@ footer { text-align: center; padding: var(--space-6); color: var(--text-faint); 
 .doc-reader .xml-string { color: var(--syntax-string); }
 
 /* Search highlight marks */
-.doc-reader mark.search-hit { background: var(--syntax-search-hit); color: var(--syntax-search-text); padding: 0 1px; border-radius: var(--radius-sm); }
+.doc-reader mark.search-hit { background: var(--syntax-search-hit); color: var(--syntax-search-text); padding: 0 var(--space-px); border-radius: var(--radius-sm); }
 .doc-reader mark.search-hit.current { background: var(--syntax-search-current); color: var(--syntax-search-text); }
 
 /* Viewer pagination */
@@ -1877,7 +1914,7 @@ footer { text-align: center; padding: var(--space-6); color: var(--text-faint); 
 .viewer-pagination .vp-btn.disabled { color: var(--text-faint); opacity: 0.5; cursor: default; }
 
 .viewer-pagination .page-jump {
-    width: 64px;
+    width: var(--layout-page-jump-w);
     padding: var(--space-1) var(--space-2);
     border-radius: var(--radius-lg);
     border: var(--border-w-1) solid var(--input-border);
@@ -2015,8 +2052,8 @@ footer { text-align: center; padding: var(--space-6); color: var(--text-faint); 
 
 /* Wrap checkbox in a larger tap area */
 td input[type="checkbox"] {
-    min-width: 44px;
-    min-height: 44px;
+    min-width: var(--layout-touch-target);
+    min-height: var(--layout-touch-target);
     appearance: none;
     -webkit-appearance: none;
     position: relative;
@@ -2048,7 +2085,7 @@ td input[type="checkbox"]:checked::after {
     inset: 50% auto auto 50%;
     transform: translate(-50%, -50%);
     color: var(--header-text);
-    font-size: 12px;
+    font-size: var(--layout-checkbox-mark-size);
     font-weight: bold;
 }
 
@@ -2056,7 +2093,7 @@ td input[type="checkbox"]:checked::after {
  * 25. Login Page
  * ================================================================ */
 .login-container {
-    min-height: calc(100vh - 200px);
+    min-height: var(--layout-login-min-h);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -2068,7 +2105,7 @@ td input[type="checkbox"]:checked::after {
     padding: var(--space-9) var(--space-8);
     box-shadow: var(--shadow);
     width: 100%;
-    max-width: 380px;
+    max-width: var(--layout-login-max-w);
     margin: var(--space-5);
 
     transition: var(--transition-lift);
@@ -2161,7 +2198,7 @@ td input[type="checkbox"]:checked::after {
 /* ---- Tablet landscape / small laptop (≤1024px) ---- */
 @media (max-width: 1024px) {
     .container { max-width: 100%; }
-    .chat-sidebar { width: 220px; }
+    .chat-sidebar { width: var(--layout-chat-sidebar-md-width); }
 }
 
 /* ---- Tablet portrait / large phone (≤768px) ---- */
@@ -2195,7 +2232,7 @@ td input[type="checkbox"]:checked::after {
     .analytics-grid { grid-template-columns: 1fr; }
 
     /* Stats grid: 2 columns on tablet */
-    .stats { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+    .stats { grid-template-columns: repeat(auto-fit, minmax(var(--layout-stats-min-cell-md), 1fr)); }
 
     /* Search box stacks */
     .search-box { flex-direction: column; }
@@ -2205,7 +2242,7 @@ td input[type="checkbox"]:checked::after {
     .chat-layout { flex-direction: column; }
     .chat-sidebar {
         width: 100%;
-        max-height: 350px; /* Task 8.5: increased from 200px */
+        max-height: var(--layout-chat-sidebar-max-h-md); /* Task 8.5: increased from 200px */
     }
 
     /* Viewer layout: TOC goes full width on top */
@@ -2213,7 +2250,7 @@ td input[type="checkbox"]:checked::after {
     .doc-toc {
         width: 100%;
         position: static;
-        max-height: 240px;
+        max-height: var(--layout-doc-toc-max-h-md);
     }
 
     /* Faceted filter panel: stack vertically (Task 8.4) */
@@ -2262,13 +2299,13 @@ td input[type="checkbox"]:checked::after {
     .chat-input-row button { width: 100%; }
 
     /* Viewer: reduce padding on mobile (Task 8.6) */
-    .doc-reader { padding: var(--space-3); font-size: 15px; }
+    .doc-reader { padding: var(--space-3); font-size: var(--layout-reader-font-mobile); }
 
     /* Search-in-doc input narrower */
-    .viewer-toolbar input[type="search"] { width: 120px; }
+    .viewer-toolbar input[type="search"] { width: var(--layout-viewer-search-w-sm); }
 
     /* Chart max-height reduced for narrow screens */
-    .chart-svg { max-height: 200px; }
+    .chart-svg { max-height: var(--layout-chart-mobile-max); }
 
     /* Card padding reduced */
     .card { padding: var(--space-3-5); }
@@ -2346,7 +2383,7 @@ td input[type="checkbox"]:checked::after {
     color: var(--text);
     border: var(--border-w-1) solid var(--border);
     border-radius: var(--radius-2xl);
-    max-width: 560px;
+    max-width: var(--layout-kbd-modal-max);
     width: 90%;
     max-height: 80vh;
     overflow-y: auto;
@@ -2433,7 +2470,7 @@ td input[type="checkbox"]:checked::after {
 }
 
 .kbd-table td:first-child {
-    width: 110px;
+    width: var(--layout-kbd-col-w);
     white-space: nowrap;
 }
 
@@ -2457,7 +2494,7 @@ kbd {
         max-height: 90vh;
     }
     .kbd-table td:first-child {
-        width: 90px;
+        width: var(--layout-kbd-col-w-sm);
     }
 }
 
@@ -2490,10 +2527,10 @@ kbd {
     position: fixed;
     top: 0;
     left: 0;
-    height: 3px;
+    height: var(--progress-bar-height);
     width: 100%;
     background: var(--nav-link);
-    box-shadow: 0 0 4px var(--nav-link);
+    box-shadow: var(--layout-progress-bar-glow);
     z-index: var(--z-modal);
     opacity: 0;
     transform: scaleX(0);
@@ -2745,7 +2782,7 @@ kbd {
  * Optimistic UI — Loading Indicators & Animations
  * ================================================================ */
 .optimistic-spinner {
-    display: inline-block; width: 14px; height: 14px;
+    display: inline-block; width: var(--layout-optimistic-spinner-size); height: var(--layout-optimistic-spinner-size);
     margin-right: var(--space-1);
     border: 2px solid currentColor; border-top-color: transparent;
     border-radius: var(--radius-full);
@@ -2780,7 +2817,7 @@ kbd {
     margin-bottom: var(--space-2); border-radius: var(--radius-lg);
     font-size: var(--font-size-md); font-weight: 500;
     box-shadow: var(--shadow-lg); pointer-events: auto;
-    max-width: 360px; word-wrap: break-word;
+    max-width: var(--layout-toast-max-w); word-wrap: break-word;
     animation: optimistic-toast-in var(--transition-base) ease-out;
 }
 .optimistic-toast-success { background: var(--success-bg); color: var(--success-text); border: 1px solid var(--success-text); }

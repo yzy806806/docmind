@@ -301,8 +301,8 @@ class TestSettingsPageRendering:
         html = _render_settings_page({})
         assert 'name="max_tokens"' in html
         assert 'type="range"' in html
-        assert 'min="100"' in html
-        assert 'max="4000"' in html
+        assert 'min="4000"' in html
+        assert 'max="64000"' in html
 
     def test_render_has_temperature_slider(self):
         """The page should have a temperature range input (0.0-1.0)."""

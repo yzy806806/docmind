@@ -212,14 +212,24 @@
         }
         _rafScrollToBottom(box);
     }
+    function escapeHtml(s) {
+        if (!s) return '';
+        return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+                         .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
     function renderCitations() {
         if (citations.length === 0) return;
         var panel = document.getElementById('citations-panel');
         var list = document.getElementById('citations-list');
         list.innerHTML = citations.map(function(c) {
-            return '<div class="citation-item"><strong>[' + c.ref + ']</strong> ' +
-                   '<a href="/documents/' + c.doc_id + '">' + c.title + '</a>' +
-                   ' (confidence: ' + (c.confidence || 'low') + ')</div>';
+            var safeRef = escapeHtml(c.ref);
+            var safeTitle = escapeHtml(c.title);
+            var safeDocId = escapeHtml(c.doc_id);
+            var safeConf = escapeHtml(c.confidence || 'low');
+            return '<div class="citation-item"><strong>[' + safeRef + ']</strong> ' +
+                   '<a href="/documents/' + safeDocId + '">' + safeTitle + '</a>' +
+                   ' (confidence: ' + safeConf + ')</div>';
         }).join('');
         panel.style.display = 'block';
     }
@@ -248,16 +258,37 @@
                     var active = (s.id === currentSessionId) ? ' active' : '';
                     var title = s.title || 'New Chat';
                     var preview = s.preview || '';
-                    var safeTitle = title.replace(/</g, '&lt;').replace(/>/g, '&gt;');
-                    var safePreview = preview.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                    var safeId = escapeHtml(s.id);
+                    var safeTitle = escapeHtml(title);
+                    var safePreview = escapeHtml(preview);
                     return '<div class="chat-session-item' + active + '" ' +
-                           'onclick="loadSession(\'' + s.id + '\', \'' + safeTitle.replace(/'/g, "\\'") + '\')">' +
+                           'data-session-id="' + safeId + '" data-session-title="' + safeTitle + '">' +
                            '<div class="chat-session-title">' + safeTitle + '</div>' +
                            '<div class="chat-session-preview">' + safePreview + '</div>' +
                            '<button class="chat-session-del" title="Delete" ' +
-                           'onclick="deleteSession(event, \'' + s.id + '\')">&times;</button>' +
+                           'data-delete-session="' + safeId + '">&times;</button>' +
                            '</div>';
                 }).join('');
+                // Wire up click handlers via event delegation
+                (function() {
+                    var items = listEl.querySelectorAll('.chat-session-item');
+                    for (var i = 0; i < items.length; i++) {
+                        (function(item) {
+                            item.addEventListener('click', function() {
+                                loadSession(item.dataset.sessionId, item.dataset.sessionTitle);
+                            });
+                        })(items[i]);
+                    }
+                    var dels = listEl.querySelectorAll('.chat-session-del');
+                    for (var i = 0; i < dels.length; i++) {
+                        (function(btn) {
+                            btn.addEventListener('click', function(e) {
+                                e.stopPropagation();
+                                deleteSession(e, btn.dataset.deleteSession);
+                            });
+                        })(dels[i]);
+                    }
+                })();
             })
             .catch(function() {
                 document.getElementById('chat-session-list').innerHTML =

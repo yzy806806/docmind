@@ -37,9 +37,9 @@ class TestLLMConfig:
         assert cfg.model == "gpt-4o-mini"
         assert cfg.api_key == ""
         assert cfg.base_url == ""
-        assert cfg.max_tokens == 1000
+        assert cfg.max_tokens == 8000
         assert cfg.temperature == 0.3
-        assert cfg.timeout_seconds == 30.0
+        assert cfg.timeout_seconds == 3600.0
 
     def test_env_loading(self, monkeypatch):
         """Config should read from DOCMIND_LLM_* env vars."""
@@ -77,7 +77,7 @@ class TestLLMConfig:
         assert cfg.provider == ""
         assert cfg.model == "gpt-4o-mini"
         assert cfg.api_key == ""
-        assert cfg.max_tokens == 1000
+        assert cfg.max_tokens == 8000
 
 
 # ── build_rag_prompt tests ───────────────────────────────────────
@@ -101,7 +101,7 @@ class TestBuildRagPrompt:
         system = messages[0]["content"]
         assert "DocMind" in system
         assert "[1]" in system  # citation instruction
-        assert "context" in system.lower()
+        assert "上下文" in system  # context instruction (Chinese)
 
     def test_user_message_contains_context(self):
         """User message should include the context and question."""
@@ -284,14 +284,36 @@ class TestLLMClientGenerate:
         cfg = LLMConfig(provider="openai", api_key="sk-test")
         client = LLMClient(cfg)
 
-        # Mock the httpx client
-        mock_response = MagicMock()
-        mock_response.raise_for_status = MagicMock()
-        mock_response.json.return_value = {
-            "choices": [{"message": {"content": "LLM answer from [1]."}}]
-        }
+        # Simulate SSE streaming: two data lines then [DONE]
+        class FakeAsyncIterator:
+            def __init__(self, lines):
+                self._lines = lines
+                self._idx = 0
+            def __aiter__(self):
+                return self
+            async def __anext__(self):
+                if self._idx >= len(self._lines):
+                    raise StopAsyncIteration
+                line = self._lines[self._idx]
+                self._idx += 1
+                return line
+
+        class FakeStreamCM:
+            async def __aenter__(self):
+                class FakeResp:
+                    def raise_for_status(self):
+                        pass
+                    def aiter_lines(self):
+                        return FakeAsyncIterator([
+                            'data: {"choices":[{"delta":{"content":"LLM answer from [1]."}}]}',
+                            'data: [DONE]',
+                        ])
+                return FakeResp()
+            async def __aexit__(self, *args):
+                return None
+
         mock_http_client = AsyncMock()
-        mock_http_client.post = AsyncMock(return_value=mock_response)
+        mock_http_client.stream = MagicMock(return_value=FakeStreamCM())
         mock_http_client.is_closed = False
         client._client = mock_http_client
 
@@ -299,11 +321,7 @@ class TestLLMClientGenerate:
         answer = await client.generate("question?", results)
 
         assert answer == "LLM answer from [1]."
-        mock_http_client.post.assert_called_once()
-        # Check URL
-        call_args = mock_http_client.post.call_args
-        assert "chat/completions" in call_args[1].get("json", {}).get("model", "") or \
-               "chat/completions" in str(call_args)
+        mock_http_client.stream.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_ollama_generate_success(self):

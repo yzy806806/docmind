@@ -5,8 +5,8 @@
     <p style="margin:0;">Found {{ total }} result(s) for: <strong>{{ query }}</strong>{% if total > limit %} (showing first {{ limit }}){% endif %}</p>
     {% if results %}
     <div class="export-links">
-        <a href="/search?q={{ query }}&vector_weight={{ "%.2f"|format(vw_current) }}&export=csv" class="btn btn-secondary btn-sm">⬇ Export CSV</a>
-        <a href="/search?q={{ query }}&vector_weight={{ "%.2f"|format(vw_current) }}&export=json" class="btn btn-secondary btn-sm">⬇ Export JSON</a>
+        <a href="/search?q={{ query }}&vector_weight={{ "%.2f"|format(vw_current) }}{% if date_from %}&date_from={{ date_from }}{% endif %}{% if date_to %}&date_to={{ date_to }}{% endif %}{% if doc_type %}&doc_type={{ doc_type }}{% endif %}{% if tag %}&tag={{ tag }}{% endif %}{% if status %}&status={{ status }}{% endif %}&export=csv" class="btn btn-secondary btn-sm">⬇ Export CSV</a>
+        <a href="/search?q={{ query }}&vector_weight={{ "%.2f"|format(vw_current) }}{% if date_from %}&date_from={{ date_from }}{% endif %}{% if date_to %}&date_to={{ date_to }}{% endif %}{% if doc_type %}&doc_type={{ doc_type }}{% endif %}{% if tag %}&tag={{ tag }}{% endif %}{% if status %}&status={{ status }}{% endif %}&export=json" class="btn btn-secondary btn-sm">⬇ Export JSON</a>
     </div>
     {% endif %}
 </div>
