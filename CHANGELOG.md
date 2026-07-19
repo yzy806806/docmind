@@ -4,6 +4,64 @@ All notable changes to DocMind are documented in this file. The project uses
 calendar-based versioning: each section groups changes by the week they shipped.
 
 
+## 2026-07-19 — Backend Fix Re-application + Frontend Merge
+
+### Fixed — Backend regressions from frontend branch merge
+
+The frontend optimization branch was based on a pre-v1.2.0 commit and
+inadvertently reverted all backend LLM fixes from v1.2.0–v1.4.0. All
+fixes have been re-applied on top of the frontend changes:
+
+- **LLM config hydration on startup** — `_reload_llm_config_from_db()`
+  called in lifespan startup alongside auth hydration. Without this,
+  LLM settings saved via WebUI were lost on every restart.
+- **Reasoning model support (Gemma-4)** — `content` empty → read
+  `reasoning_content` fallback, in `_call_openai`, `_stream_openai`,
+  `_SyncLLMAdapter`, and `detector._detect_llm`.
+- **Streaming LLM calls** — all 3 call sites (`_SyncLLMAdapter.chat`,
+  `LLMClient._call_openai`, `detector._detect_llm`) use `httpx.stream`
+  with SSE parsing to avoid Cloudflare 524 gateway timeouts.
+- **Hardcoded max_tokens removed** — `ChunkSummarizer` (`_single_pass`,
+  `_summarize_chunk`, `_reduce_summaries`) and `detector` now use
+  config-driven `max_tokens` instead of hardcoded 120/150/250/50.
+- **`_SyncLLMAdapter` rewritten** — synchronous `httpx.stream` instead
+  of cross-thread AsyncClient (fixes `RuntimeError: Event loop is closed`).
+- **Background upload processing** — type detection + summary generation
+  moved to `asyncio.create_task()` so upload endpoints return 202
+  immediately instead of blocking on LLM calls.
+- **Jobs marked completed** — `queue.complete(job.id, doc_id)` called
+  after enqueue since document is already ingested. API returns
+  `status="completed"` instead of `"pending"`.
+- **Chinese prompts** — all summarizer and chat system prompts in Chinese.
+- **Port 9980** — all references updated from 8080 to 9980 across code
+  and docs.
+- **max_tokens slider** — range 4000–64000 (step 500) instead of 100–4000.
+- **LLM timeout** — default 3600s (1 hour) for reasoning models.
+- **LLM max_tokens default** — 8000 instead of 1000.
+- **Retry with backoff** — `_SyncLLMAdapter` retries on 502/503/524/429
+  with exponential backoff (max 3 attempts).
+
+### Added — Frontend (from frontend optimization branch, 51 commits)
+
+- **Design token system** — 96 CSS custom properties in `:root` with
+  dark theme parity, organized into 14 groups.
+- **Base UI component system** — `.btn`, `.input`, `.card` primitives
+  with modifiers using design tokens.
+- **CSS transitions** — fluid transitions on all interactive elements
+  (buttons, nav, cards, tags, badges, filter panels) with `:active`
+  press feedback.
+- **HTMX live search** — 250ms debounced live search with loading
+  indicator, browser back-button support via `hx-push-url`, and
+  fragment-only responses for HTMX swaps.
+- **Optimistic UI** — instant feedback for HTMX mutations (delete, tag,
+  move) with automatic rollback on failure.
+- **Performance** — lazy-load fade-in, skeleton loaders, lazy images,
+  scroll progress bar, smooth scroll-behavior, momentum scrolling.
+- **263 new frontend tests** across 15+ test files covering design
+  tokens, components, transitions, live search, optimistic UI,
+  scroll smoothness, and mutation feedback.
+
+
 ## 2026-07-18 — Phase 9: Design Token Migration & CSS Transitions
 
 The first phase of the frontend beautification initiative established the

@@ -9,7 +9,7 @@ info:
     name: DocMind Team
 
 servers:
-  - url: http://localhost:8080/api/v1
+  - url: http://localhost:9980/api/v1
     description: Local development
 
 tags:

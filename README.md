@@ -193,7 +193,7 @@ uv run python -m src.web.server
 hermes plugins install src/hermes_plugin.py
 ```
 
-访问 `http://localhost:8080` 进入管理界面。
+访问 `http://localhost:9980` 进入管理界面。
 
 ### Docker 一键启动
 
@@ -203,7 +203,7 @@ docker-compose up -d
 
 访问 `http://localhost:8000` 进入管理界面。
 
-> **提示：** Docker 模式默认使用端口 8000，本地原生启动默认使用端口 8080。
+> **提示：** Docker 模式默认使用端口 8000，本地原生启动默认使用端口 9980。可通过环境变量 `DOCMIND_PORT` 自行修改。
 
 ### 邮件抓取配置
 

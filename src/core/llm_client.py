@@ -32,12 +32,11 @@ logger = logging.getLogger(__name__)
 
 
 SYSTEM_PROMPT = (
-    "You are DocMind, an AI assistant that answers questions based strictly "
-    "on the provided document context. Follow these rules:\n"
-    "1. Answer only using information present in the context below.\n"
-    "2. If the context does not contain the answer, say you don't know.\n"
-    "3. Cite sources using [1], [2], etc. matching the reference numbers.\n"
-    "4. Be concise and factual. Do not invent information.\n"
+    "你是 DocMind 文档知识库助手，根据提供的文档内容回答问题。请遵守：\n"
+    "1. 仅根据上下文中的信息回答，不要编造。\n"
+    "2. 如果上下文中没有答案，请说\"我不知道\"。\n"
+    "3. 使用 [1]、[2] 等引用来源编号。\n"
+    "4. 用中文简洁回答。\n"
 )
 
 
@@ -248,22 +247,45 @@ class LLMClient:
     async def _call_openai(
         self, messages: list[dict[str, str]], max_tokens: int
     ) -> str:
-        """Non-streaming OpenAI-compatible call."""
+        """OpenAI-compatible call using streaming to avoid gateway timeouts."""
         client = await self._get_client()
         payload = {
             "model": self.config.model,
             "messages": messages,
             "max_tokens": max_tokens,
             "temperature": self.config.temperature,
+            "stream": True,
         }
-        resp = await client.post(
+        content_parts: list[str] = []
+        reasoning_parts: list[str] = []
+        async with client.stream(
+            "POST",
             self._openai_url(),
             json=payload,
             headers=self._openai_headers(),
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        return data["choices"][0]["message"]["content"]
+        ) as resp:
+            resp.raise_for_status()
+            async for line in resp.aiter_lines():
+                if not line or not line.startswith("data: "):
+                    continue
+                data_str = line[6:]
+                if data_str.strip() == "[DONE]":
+                    break
+                try:
+                    chunk = json.loads(data_str)
+                    delta = chunk.get("choices", [{}])[0].get("delta", {})
+                    c = delta.get("content", "")
+                    r = delta.get("reasoning_content", "")
+                    if c:
+                        content_parts.append(c)
+                    if r:
+                        reasoning_parts.append(r)
+                except (json.JSONDecodeError, IndexError, KeyError):
+                    continue
+        content = "".join(content_parts)
+        if not content:
+            content = "".join(reasoning_parts)
+        return content
 
     async def _stream_openai(
         self, messages: list[dict[str, str]], max_tokens: int
@@ -294,6 +316,9 @@ class LLMClient:
                     chunk = json.loads(data_str)
                     delta = chunk.get("choices", [{}])[0].get("delta", {})
                     content = delta.get("content", "")
+                    if not content:
+                        # Reasoning model fallback
+                        content = delta.get("reasoning_content", "")
                     if content:
                         yield content
                 except (json.JSONDecodeError, IndexError, KeyError):
