@@ -124,7 +124,7 @@ class TestJobsPageRendering:
         """Jobs page should have the 'Jobs' title in the header."""
         client, _, _, _, _ = asgi_client
         resp = await client.get("/jobs")
-        assert "Jobs" in resp.text
+        assert "任务" in resp.text
 
     @pytest.mark.asyncio
     async def test_jobs_page_has_table(self, asgi_client):
@@ -132,8 +132,8 @@ class TestJobsPageRendering:
         client, _, _, _, _ = asgi_client
         resp = await client.get("/jobs")
         assert "<table>" in resp.text
-        assert "Job ID" in resp.text
-        assert "State" in resp.text
+        assert "任务 ID" in resp.text
+        assert "状态" in resp.text
 
     @pytest.mark.asyncio
     async def test_jobs_page_shows_total_count(self, asgi_client):
@@ -142,7 +142,7 @@ class TestJobsPageRendering:
         resp = await client.get("/jobs")
         # We inserted 6 jobs
         assert "6" in resp.text
-        assert "job(s)" in resp.text
+        assert "个任务" in resp.text
 
     @pytest.mark.asyncio
     async def test_jobs_page_has_state_badges(self, asgi_client):
@@ -195,7 +195,7 @@ class TestJobsPageRendering:
         """Jobs page should show pagination info."""
         client, _, _, _, _ = asgi_client
         resp = await client.get("/jobs")
-        assert "Showing" in resp.text
+        assert "显示第" in resp.text
 
 
 # ── State filter tests ───────────────────────────────────────────
@@ -313,7 +313,7 @@ class TestJobsPageAutoRefresh:
         """Auto-refresh banner should be visible when active jobs exist."""
         client, _, _, _, _ = asgi_client
         resp = await client.get("/jobs")
-        assert "Auto-refreshing" in resp.text
+        assert "自动刷新" in resp.text
 
 
 # ── Job detail page tests ────────────────────────────────────────
@@ -365,7 +365,7 @@ class TestJobDetailPage:
         client, _, j1, _, _ = asgi_client
         resp = await client.get(f"/jobs/{j1.id}")
         assert 'href="/jobs"' in resp.text
-        assert "Back to Jobs" in resp.text
+        assert "返回任务列表" in resp.text
 
     @pytest.mark.asyncio
     async def test_detail_page_404_for_missing_job(self, asgi_client):
@@ -381,7 +381,7 @@ class TestJobDetailPage:
         client, _, _, _, j6 = asgi_client
         resp = await client.get(f"/jobs/{j6.id}")
         assert resp.status_code == 200
-        assert "Error Details" in resp.text
+        assert "错误详情" in resp.text
         # Full traceback should be visible (not truncated)
         assert "Traceback" in resp.text
         assert "ValueError" in resp.text
@@ -410,8 +410,8 @@ class TestJobDetailPage:
         """Detail page should show created_at and updated_at."""
         client, _, j1, _, _ = asgi_client
         resp = await client.get(f"/jobs/{j1.id}")
-        assert "Created At" in resp.text
-        assert "Updated At" in resp.text
+        assert "创建时间" in resp.text
+        assert "更新时间" in resp.text
 
 
 # ── Nav bar tests ────────────────────────────────────────────────
@@ -426,7 +426,7 @@ class TestJobsNavLink:
 
         html = _base_page("Test", "<p>content</p>")
         assert 'href="/jobs"' in html
-        assert ">Jobs<" in html
+        assert ">任务<" in html
 
     @pytest.mark.asyncio
     async def test_dashboard_has_jobs_nav_link(self, asgi_client):
@@ -457,7 +457,7 @@ class TestJobsPagePagination:
         client, _, _, _, _ = asgi_client
         resp = await client.get("/jobs")
         assert resp.status_code == 200
-        assert "Showing" in resp.text
+        assert "显示第" in resp.text
 
     @pytest.mark.asyncio
     async def test_jobs_page_custom_per_page(self, asgi_client):
@@ -474,7 +474,7 @@ class TestJobsPagePagination:
         resp = await client.get("/jobs?per_page=2")
         assert resp.status_code == 200
         assert "pagination" in resp.text
-        assert "Next" in resp.text
+        assert "下一页" in resp.text
 
 
 # ── DB layer tests ───────────────────────────────────────────────

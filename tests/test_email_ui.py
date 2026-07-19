@@ -156,7 +156,7 @@ async def test_email_accounts_list_page_renders(asgi_client):
     assert resp.status_code == 200
     assert "text/html" in resp.headers.get("content-type", "")
     html = resp.text
-    assert "Email Accounts" in html
+    assert "邮件账户" in html
     assert "Test Gmail" in html
     assert "imap.gmail.com" in html
     assert "test@gmail.com" in html
@@ -329,7 +329,7 @@ async def test_email_account_logs_page_renders(asgi_client):
     resp = await asgi_client.get("/email-accounts/1/logs")
     assert resp.status_code == 200
     html = resp.text
-    assert "Ingestion Logs" in html
+    assert "接收日志" in html
     assert "Test Gmail" in html
     assert "Q3 Financial Report" in html
     assert "finance@company.com" in html

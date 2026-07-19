@@ -296,7 +296,7 @@ class TestAuthEnabled:
         )
         assert resp.status_code == 200
         assert "/logout" in resp.text
-        assert "Logout" in resp.text
+        assert "退出" in resp.text
 
 
 # ── Login flow ───────────────────────────────────────────────────
@@ -342,7 +342,7 @@ class TestLoginFlow:
         # Dark mode is via external CSS + theme.js (not inline)
         assert "/static/css/styles.css" in resp.text
         assert "/static/js/theme.js" in resp.text
-        assert "dark" in resp.text  # theme.js contains dark mode logic
+        assert "深色" in resp.text  # theme toggle title contains 深色
 
     @pytest.mark.asyncio
     async def test_session_cookie_grants_access(self, asgi_client_enabled):
@@ -549,7 +549,7 @@ class TestLoginPageRendering:
         # Dark mode is via external CSS + theme.js (not inline)
         assert "/static/css/styles.css" in html
         assert "/static/js/theme.js" in html
-        assert "dark" in html  # theme.js contains dark mode logic
+        assert "深色" in html  # theme toggle title contains 深色
 
     def test_render_error_message(self):
         from src.web.rendering import _render_login_page

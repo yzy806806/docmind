@@ -298,7 +298,7 @@ class TestCollectionFiltering:
         resp = await asgi_client.get("/documents?collection_id=99999")
         assert resp.status_code == 200
         # No documents should match a nonexistent collection
-        assert "No documents found" in resp.text or "0 documents" in resp.text.lower()
+        assert "未找到文档" in resp.text
 
 
 # ── Combined filter tests ────────────────────────────────────────
@@ -313,7 +313,7 @@ class TestCombinedFilters:
         resp = await asgi_client.get("/documents?collection_id=2&tag=nosuchtag")
         assert resp.status_code == 200
         # No documents should match both Python collection AND nonexistent tag
-        assert "No documents found" in resp.text or "0 documents" in resp.text.lower()
+        assert "未找到文档" in resp.text
 
     @pytest.mark.asyncio
     async def test_collection_id_and_file_type_combined(self, asgi_client):
@@ -332,7 +332,7 @@ class TestCombinedFilters:
         resp = await asgi_client.get("/documents?collection_id=2&file_type=.pdf")
         assert resp.status_code == 200
         # No PDFs in Python collection
-        assert "No documents found" in resp.text or "0 documents" in resp.text.lower()
+        assert "未找到文档" in resp.text
 
     @pytest.mark.asyncio
     async def test_all_filter_params_preserved_in_html(self, asgi_client):

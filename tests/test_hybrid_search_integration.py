@@ -813,8 +813,8 @@ class TestVectorWeightUIControl:
 
         resp = await client.get("/search?q=")
         assert resp.status_code == 200
-        assert "keyword only" in resp.text
-        assert "semantic only" in resp.text
+        assert "仅关键词" in resp.text
+        assert "仅语义" in resp.text
 
     @pytest.mark.asyncio
     async def test_slider_js_loaded_on_page(

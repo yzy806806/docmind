@@ -700,7 +700,7 @@ class TestDocumentViewerRender:
         doc = {"id": 42, "title": "Test", "ext": ".txt", "body": "hello", "size": 5}
         html = render_document_viewer(doc)
         assert 'href="/documents/42"' in html
-        assert "Back to document" in html
+        assert "返回文档详情" in html
 
     def test_viewer_has_pagination_for_long_doc(self):
         from src.web.document_viewer import render_document_viewer
@@ -943,7 +943,7 @@ class TestDocumentDetailImprovements:
 
         doc = {"id": 42, "title": "Test", "status": "indexed", "body": "content"}
         html = _render_document_detail(doc)
-        assert "Read Full Document" in html
+        assert "阅读全文" in html
         assert 'href="/documents/42/view"' in html
 
     def test_detail_excerpt_not_truncated_at_2000(self):
@@ -975,7 +975,7 @@ class TestDocumentDetailImprovements:
 
         doc = {"id": 1, "title": "T", "status": "indexed", "body": "hello world"}
         html = _render_document_detail(doc)
-        assert "Words:" in html or "words" in html
+        assert "字数" in html
 
     def test_detail_keeps_delete_button(self):
         from src.web.server import _render_document_detail
@@ -983,7 +983,7 @@ class TestDocumentDetailImprovements:
         doc = {"id": 42, "title": "T", "status": "indexed", "body": "x"}
         html = _render_document_detail(doc)
         assert "btn btn-danger" in html
-        assert "Delete" in html
+        assert "删除" in html
 
     def test_detail_keeps_metadata(self):
         from src.web.server import _render_document_detail
@@ -1024,14 +1024,14 @@ class TestDocumentsListViewButton:
         docs = [{"id": 5, "title": "Doc 5", "status": "indexed"}]
         html = _render_documents_list(docs, "", 1, 20, 1, 1)
         assert 'href="/documents/5/view"' in html
-        assert "View" in html
+        assert "查看" in html
 
     def test_list_has_view_column_header(self):
         from src.web.server import _render_documents_list
 
         docs = [{"id": 1, "title": "Doc", "status": "indexed"}]
         html = _render_documents_list(docs, "", 1, 20, 1, 1)
-        assert "<th>View</th>" in html
+        assert "<th>操作</th>" in html
 
     @pytest.mark.asyncio
     async def test_list_route_has_view_links(self, asgi_client):
@@ -1039,4 +1039,4 @@ class TestDocumentsListViewButton:
         resp = await asgi_client.get("/documents")
         assert resp.status_code == 200
         assert "/view" in resp.text
-        assert "View" in resp.text
+        assert "查看" in resp.text

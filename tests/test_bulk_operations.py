@@ -210,7 +210,7 @@ class TestBulkTagFormHandler:
             data={"doc_ids": ["1", "2", "3"], "tag": "formtag"},
         )
         assert resp.status_code == 200
-        assert "Bulk Tag" in resp.text or "Tagged" in resp.text
+        assert "批量标记" in resp.text or "已标记" in resp.text
         assert "formtag" in resp.text
 
     @pytest.mark.asyncio
@@ -381,7 +381,7 @@ class TestBulkAssignFormHandler:
             data={"doc_ids": ["1", "2"], "collection_id": "1"},
         )
         assert resp.status_code == 200
-        assert "Bulk Move" in resp.text or "Assigned" in resp.text or "Moved" in resp.text
+        assert "批量移动" in resp.text or "已移动" in resp.text
         assert "Collection A" in resp.text
 
     @pytest.mark.asyncio
@@ -680,7 +680,7 @@ class TestBulkTagFormAdvanced:
             data={"doc_ids": ["abc", "def"], "tag": "testtag"},
         )
         assert resp.status_code == 200
-        assert "invalid" in resp.text.lower() or "Invalid IDs" in resp.text
+        assert "无效" in resp.text or "invalid" in resp.text.lower()
 
     @pytest.mark.asyncio
     async def test_bulk_tag_form_mixed_valid_invalid_ids(self, asgi_client):
@@ -706,7 +706,7 @@ class TestBulkTagFormAdvanced:
             data={"doc_ids": ["x", "y", "z"], "tag": "never"},
         )
         assert resp.status_code == 200
-        assert "invalid" in resp.text.lower() or "Invalid IDs" in resp.text
+        assert "无效" in resp.text or "invalid" in resp.text.lower()
         assert "never" in resp.text
 
     @pytest.mark.asyncio
@@ -830,7 +830,7 @@ class TestBulkMoveFormAdvanced:
             data={"doc_ids": ["xyz", "abc"], "collection_id": "1"},
         )
         assert resp.status_code == 200
-        assert "invalid" in resp.text.lower() or "Invalid IDs" in resp.text
+        assert "无效" in resp.text or "invalid" in resp.text.lower()
 
     @pytest.mark.asyncio
     async def test_bulk_move_form_mixed_valid_invalid(self, asgi_client):

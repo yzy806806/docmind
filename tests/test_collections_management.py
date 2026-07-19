@@ -141,7 +141,7 @@ class TestNewCollectionForm:
         """The form should have a submit button."""
         resp = await asgi_client.get("/collections/new")
         assert resp.status_code == 200
-        assert "Create Collection" in resp.text
+        assert "创建合集" in resp.text
         assert "<button" in resp.text
 
     @pytest.mark.asyncio
@@ -149,7 +149,7 @@ class TestNewCollectionForm:
         """The parent dropdown should have a 'None (top-level)' option."""
         resp = await asgi_client.get("/collections/new")
         assert resp.status_code == 200
-        assert "None" in resp.text
+        assert "无（顶层）" in resp.text
         assert 'value=""' in resp.text
 
     @pytest.mark.asyncio
@@ -158,7 +158,7 @@ class TestNewCollectionForm:
         resp = await asgi_client.get("/collections/new")
         assert resp.status_code == 200
         assert "DocMind" in resp.text
-        assert "Dashboard" in resp.text
+        assert "仪表盘" in resp.text
 
     @pytest.mark.asyncio
     async def test_new_form_back_link_to_documents(self, asgi_client):
@@ -215,14 +215,14 @@ class TestEditCollectionForm:
         """The edit form should have an 'Update Collection' button."""
         resp = await asgi_client.get("/collections/1/edit")
         assert resp.status_code == 200
-        assert "Update Collection" in resp.text
+        assert "更新合集" in resp.text
 
     @pytest.mark.asyncio
     async def test_edit_form_has_delete_button(self, asgi_client):
         """The edit form should have a delete button (formaction to delete)."""
         resp = await asgi_client.get("/collections/1/edit")
         assert resp.status_code == 200
-        assert "Delete Collection" in resp.text
+        assert "删除合集" in resp.text
         assert 'formaction="/collections/1/delete"' in resp.text
 
     @pytest.mark.asyncio

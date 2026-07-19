@@ -525,7 +525,7 @@ class TestChatPageSidebar:
 
         html = _render_chat_page()
         assert "new-chat-btn" in html
-        assert "New" in html
+        assert "新建" in html
 
     def test_chat_page_has_session_list_js(self):
         """The chat page should load chat.js which contains loadSessionList."""

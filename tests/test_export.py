@@ -514,7 +514,7 @@ class TestRegenerateSummary:
         resp = await asgi_client.get(f"/documents/{doc_id}")
         assert resp.status_code == 200
         assert "regenerate-summary" in resp.text
-        assert "Regenerate Summary" in resp.text
+        assert "重新生成摘要" in resp.text
 
 
 # ── Batch summarize-all tests ────────────────────────────────────

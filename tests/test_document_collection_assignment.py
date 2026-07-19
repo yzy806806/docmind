@@ -101,7 +101,7 @@ class TestCollectionDropdownRendering:
         """Document detail should have an Assign submit button."""
         resp = await asgi_client.get("/documents/1")
         assert resp.status_code == 200
-        assert "Assign" in resp.text
+        assert "分配" in resp.text
         assert 'type="submit"' in resp.text
 
     @pytest.mark.asyncio
@@ -110,7 +110,7 @@ class TestCollectionDropdownRendering:
         resp = await asgi_client.get("/documents/2")
         assert resp.status_code == 200
         assert 'value=""' in resp.text
-        assert "Unassigned" in resp.text
+        assert "未分配" in resp.text
 
     @pytest.mark.asyncio
     async def test_detail_page_lists_all_collections(self, asgi_client):
@@ -185,7 +185,7 @@ class TestCollectionBreadcrumb:
         resp = await asgi_client.get("/documents/2")
         assert resp.status_code == 200
         # The breadcrumb area should show "Unassigned" as emphasized text
-        assert "Unassigned" in resp.text
+        assert "未分配" in resp.text
 
 
 # ── Assignment form POST tests ───────────────────────────────────

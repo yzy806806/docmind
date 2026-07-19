@@ -237,7 +237,7 @@ class TestSearchResultsLazyLoad:
         resp = await asgi_client.get("/search?q=apple")
         assert resp.status_code == 200
         # Should contain "result(s)" text
-        assert "result(s)" in resp.text
+        assert "条结果" in resp.text
 
 
 # ── 3. Document detail excerpt lazy loading ──────────────────────
@@ -372,7 +372,9 @@ class TestBackwardCompatibility:
         ]
         html = _render_search_results("test", results)
         assert "Test" in html
-        assert "1 result(s)" in html
+        # Template renders: 找到 <strong>{{ total }}</strong> 条结果
+        # The number is wrapped in <strong>, so match the rendered form.
+        assert "<strong>1</strong> 条结果" in html
 
     def test_render_search_results_with_pagination_params(self):
         """_render_search_results should accept offset/limit/total."""
@@ -384,7 +386,9 @@ class TestBackwardCompatibility:
         html = _render_search_results(
             "test", results, offset=0, limit=20, total=50
         )
-        assert "50 result(s)" in html
+        # Template renders: 找到 <strong>{{ total }}</strong> 条结果
+        # The number is wrapped in <strong>, so match the rendered form.
+        assert "<strong>50</strong> 条结果" in html
         assert "search-load-more-sentinel" in html
 
     def test_render_search_result_row_returns_div(self):

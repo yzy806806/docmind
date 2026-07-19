@@ -150,7 +150,7 @@ class TestCollectionDetailBasic:
         resp = await asgi_client.get("/collections/1")
         assert resp.status_code == 200
         assert "DocMind" in resp.text
-        assert "Dashboard" in resp.text
+        assert "仪表盘" in resp.text
 
 
 # ── GET /collections/{id} — content verification ─────────────────
@@ -225,7 +225,7 @@ class TestCollectionDetailChildren:
         """The page should have a Sub-Collections section."""
         resp = await asgi_client.get("/collections/1")
         assert resp.status_code == 200
-        assert "Sub-Collections" in resp.text
+        assert "子合集" in resp.text
 
     @pytest.mark.asyncio
     async def test_shows_child_collection_names(self, asgi_client):
@@ -279,7 +279,7 @@ class TestCollectionDetailDocuments:
         resp = await asgi_client.get("/collections/1")
         assert resp.status_code == 200
         # Tech has 1 document directly assigned
-        assert "Documents (1)" in resp.text
+        assert "文档（1）" in resp.text
 
     @pytest.mark.asyncio
     async def test_shows_document_in_child_collection(self, asgi_client):

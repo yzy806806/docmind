@@ -367,8 +367,8 @@ class TestFacetUIStructure:
 
         assert '<select name="source"' in html
         assert '<select name="file_type"' in html
-        assert "All sources" in html
-        assert "All types" in html
+        assert "全部来源" in html
+        assert "全部类型" in html
 
         # Each facet value should appear as an option
         assert "api (15)" in html
@@ -552,7 +552,7 @@ class TestHTMXPartialWithFacets:
 
         html = resp.text
         # Should have pagination info
-        assert "Showing" in html
+        assert "显示第" in html
         assert "page" in html.lower() or "document" in html.lower()
 
     @pytest.mark.asyncio
@@ -605,8 +605,8 @@ class TestFacetedSearchEdgeCases:
         )
         assert '<select name="source"' in html
         assert '<select name="file_type"' in html
-        assert "All sources" in html
-        assert "All types" in html
+        assert "全部来源" in html
+        assert "全部类型" in html
 
     def test_facets_with_special_extensions(self) -> None:
         """Facets with unusual extensions render correctly."""

@@ -218,7 +218,7 @@ class TestDocumentsPageWithFilters:
 
         html = resp.text
         # Should show document count
-        assert "Showing" in html
+        assert "显示第" in html
 
     @pytest.mark.asyncio
     async def test_page_preserves_filters_in_pagination_links(self, asgi_client) -> None:
@@ -571,7 +571,7 @@ class TestFacetedSearchUI:
             ],
         )
         assert '<select name="file_type"' in html
-        assert "All types" in html
+        assert "全部类型" in html
         assert ".pdf" in html
         assert "(5)" in html
         assert ".txt" in html
@@ -590,7 +590,7 @@ class TestFacetedSearchUI:
             ],
         )
         assert '<select name="source"' in html
-        assert "All sources" in html
+        assert "全部来源" in html
         assert "api" in html
         assert "(7)" in html
         assert "local" in html
@@ -666,8 +666,8 @@ class TestFacetedSearchUI:
         )
         assert '<select name="file_type"' in html
         assert '<select name="source"' in html
-        assert "All types" in html
-        assert "All sources" in html
+        assert "全部类型" in html
+        assert "全部来源" in html
 
     def test_facets_pass_through_to_template(self) -> None:
         """_render_documents_list passes facet data to template context."""
@@ -893,8 +893,8 @@ class TestHTMXPartialFacets:
         html = resp.text
 
         assert 'id="doc-table-region"' in html
-        assert "Showing" in html
-        assert "document(s)" in html
+        assert "显示第" in html
+        assert "条" in html
         assert 'id="select-all"' in html
 
     @pytest.mark.asyncio
@@ -912,5 +912,5 @@ class TestHTMXPartialFacets:
         html = resp.text
 
         # Should show fewer docs (only api + pdf)
-        assert "document(s)" in html
+        assert "条" in html
 
